@@ -464,6 +464,26 @@ def build(now: datetime | None = None) -> dict:
                              "calls": tokens // rng.randint(2500, 4500)})
     member_usage.sort(key=lambda x: x["tokens"], reverse=True)
 
+    # ---- 运营指标（近 14 天，用于看板迷你趋势）----
+    daily_ops = []
+    for d in range(13, -1, -1):
+        day = (now - timedelta(days=d)).date()
+        weekend = day.weekday() >= 5
+        base = 26 + 12 * (13 - d) / 13
+        daily_ops.append({
+            "date": day.isoformat(),
+            "online": int(base * (0.35 if weekend else 1) + rng.randint(-2, 2)),
+            "denied": rng.randint(0, 2) if weekend else rng.randint(1, 6),
+        })
+
+    services = [
+        {"name": "身份认证", "component": "Casdoor · 钉钉", "status": "正常", "latency_ms": 12},
+        {"name": "MCP 中枢", "component": "自研 MCP Server", "status": "正常", "latency_ms": 28},
+        {"name": "模型网关", "component": "New API", "status": "正常", "latency_ms": 41},
+        {"name": "知识检索", "component": "RAGFlow", "status": "正常", "latency_ms": 186},
+        {"name": "任务队列", "component": "GPU 调度", "status": "繁忙", "latency_ms": 9},
+    ]
+
     # ---- GPU 节点 ----
     gpu_nodes = []
     for i, n in enumerate(GPU_NODES):
@@ -488,4 +508,6 @@ def build(now: datetime | None = None) -> dict:
         "usage_daily": usage_daily,
         "member_usage": member_usage,
         "gpu_nodes": gpu_nodes,
+        "daily_ops": daily_ops,
+        "services": services,
     }

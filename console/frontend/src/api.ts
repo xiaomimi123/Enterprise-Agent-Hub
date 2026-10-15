@@ -50,6 +50,8 @@ export interface Overview {
   mode: string
   stats: Stats
   trend: { date: string; tokens: number; cost: number }[]
+  daily_ops: { date: string; online: number; denied: number }[]
+  services: { name: string; component: string; status: string; latency_ms: number }[]
   cost_by_dept: { dept: string; cost: number }[]
   gpu_nodes: GpuNode[]
   pending: { trace_id: string; member: string; dept_name: string; tool: string; detail: string; time: string }[]

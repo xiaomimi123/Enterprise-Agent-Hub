@@ -1,91 +1,146 @@
 import {
   ApartmentOutlined,
+  AppstoreOutlined,
   AuditOutlined,
   BookOutlined,
-  DashboardOutlined,
   FundOutlined,
-  RobotOutlined,
+  RightOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
-import { Layout, Menu, Tag, Tooltip, theme } from 'antd'
+import { Tooltip } from 'antd'
+import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { api } from '../api'
+import { useRequest } from '../lib'
+import { Avatar } from '../ui'
 
-const { Sider, Header, Content } = Layout
-
-const MENU = [
-  { key: '/', icon: <DashboardOutlined />, label: '总览' },
+const NAV = [
+  { group: '工作台', items: [{ path: '/', icon: <AppstoreOutlined />, label: '总览' }] },
   {
-    key: 'org', label: '组织与权限', type: 'group' as const,
-    children: [
-      { key: '/members', icon: <ApartmentOutlined />, label: '成员与组织' },
-      { key: '/role-packs', icon: <SafetyCertificateOutlined />, label: '岗位包' },
+    group: '组织与权限', items: [
+      { path: '/members', icon: <ApartmentOutlined />, label: '成员与组织' },
+      { path: '/role-packs', icon: <SafetyCertificateOutlined />, label: '岗位包' },
     ],
   },
   {
-    key: 'cap', label: '能力', type: 'group' as const,
-    children: [
-      { key: '/skills', icon: <ThunderboltOutlined />, label: '技能库' },
-      { key: '/knowledge', icon: <BookOutlined />, label: '知识库' },
+    group: '能力', items: [
+      { path: '/skills', icon: <ThunderboltOutlined />, label: '技能库' },
+      { path: '/knowledge', icon: <BookOutlined />, label: '知识库' },
     ],
   },
   {
-    key: 'gov', label: '监管', type: 'group' as const,
-    children: [
-      { key: '/audit', icon: <AuditOutlined />, label: '审计日志' },
-      { key: '/usage', icon: <FundOutlined />, label: '用量与成本' },
+    group: '监管', items: [
+      { path: '/audit', icon: <AuditOutlined />, label: '审计日志', badge: true },
+      { path: '/usage', icon: <FundOutlined />, label: '用量与成本' },
     ],
   },
 ]
 
-const TITLES: Record<string, string> = {
-  '/': '总览',
-  '/members': '成员与组织',
-  '/role-packs': '岗位包',
-  '/skills': '技能库',
-  '/knowledge': '知识库',
-  '/audit': '审计日志',
-  '/usage': '用量与成本',
+const TITLES: Record<string, [string, string]> = {
+  '/': ['工作台', '总览'],
+  '/members': ['组织与权限', '成员与组织'],
+  '/role-packs': ['组织与权限', '岗位包'],
+  '/skills': ['能力', '技能库'],
+  '/knowledge': ['能力', '知识库'],
+  '/audit': ['监管', '审计日志'],
+  '/usage': ['监管', '用量与成本'],
 }
 
 export default function ConsoleLayout() {
   const nav = useNavigate()
   const { pathname } = useLocation()
-  const { token } = theme.useToken()
   const selected = '/' + (pathname.split('/')[1] ?? '')
+  const [scrolled, setScrolled] = useState(false)
+  const ov = useRequest(api.overview)
+
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 4)
+    window.addEventListener('scroll', on, { passive: true })
+    return () => window.removeEventListener('scroll', on)
+  }, [])
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [selected])
+
+  const services = ov.data?.services ?? []
+  const healthy = services.filter((s) => s.status === '正常').length
+  const [group, title] = TITLES[selected] ?? ['', '']
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={220} theme="dark" breakpoint="lg" collapsedWidth={64} style={{ position: 'sticky', top: 0, height: '100vh' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 20px 16px', color: '#fff' }}>
-          <RobotOutlined style={{ fontSize: 22, color: '#748ffc' }} />
-          <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>智能体中枢</div>
-            <div style={{ fontSize: 12, opacity: 0.55 }}>管 agent，不管人</div>
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2.4" fill="#fff" />
+              <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" opacity=".85" />
+            </svg>
+          </div>
+          <div>
+            <div className="brand-name">智能体中枢</div>
+            <div className="brand-sub">{ov.data?.company ?? '…'}</div>
           </div>
         </div>
-        <Menu theme="dark" mode="inline" selectedKeys={[selected]} items={MENU} onClick={(e) => nav(e.key)} />
-      </Sider>
-      <Layout>
-        <Header
-          style={{
-            background: token.colorBgContainer, padding: '0 24px', display: 'flex', alignItems: 'center',
-            justifyContent: 'space-between', borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            position: 'sticky', top: 0, zIndex: 10,
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{TITLES[selected] ?? ''}</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 12, color: token.colorTextSecondary }}>
-            <Tooltip title="当前展示的是演示数据，接入 Casdoor / New API / RAGFlow 后切换为真实数据">
-              <Tag color="orange">演示数据</Tag>
+
+        {NAV.map((g) => (
+          <div className="nav-group" key={g.group}>
+            <div className="nav-label">{g.group}</div>
+            {g.items.map((it) => (
+              <div key={it.path} className={`nav-item ${selected === it.path ? 'active' : ''}`} onClick={() => nav(it.path)}>
+                {it.icon}
+                <span>{it.label}</span>
+                {'badge' in it && it.badge && !!ov.data?.stats.denied_today && (
+                  <Tooltip title="今日越权拦截" placement="right">
+                    <span className="nav-badge num">{ov.data.stats.denied_today}</span>
+                  </Tooltip>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+
+        <div className="side-foot">
+          <div className="health">
+            <div className="health-row" style={{ justifyContent: 'space-between' }}>
+              <span className="health-row">
+                <span className={`dot ${healthy === services.length ? 'green' : 'amber'} pulse`} />
+                <b style={{ fontWeight: 600 }}>中枢运行中</b>
+              </span>
+              <span className="muted num">{healthy}/{services.length}</span>
+            </div>
+            <div className="muted" style={{ marginTop: 6, lineHeight: 1.5 }}>
+              私有化部署 · v0.1.0
+            </div>
+          </div>
+          <div className="user-row">
+            <Avatar name="管理员" size={28} />
+            <div style={{ lineHeight: 1.3, minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>管理员</div>
+              <div className="muted" style={{ fontSize: 11.5 }}>钉钉 · 总经办</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="main">
+        <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
+          <div className="crumb">
+            <span>{group}</span>
+            <RightOutlined style={{ fontSize: 9 }} />
+            <b>{title}</b>
+          </div>
+          <div className="top-right">
+            <span className="chip"><span className="dot green" />钉钉组织已同步</span>
+            <Tooltip title="当前为演示数据。接入 Casdoor / New API / RAGFlow 后自动切换为真实数据">
+              <span className="chip warn">演示数据</span>
             </Tooltip>
-            星河品牌（演示） · 管理员
-          </span>
-        </Header>
-        <Content style={{ padding: 24 }}>
+          </div>
+        </header>
+        <main className="content">
           <Outlet />
-        </Content>
-      </Layout>
-    </Layout>
+        </main>
+      </div>
+    </div>
   )
 }

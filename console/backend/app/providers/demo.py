@@ -80,6 +80,10 @@ class DemoProvider:
                 "knowledge_docs": sum(kb["doc_count"] for kb in d["knowledge_bases"]),
             },
             "trend": [{"date": k, "tokens": v["tokens"], "cost": round(v["cost"], 2)} for k, v in sorted(trend.items())],
+            "daily_ops": d["daily_ops"][:-1] + [{**d["daily_ops"][-1],
+                                                 "online": sum(1 for m in members if m["agent_status"] == "在线"),
+                                                 "denied": sum(1 for t in denied if t["started_at"][:10] == today)}],
+            "services": d["services"],
             "cost_by_dept": sorted([{"dept": k, "cost": round(v, 2)} for k, v in by_dept.items()],
                                    key=lambda x: x["cost"], reverse=True),
             "gpu_nodes": d["gpu_nodes"],
@@ -87,7 +91,7 @@ class DemoProvider:
             "recent_denied": [{k: t[k] for k in ("id", "member", "dept_name", "summary", "started_at", "channel")}
                               for t in denied[:5]],
             "recent": [{k: t[k] for k in ("id", "member", "dept_name", "summary", "started_at", "outcome", "channel")}
-                       for t in d["traces"][:8]],
+                       for t in d["traces"][:12]],
         }
 
     # ---- 组织与成员 ----

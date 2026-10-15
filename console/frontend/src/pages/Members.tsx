@@ -1,15 +1,15 @@
-import { CheckCircleFilled, SyncOutlined } from '@ant-design/icons'
-import { App, Badge, Card, Col, Input, Row, Select, Space, Table, Tag, Typography } from 'antd'
+import { SearchOutlined, SyncOutlined } from '@ant-design/icons'
+import { App, Input, Select, Table } from 'antd'
 import { useState } from 'react'
 import { api, type Member } from '../api'
-import { fromNow, StatusTag, useRequest } from '../components/common'
-
-const { Text } = Typography
+import { DEPT_META, fromNow, useRequest } from '../lib'
+import { Avatar, PageHeader, Panel, Pill, Seg } from '../ui'
 
 export default function Members() {
   const { message } = App.useApp()
   const [dept, setDept] = useState<string>()
   const [q, setQ] = useState<string>()
+  const [status, setStatus] = useState('全部')
   const depts = useRequest(api.departments)
   const packs = useRequest(api.rolePacks)
   const members = useRequest(() => api.members({ dept, q }), [dept, q])
@@ -17,93 +17,98 @@ export default function Members() {
   const assign = async (m: Member, rolePackId: string) => {
     const updated = await api.assignRolePack(m.id, rolePackId)
     members.setData(members.data?.map((x) => (x.id === m.id ? updated : x)))
-    message.success(`已把「${m.name}」的岗位包改为「${updated.role_pack_name}」，下次调用立即生效`)
+    message.success(`${m.name} 已切换为「${updated.role_pack_name}」，下次调用立即生效`)
   }
 
   const total = depts.data?.reduce((n, d) => n + d.member_count, 0) ?? 0
+  const online = depts.data?.reduce((n, d) => n + d.online, 0) ?? 0
+  const rows = members.data?.filter((m) => status === '全部' || m.agent_status === status)
 
   return (
-    <Row gutter={16}>
-      <Col xs={24} lg={6}>
-        <Card
-          title="组织架构"
-          extra={<Text type="secondary" style={{ fontSize: 12 }}><SyncOutlined /> 钉钉同步</Text>}
-          styles={{ body: { padding: 8 } }}
-          loading={depts.loading}
-        >
-          {[{ id: undefined, name: '全部成员', member_count: total, online: undefined, role_pack_name: undefined }, ...(depts.data ?? [])].map((d) => (
-            <div
-              key={d.id ?? 'all'}
-              onClick={() => setDept(d.id)}
-              style={{
-                padding: '10px 12px', borderRadius: 6, cursor: 'pointer',
-                background: dept === d.id ? '#edf2ff' : undefined,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Text strong={dept === d.id}>{d.name}</Text>
-                <Text type="secondary">{d.member_count} 人</Text>
-              </div>
-              {d.role_pack_name && (
-                <Text type="secondary" style={{ fontSize: 12 }}>默认岗位包：{d.role_pack_name} · 在线 {d.online}</Text>
-              )}
+    <>
+      <PageHeader
+        title="成员与组织"
+        sub="人员和部门来自钉钉通讯录：入职自动开通，离职自动吊销令牌，不需要单独维护人员表。"
+        extra={<span className="chip"><SyncOutlined />同步于 3 分钟前</span>}
+      />
+      <div className="split">
+        <Panel title="组织架构" tight style={{ position: 'sticky', top: 72 }}>
+          <div style={{ padding: 6 }}>
+            {[{ id: undefined, name: '全部成员', member_count: total, online, role_pack_name: '' }, ...(depts.data ?? [])].map((d) => {
+              const on = dept === d.id
+              const meta = d.id ? DEPT_META[d.id] : undefined
+              return (
+                <div key={d.id ?? 'all'} onClick={() => setDept(d.id)} className="nav-item"
+                  style={{ height: 'auto', padding: '8px 10px', background: on ? 'var(--accent-soft)' : undefined, color: on ? 'var(--accent-ink)' : undefined }}>
+                  <span className="dot" style={{ background: meta?.color ?? 'var(--ink)' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: on ? 600 : 500 }}>{d.name}</div>
+                    {d.role_pack_name && <div className="muted" style={{ fontSize: 11.5, fontWeight: 400 }}>{d.role_pack_name}</div>}
+                  </div>
+                  <span className="num muted" style={{ fontSize: 12 }}>{d.online}/{d.member_count}</span>
+                </div>
+              )
+            })}
+          </div>
+        </Panel>
+
+        <Panel
+          title={depts.data?.find((d) => d.id === dept)?.name ?? '全部成员'}
+          sub={`${rows?.length ?? 0} 人`}
+          tight
+          extra={
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Seg value={status} onChange={setStatus} options={['全部', '在线', '离线', '未安装'].map((v) => ({ value: v, label: v }))} />
+              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索姓名或岗位"
+                onChange={(e) => setQ(e.target.value || undefined)} style={{ width: 200 }} />
             </div>
-          ))}
-        </Card>
-        <Card size="small" style={{ marginTop: 16 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            人员和部门来自钉钉通讯录，入职自动开通，离职自动吊销令牌，不需要单独维护人员表。
-          </Text>
-        </Card>
-      </Col>
-      <Col xs={24} lg={18}>
-        <Card
-          title={`成员（${members.data?.length ?? 0}）`}
-          extra={<Input.Search allowClear placeholder="搜索姓名或岗位" onSearch={(v) => setQ(v || undefined)} style={{ width: 220 }} />}
+          }
         >
           <Table<Member>
             rowKey="id"
-            size="middle"
             loading={members.loading}
-            dataSource={members.data}
-            pagination={{ pageSize: 12, hideOnSinglePage: true }}
+            dataSource={rows}
+            scroll={{ x: 820 }}
+            pagination={{ pageSize: 12, hideOnSinglePage: true, size: 'small' }}
             columns={[
               {
-                title: '姓名', dataIndex: 'name', render: (v, m) => (
-                  <Space>
-                    <Text strong>{v}</Text>
-                    {m.dingtalk_bound && <CheckCircleFilled style={{ color: '#3b5bdb', fontSize: 12 }} title="已绑定钉钉" />}
-                  </Space>
+                title: '成员', dataIndex: 'name', render: (v, m) => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Avatar name={v} size={30} />
+                    <div style={{ lineHeight: 1.35 }}>
+                      <div style={{ fontWeight: 600 }}>{v}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>{m.title}</div>
+                    </div>
+                  </div>
                 ),
               },
-              { title: '部门', dataIndex: 'dept_name' },
-              { title: '岗位', dataIndex: 'title' },
               {
-                title: '岗位包', dataIndex: 'role_pack', width: 180, render: (v, m) => (
-                  <Select
-                    size="small" value={v} style={{ width: 160 }}
+                title: '部门', dataIndex: 'dept_name', render: (v, m) => (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span className="dot" style={{ background: DEPT_META[m.dept]?.color }} />{v}
+                  </span>
+                ),
+              },
+              {
+                title: '岗位包', dataIndex: 'role_pack', width: 190, render: (v, m) => (
+                  <Select size="small" value={v} variant="filled" style={{ width: 168 }} popupMatchSelectWidth={false}
                     options={packs.data?.map((p) => ({ value: p.id, label: p.name }))}
-                    onChange={(val) => assign(m, val)}
-                  />
+                    onChange={(val) => assign(m, val)} />
                 ),
               },
               {
-                title: 'agent', dataIndex: 'agent_status', render: (v, m) => (
-                  <Space size={4}>
-                    <Badge status={v === '在线' ? 'success' : v === '离线' ? 'default' : 'warning'} />
-                    <span>{v}</span>
-                    {v !== '未安装' && <Tag style={{ marginLeft: 4 }}>{m.os} · v{m.agent_version}</Tag>}
-                  </Space>
+                title: 'Agent', dataIndex: 'agent_status', render: (v, m) => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Pill>{v}</Pill>
+                    {v !== '未安装' && <span className="muted mono" style={{ fontSize: 11 }}>{m.os} · v{m.agent_version}</span>}
+                  </div>
                 ),
-                filters: ['在线', '离线', '未安装'].map((x) => ({ text: x, value: x })),
-                onFilter: (val, m) => m.agent_status === val,
               },
-              { title: '最近活跃', dataIndex: 'last_active', render: (v) => <Text type="secondary">{fromNow(v)}</Text> },
-              { title: '', key: 'st', width: 1, render: (_, m) => m.agent_status === '未安装' ? <StatusTag value="未安装" /> : null },
+              { title: '最近活跃', dataIndex: 'last_active', align: 'right', render: (v) => <span className="muted">{fromNow(v)}</span> },
             ]}
           />
-        </Card>
-      </Col>
-    </Row>
+        </Panel>
+      </div>
+    </>
   )
 }

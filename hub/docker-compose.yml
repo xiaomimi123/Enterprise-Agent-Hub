@@ -1,9 +1,41 @@
-# 中枢核心服务：Casdoor（身份）+ New API（模型网关）+ 共用的 PostgreSQL / Redis
+# 中枢全部服务：
+#   开源组件：Casdoor（身份）、New API（模型网关）、PostgreSQL、Redis
+#   自研服务：console-web（控制台前端）、console-api（控制台后端）、hub-mcp（中枢 MCP Server）
 # RAGFlow 依赖较多（ES、MySQL、MinIO 等），用官方 compose 单独部署，见 ragflow/setup.sh
 #
-# 用法：cp .env.example .env（或 make env）→ make up
+# 用法：make env → 编辑 .env → make up → make bootstrap（首次）
 
 name: hub
+
+# 控制台后端与 MCP Server 共用一个镜像和同一组配置
+x-hub-backend: &hub-backend
+  build: ../console/backend
+  image: hub-backend:${HUB_VERSION:-dev}
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    casdoor:
+      condition: service_started
+  volumes:
+    # 技能仓库与知识库（Obsidian vault）在宿主机上维护，容器只读挂载
+    - ../skills:/data/skills:ro
+    - ../vault:/data/vault:ro
+  environment:
+    HUB_CONSOLE_MODE: casdoor
+    TZ: ${TZ}
+    CASDOOR_ENDPOINT: http://casdoor:8000
+    CASDOOR_PUBLIC_URL: ${CASDOOR_ORIGIN}
+    CASDOOR_ORG: ${HUB_ORG}
+    CASDOOR_APP: hub-console
+    CASDOOR_CLIENT_ID: ${CASDOOR_CONSOLE_CLIENT_ID:-}
+    CASDOOR_CLIENT_SECRET: ${CASDOOR_CONSOLE_CLIENT_SECRET:-}
+    CONSOLE_PUBLIC_URL: http://${HUB_HOST}:${CONSOLE_PORT}
+    HUB_CONSOLE_CORS: http://${HUB_HOST}:${CONSOLE_PORT}
+    HUB_DATABASE_URL: postgresql://hub:${HUB_DB_PASSWORD}@postgres:5432/hub
+    HUB_MCP_PUBLIC_URL: http://${HUB_HOST}:${MCP_PORT}/mcp
+    HUB_AGENT_CLIENT_IDS: ${HUB_AGENT_CLIENT_ID:-}
+    HUB_EXTERNAL_CLIENT_IDS: ${HUB_EXTERNAL_CLIENT_ID:-}
 
 services:
   postgres:
@@ -25,7 +57,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    # 只映射到本机回环地址：中枢自研服务（控制台、MCP Server）在宿主机上运行时用它连库
+    # 只映射到本机回环地址：开发时在宿主机上直接运行后端用；容器内服务走 postgres:5432
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-25432}:5432"
 
@@ -89,3 +121,33 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  console-api:
+    <<: *hub-backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--proxy-headers"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # 不对外暴露，由 console-web 转发 /api
+
+  hub-mcp:
+    <<: *hub-backend
+    command: ["uvicorn", "app.mcp_server:app", "--host", "0.0.0.0", "--port", "8200", "--proxy-headers"]
+    depends_on:
+      # 等控制台后端建好表再启动，避免两个服务同时建表
+      console-api:
+        condition: service_healthy
+    ports:
+      - "${MCP_PORT}:8200"
+
+  console-web:
+    build: ../console/frontend
+    image: hub-console-web:${HUB_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      console-api:
+        condition: service_healthy
+    ports:
+      - "${CONSOLE_PORT}:80"

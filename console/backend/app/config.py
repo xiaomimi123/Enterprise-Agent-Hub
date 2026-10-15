@@ -9,7 +9,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-ROOT = Path(__file__).resolve().parents[3]
+# 仓库根目录（开发时用来定位 skills/、vault/）；容器内路径较浅，由环境变量指定目录
+_parents = Path(__file__).resolve().parents
+ROOT = _parents[3] if len(_parents) > 3 else _parents[-1]
 
 
 @dataclass(frozen=True)
@@ -19,7 +21,10 @@ class Settings:
     cors: str = os.getenv("HUB_CONSOLE_CORS", "http://localhost:5173")
     public_url: str = os.getenv("CONSOLE_PUBLIC_URL", "http://localhost:5173")
 
+    # 服务端访问 Casdoor 的地址（容器内为 http://casdoor:8000）
     casdoor_endpoint: str = os.getenv("CASDOOR_ENDPOINT", "").rstrip("/")
+    # 浏览器访问 Casdoor 的地址（登录跳转、退出）；不填则与 CASDOOR_ENDPOINT 相同
+    casdoor_public_url: str = (os.getenv("CASDOOR_PUBLIC_URL") or os.getenv("CASDOOR_ENDPOINT", "")).rstrip("/")
     casdoor_org: str = os.getenv("CASDOOR_ORG", "")
     casdoor_app: str = os.getenv("CASDOOR_APP", "")
     casdoor_client_id: str = os.getenv("CASDOOR_CLIENT_ID", "")

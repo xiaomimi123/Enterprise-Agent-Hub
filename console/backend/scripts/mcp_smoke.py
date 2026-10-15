@@ -1,13 +1,14 @@
 """开发用：模拟不同员工的 agent 调用中枢 MCP Server，验证权限拦截和审计。
 
-运行（需先启动 Casdoor、MCP Server，并运行过 casdoor_dev_seed.py）：
-    cd console/backend && uv run python scripts/mcp_smoke.py
+运行（需先启动全部服务，并执行过 make bootstrap-demo 或 casdoor_bootstrap.py --demo）：
+    cd console/backend && uv run python scripts/mcp_smoke.py [MCP 地址，默认 http://localhost:8200/mcp]
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import uuid
 from urllib.parse import quote
 from pathlib import Path
@@ -19,15 +20,14 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
 ROOT = Path(__file__).resolve().parents[3]
-ENV = dotenv_values(ROOT / "console" / "backend" / ".env")
 HUB = dotenv_values(ROOT / "hub" / ".env")
-MCP_URL = ENV.get("HUB_MCP_PUBLIC_URL") or "http://localhost:8200/mcp"
+MCP_URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8200/mcp"
 
 
 def token(user: str, external: bool = False) -> str:
-    cid = ENV["HUB_EXTERNAL_CLIENT_IDS" if external else "HUB_AGENT_CLIENT_IDS"]
-    secret = ENV["HUB_EXTERNAL_CLIENT_SECRET" if external else "HUB_AGENT_CLIENT_SECRET"]
-    r = httpx.post(f"{ENV['CASDOOR_ENDPOINT']}/api/login/oauth/access_token", data={
+    kind = "EXTERNAL" if external else "AGENT"
+    cid, secret = HUB[f"HUB_{kind}_CLIENT_ID"], HUB[f"HUB_{kind}_CLIENT_SECRET"]
+    r = httpx.post(f"{HUB['CASDOOR_ORIGIN']}/api/login/oauth/access_token", data={
         "grant_type": "password", "client_id": cid, "client_secret": secret,
         "username": user, "password": HUB["XINGHE_USER_PASSWORD"], "scope": "openid profile",
     })

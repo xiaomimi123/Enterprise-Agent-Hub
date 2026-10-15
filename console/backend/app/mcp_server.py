@@ -58,7 +58,7 @@ mcp = MCPServer(
     instructions=INSTRUCTIONS,
     version="0.1.0",
     token_verifier=CasdoorTokenVerifier(),
-    auth=AuthSettings(issuer_url=settings.casdoor_endpoint or "http://localhost:8000",
+    auth=AuthSettings(issuer_url=settings.casdoor_public_url or "http://localhost:8000",
                       resource_server_url=settings.mcp_public_url,
                       # 受众（签发应用）已在 CasdoorTokenVerifier 中校验
                       validate_token_resource=False),

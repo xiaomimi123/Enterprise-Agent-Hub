@@ -35,20 +35,13 @@ docs/             方案、阶段计划、决策记录（docs/decisions/）
 
 ## 快速开始
 
-中台控制台（演示数据，本地即可运行），详见 [console/README.md](console/README.md)：
-
-```bash
-cd console/backend && uv sync && uv run uvicorn app.main:app --port 8100
-cd console/frontend && npm install && npm run dev   # 打开 http://localhost:5173
-```
-
-中枢（Casdoor + New API + RAGFlow），在中枢服务器上执行：
+全部服务都在 Docker 里运行。在中枢服务器上执行：
 
 ```bash
 cd hub
-make env          # 生成 .env（随机密码），再把 HUB_HOST、CASDOOR_ORIGIN 改成服务器 IP
-make up           # Casdoor :8000、New API :3000
-make ragflow-up   # RAGFlow 网页 :8080、API :9380
+make env              # 生成 .env（随机密码），再把 HUB_HOST、CASDOOR_ORIGIN 改成服务器 IP
+make up               # 构建并启动：控制台 :8088、MCP Server :8200、Casdoor :8000、New API :3000
+make bootstrap-demo   # 首次：初始化 Casdoor 并创建测试部门和成员（生产环境用 make bootstrap）
 ```
 
-详细说明和初始化步骤见 [hub/README.md](hub/README.md)。
+打开 `http://<服务器>:8088` 登录控制台。部署细节见 [hub/README.md](hub/README.md)，本地开发（不用 Docker、热更新）见 [console/README.md](console/README.md)。

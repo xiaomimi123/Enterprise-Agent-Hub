@@ -87,7 +87,7 @@ def login(response: Response):
         "client_id": settings.casdoor_client_id, "response_type": "code", "redirect_uri": settings.redirect_uri,
         "scope": "openid profile", "state": state,
     })
-    return {"url": f"{settings.casdoor_endpoint}/login/oauth/authorize?{query}"}
+    return {"url": f"{settings.casdoor_public_url}/login/oauth/authorize?{query}"}
 
 
 class CallbackBody(BaseModel):
@@ -125,6 +125,6 @@ def logout(request: Request, response: Response):
     url = None
     if settings.auth_enabled and token:
         # 同时退出 Casdoor 的登录会话并作废令牌，否则下次会被自动登录
-        url = f"{settings.casdoor_endpoint}/api/logout?" + urlencode(
+        url = f"{settings.casdoor_public_url}/api/logout?" + urlencode(
             {"id_token_hint": token, "post_logout_redirect_uri": settings.public_url})
     return {"ok": True, "casdoor_logout_url": url}

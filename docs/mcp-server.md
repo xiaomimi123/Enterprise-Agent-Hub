@@ -6,10 +6,11 @@
 
 代码：`console/backend/app/mcp_server.py`（和控制台后端在同一个 Python 项目里，共用数据库、权限和内容模块）。
 
+部署时作为 compose 里的 `hub-mcp` 服务运行（与控制台后端同一镜像），地址 `http://<中枢>:8200/mcp`（Streamable HTTP）。本地开发也可以直接运行：
+
 ```bash
 cd console/backend
-uv run uvicorn app.mcp_server:app --port 8200
-# 地址 http://<中枢>:8200/mcp（Streamable HTTP）
+uv run uvicorn app.mcp_server:app --reload --port 8200
 ```
 
 ## 工具
@@ -54,9 +55,8 @@ PostgreSQL 的 `hub` 库（`hub/docker-compose.yml` 里的同一个 PostgreSQL�
 ## 本地验证
 
 ```bash
-cd console/backend
-uv run python scripts/casdoor_dev_seed.py   # 创建 hub-agent / hub-external 应用和测试成员
-uv run python scripts/mcp_smoke.py          # 模拟运营、财务员工和外部智能体调用
+cd hub && make up && make bootstrap-demo                 # 启动全部服务，创建应用和测试成员
+cd ../console/backend && uv run python scripts/mcp_smoke.py   # 模拟运营、财务员工和外部智能体调用
 ```
 
 冒烟脚本覆盖：运营员工正常读技能和查知识、越权查财务被拒、提示词注入被拒、财务员工正常查报销制度、外部智能体只能读开放的知识库。跑完后，控制台审计日志里能看到这几条链路。
@@ -65,4 +65,4 @@ uv run python scripts/mcp_smoke.py          # 模拟运营、财务员工和外�
 
 - 开发环境的 agent 应用开启了 password 授权，方便脚本取令牌；生产环境应改为授权码或设备码流程，由员工端 agent 引导员工扫码登录
 - 还没有模型调用、生图、本机动作相关的工具，审计里的 Token 和花费暂时为空；接入 New API 和 GPU 任务队列后补上
-- MCP Server 暂未容器化，部署时与控制台后端一起打包
+- 已容器化：与控制台后端共用 `hub-backend` 镜像，见 `hub/docker-compose.yml`

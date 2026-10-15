@@ -36,15 +36,18 @@ npm run dev
 
 测试：`cd console/backend && uv run pytest`
 
+部署时控制台和 MCP Server 都在 Docker 里运行，见 [hub/README.md](../hub/README.md)。下面是**本地开发**的方式：后端和前端在宿主机上直接运行，改代码热更新。
+
 ### 用本地 Casdoor 运行（casdoor 模式）
 
 ```bash
-# 1. 启动 Casdoor 和 PostgreSQL（需要 hub/.env，见 hub/README.md；本机开发可把 CASDOOR_ORIGIN 设为 http://localhost:8000）
+# 1. 只启动 Casdoor 和 PostgreSQL（需要 hub/.env，见 hub/README.md；本机开发把 CASDOOR_ORIGIN 设为 http://localhost:8000）
 cd hub && docker compose up -d casdoor
 make db-hub   # 已有数据目录时补建中枢数据库；全新初始化会自动创建
 
-# 2. 写入测试组织、控制台 / agent / 外部智能体三个应用、9 个部门和 18 名成员，并生成 console/backend/.env
-cd console/backend && uv run python scripts/casdoor_dev_seed.py
+# 2. 写入测试组织、控制台 / agent / 外部智能体三个应用、9 个部门和 18 名成员；
+#    应用凭证写回 hub/.env，开发配置写入 console/backend/.env
+cd console/backend && uv run python scripts/casdoor_bootstrap.py --demo --console-env .env
 
 # 3. 重启后端，打开 http://localhost:5173，会跳转到 Casdoor 登录
 #    账号 admin，密码见 hub/.env 的 XINGHE_ADMIN_PASSWORD
@@ -54,7 +57,7 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 uv run python scripts/mcp_smoke.py
 ```
 
-种子脚本可重复运行，只用于开发环境；生产环境的部门和成员来自钉钉同步。
+初始化脚本可重复运行。`--demo` 只用于开发和演示；生产环境的部门和成员来自钉钉同步。
 
 ## 环境变量（后端）
 
@@ -67,7 +70,8 @@ uv run python scripts/mcp_smoke.py
 | `HUB_CONSOLE_MODE` | `demo` | `demo` 或 `casdoor` |
 | `HUB_CONSOLE_CORS` | `http://localhost:5173` | 允许跨域访问的前端地址，多个用逗号分隔 |
 | `CONSOLE_PUBLIC_URL` | `http://localhost:5173` | 浏览器访问控制台的地址，登录回调为 `<地址>/callback` |
-| `CASDOOR_ENDPOINT` | — | Casdoor 地址，如 `http://192.168.1.10:8000` |
+| `CASDOOR_ENDPOINT` | — | 服务端访问 Casdoor 的地址（容器内为 `http://casdoor:8000`） |
+| `CASDOOR_PUBLIC_URL` | 同 `CASDOOR_ENDPOINT` | 浏览器访问 Casdoor 的地址，用于登录跳转和退出 |
 | `CASDOOR_ORG` | — | 企业在 Casdoor 中的组织名 |
 | `CASDOOR_APP` | — | 控制台在 Casdoor 中的应用名 |
 | `CASDOOR_CLIENT_ID` / `CASDOOR_CLIENT_SECRET` | — | 该应用的 OAuth 凭证（同时用于读取和更新成员） |

@@ -64,6 +64,40 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS audit_events_trace ON audit_events (trace_id);
 CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC);
+
+-- GPU 能力节点（由 HUB_GPU_NODES 同步），状态由调度服务定时刷新
+CREATE TABLE IF NOT EXISTS gpu_nodes (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    gpu        TEXT NOT NULL DEFAULT '',
+    online     BOOLEAN NOT NULL DEFAULT false,
+    vram_total BIGINT NOT NULL DEFAULT 0,
+    vram_free  BIGINT NOT NULL DEFAULT 0,
+    last_seen  TIMESTAMPTZ
+);
+
+-- GPU 任务队列：queued → running → done / failed
+CREATE TABLE IF NOT EXISTS gpu_tasks (
+    id          TEXT PRIMARY KEY,
+    trace_id    TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    user_name   TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    dept        TEXT NOT NULL DEFAULT '',
+    channel     TEXT NOT NULL DEFAULT '',
+    workflow    TEXT NOT NULL,
+    params      JSONB NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'queued',
+    node_id     TEXT,
+    prompt_id   TEXT,
+    images      JSONB NOT NULL DEFAULT '[]',
+    error       TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at  TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS gpu_tasks_status ON gpu_tasks (status, created_at);
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -177,3 +211,86 @@ def traces_from_events(events: list[dict], dept_names: dict[str, str]) -> list[d
 def _iso(ts: datetime) -> str:
     return ts.astimezone().replace(microsecond=0).isoformat()
 
+
+
+# ---- GPU 节点与任务 ----
+
+def sync_gpu_nodes(nodes: list[dict]) -> None:
+    with connect() as conn:
+        ids = [n["id"] for n in nodes]
+        for n in nodes:
+            conn.execute(
+                "INSERT INTO gpu_nodes (id, name, url, gpu) VALUES (%(id)s, %(name)s, %(url)s, %(gpu)s) "
+                "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, url = EXCLUDED.url, gpu = EXCLUDED.gpu", n)
+        conn.execute("DELETE FROM gpu_nodes WHERE NOT (id = ANY(%s))", (ids,))
+
+
+def gpu_nodes() -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_nodes ORDER BY id").fetchall()
+
+
+def update_node_status(node_id: str, online: bool, vram_total: int = 0, vram_free: int = 0) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE gpu_nodes SET online = %s, vram_total = %s, vram_free = %s, "
+                     "last_seen = CASE WHEN %s THEN now() ELSE last_seen END WHERE id = %s",
+                     (online, vram_total, vram_free, online, node_id))
+
+
+def create_gpu_task(task: dict) -> None:
+    keys = ("id", "trace_id", "org", "user_name", "display_name", "dept", "channel", "workflow", "params")
+    row = {k: task.get(k, "") for k in keys} | {"params": Jsonb(task.get("params") or {})}
+    with connect() as conn:
+        conn.execute(f"INSERT INTO gpu_tasks ({', '.join(keys)}) VALUES ({', '.join(f'%({k})s' for k in keys)})", row)
+
+
+def gpu_task(task_id: str) -> dict | None:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_tasks WHERE id = %s", (task_id,)).fetchone()
+
+
+def queue_position(task_id: str) -> int:
+    """排在这个任务前面、还没开始的任务数。"""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT count(*) AS n FROM gpu_tasks WHERE status = 'queued' AND created_at < "
+            "(SELECT created_at FROM gpu_tasks WHERE id = %s)", (task_id,)).fetchone()["n"]
+
+
+def claim_task_for(node_id: str) -> dict | None:
+    """把最早的排队任务分给空闲节点（多个调度进程并发时用 SKIP LOCKED 保证不重复领取）。"""
+    with connect() as conn:
+        busy = conn.execute("SELECT 1 FROM gpu_tasks WHERE status = 'running' AND node_id = %s", (node_id,)).fetchone()
+        if busy:
+            return None
+        return conn.execute(
+            "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id = ("
+            "  SELECT id FROM gpu_tasks WHERE status = 'queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+            ") RETURNING *", (node_id,)).fetchone()
+
+
+def running_tasks() -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' ORDER BY started_at").fetchall()
+
+
+def update_gpu_task(task_id: str, **fields) -> None:
+    for k in ("images", "params"):
+        if k in fields:
+            fields[k] = Jsonb(fields[k])
+    sets = ", ".join(f"{k} = %({k})s" for k in fields)
+    if fields.get("status") in ("done", "failed"):
+        sets += ", finished_at = now()"
+    with connect() as conn:
+        conn.execute(f"UPDATE gpu_tasks SET {sets} WHERE id = %(id)s", {**fields, "id": task_id})
+
+
+def gpu_task_stats() -> dict[str, dict]:
+    """每个节点今天完成的任务数、正在跑的任务数，以及全局排队数。"""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT node_id, count(*) FILTER (WHERE status = 'done' AND finished_at::date = now()::date) AS done_today, "
+            "count(*) FILTER (WHERE status = 'running') AS running FROM gpu_tasks WHERE node_id IS NOT NULL GROUP BY node_id"
+        ).fetchall()
+        queued = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'queued'").fetchone()["n"]
+    return {r["node_id"]: dict(r) for r in rows} | {"_queued": {"n": queued}}

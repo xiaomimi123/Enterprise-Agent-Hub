@@ -54,6 +54,14 @@ class Settings:
     # 用量折算人民币的汇率（New API 的额度以美元计）
     usd_cny: float = float(os.getenv("HUB_USD_CNY", "7.2"))
 
+    # GPU 能力节点：「id|名称|ComfyUI 地址|显卡说明」，多个用英文逗号分隔
+    gpu_nodes: str = os.getenv("HUB_GPU_NODES", "")
+    workflows_dir: str = os.getenv("HUB_WORKFLOWS_DIR", str(ROOT / "gpu-node" / "workflows"))
+    comfy_checkpoint: str = os.getenv("HUB_COMFY_CHECKPOINT", "sd_xl_base_1.0.safetensors")
+    # 生成结果存放目录，以及下载链接的签名密钥（链接带签名和有效期，无需登录即可打开）
+    outputs_dir: str = os.getenv("HUB_OUTPUTS_DIR", str(ROOT / "hub" / "data" / "outputs"))
+    file_secret: str = os.getenv("HUB_FILE_SECRET", "")
+
     # 会话 cookie 是否只走 HTTPS；生产环境有 HTTPS 时设为 true
     cookie_secure: bool = os.getenv("HUB_COOKIE_SECURE", "false").lower() == "true"
 

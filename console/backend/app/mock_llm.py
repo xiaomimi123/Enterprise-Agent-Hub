@@ -83,6 +83,12 @@ def _plan(messages: list[dict], tools: list[dict]) -> tuple[str | None, dict | N
         if isinstance(data, list) and data and isinstance(data[0], dict) and "knowledge_base" in data[0]:
             lines = [f"- 【{d['knowledge_base']} · {d['document']}】{d['text'][:80]}" for d in data[:3]]
             return None, None, "根据中枢知识库检索到的内容：\n" + "\n".join(lines)
+        if isinstance(data, dict) and data.get("images"):
+            links = "\n".join(f"- 第 {i} 版：{u}" for i, u in enumerate(data["images"], 1))
+            return None, None, f"封面已生成（{data.get('node', 'GPU 节点')}，用时 {data.get('seconds', '?')} 秒）：\n{links}"
+        if isinstance(data, dict) and data.get("task_id"):
+            return None, None, (f"封面任务 {data['task_id']} 当前状态：{data.get('status')}"
+                                + (f"，前面还有 {data['ahead']} 个任务" if data.get("ahead") else "") + "。稍后可以再问我进度。")
         if isinstance(data, dict) and "role_pack" in data:
             return None, None, (f"你是{data['name']}，当前岗位包是「{data['role_pack']}」，"
                                 f"可用知识库：{'、'.join(data.get('knowledge_bases', []))}。")
@@ -93,6 +99,9 @@ def _plan(messages: list[dict], tools: list[dict]) -> tuple[str | None, dict | N
     question = next((_text_of(m) for m in reversed(messages) if m.get("role") == "user"), "")
     if re.search(r"我是谁|身份|岗位包", question) and (name := _find_tool(tools, "whoami")):
         return name, {}, ""
+    if "封面" in question and (name := _find_tool(tools, "generate_cover")):
+        title = re.sub(r"帮我|请|生成|做|出|一张|几张|三张|3张|封面图|封面|的|：|:|，|,|。", "", question).strip()[:12]
+        return name, {"title": title or "新品种草"}, ""
     if "技能" in question and (name := _find_tool(tools, "list_skills")):
         return name, {}, ""
     if name := _find_tool(tools, "search_knowledge"):

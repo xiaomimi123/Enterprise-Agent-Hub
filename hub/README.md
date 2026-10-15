@@ -9,7 +9,8 @@
 | hub-mcp | 中枢 MCP Server，员工端 agent 连这里 | **8200** | 自研，与 console-api 同一镜像 |
 | Casdoor 4.20.0 | 身份（钉钉登录、组织架构） | 8000 | 开源镜像 |
 | New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 3000 | 开源镜像 |
-| mock-llm | 开发用模拟大模型，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
+| hub-worker | GPU 调度：把生图任务派给 ComfyUI 节点、取回结果 | 不对外 | 自研，与 console-api 同一镜像 |
+| mock-llm / mock-comfyui | 开发用模拟大模型 / 模拟 GPU 节点，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
 | RAGFlow v0.27.2 | 知识库检索（尚未接入） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
 
@@ -35,12 +36,14 @@ make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 
 1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），给企业组织配置钉钉登录和组织同步，并把管理员账号设为组织管理员
 2. 打开控制台 `http://<HUB_HOST>:8088`，用组织管理员登录
 3. 在 New API 后台 `http://<HUB_HOST>:3000`（管理员 `hubadmin`，密码见 `.env` 的 `NEWAPI_ADMIN_PASSWORD`）添加真实模型渠道，把 `.env` 的 `HUB_DEFAULT_MODEL` 设为渠道里的模型名，再执行 `make up`
-4. 员工电脑上用接入器登录：`uv run agent/hub_agent.py login --hub http://<HUB_HOST>:8088`，见 [agent/README.md](../agent/README.md)
+4. 在 `.env` 的 `HUB_GPU_NODES` 里登记 GPU 机器上的 ComfyUI（见 [docs/gpu.md](../docs/gpu.md)），再执行 `make up`
+5. 员工电脑上用接入器登录：`uv run agent/hub_agent.py login --hub http://<HUB_HOST>:8088`，见 [agent/README.md](../agent/README.md)
 
 **开发或演示环境**用 `make bootstrap-demo` 代替 `make bootstrap`，会额外：
 - 创建 9 个部门、18 名测试成员（含管理员 `admin`），密码写在 `.env` 的 `XINGHE_ADMIN_PASSWORD` / `XINGHE_USER_PASSWORD`
 - 开启员工端账号密码登录（`HUB_AGENT_PASSWORD_LOGIN=true`）
 - 启动模拟大模型 `mock-llm`（`.env` 写入 `COMPOSE_PROFILES=demo`），并在 New API 里建好渠道，`HUB_DEFAULT_MODEL=hub-mock`
+- 没有登记 GPU 节点时，登记模拟节点 `mock-comfyui`
 
 之后可以用 `console/backend/scripts/mcp_smoke.py` 或员工端接入器模拟员工使用。
 
@@ -66,6 +69,6 @@ make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_cou
 - `.env` 里有全部密码和应用凭证，权限为 600，不要提交到 git（已在 .gitignore 中）
 - `CASDOOR_ADMIN_PASSWORD` 和 `init-db.sh` 都只在数据目录为空、首次初始化时生效；之后改 `.env` 里的这些密码不会改动已有数据
 - RAGFlow 首次启动后**不要再改** `RAGFLOW_*_PASSWORD`，否则它会连不上已初始化的数据
-- 备份 `data/`、`logs/`，以及仓库里的 `skills/`、`vault/`
+- 备份 `data/`（含生成的图片 `data/outputs/`）、`logs/`，以及仓库里的 `skills/`、`vault/`、`gpu-node/workflows/`
 - 升级开源组件：改 `.env` 里的 `*_VERSION` 后执行 `make up`。RAGFlow 升级要先删掉 `ragflow/upstream/`，再执行 `make ragflow-up`
 - 目前没有 HTTPS。员工在公司局域网内访问没有问题；需要外网访问时，前面加一层反向代理配证书，并在 `.env` 中相应修改地址

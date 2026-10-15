@@ -21,11 +21,13 @@ CASDOOR_BOOTSTRAP = $(RUN_SCRIPT) scripts/casdoor_bootstrap.py --env-file /hub.e
 NEWAPI_BOOTSTRAP = $(RUN_SCRIPT) scripts/newapi_bootstrap.py --env-file /hub.env --newapi-url http://new-api:3000
 
 bootstrap:      ## 初始化 Casdoor 与 New API（生产）
+	docker compose build console-api
 	$(CASDOOR_BOOTSTRAP)
 	$(NEWAPI_BOOTSTRAP)
 	docker compose up -d
 
-bootstrap-demo: ## 初始化，并创建测试部门、成员和模拟模型（开发/演示）
+bootstrap-demo: ## 初始化，并创建测试部门、成员、模拟模型和模拟 GPU 节点（开发/演示）
+	docker compose build console-api
 	$(CASDOOR_BOOTSTRAP) --demo
 	$(NEWAPI_BOOTSTRAP) --demo
 	docker compose up -d

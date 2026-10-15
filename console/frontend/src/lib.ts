@@ -67,6 +67,6 @@ export const TONE: Record<string, string> = {
   测试中: 'blue', 索引中: 'blue',
   规划中: 'gray', 草稿: 'gray', 离线: 'gray', 关闭: 'gray',
   忙碌: 'amber', 繁忙: 'amber', 未安装: 'amber', 待审批: 'amber', 待确认: 'amber', 需确认: 'amber',
-  被拦截: 'red', 拒绝: 'red', 需二次确认: 'red', 机密: 'red',
+  被拦截: 'red', 拒绝: 'red', 需二次确认: 'red', 机密: 'red', 异常: 'red',
   公开: 'teal', 内部: 'blue', 只读: 'green',
 }

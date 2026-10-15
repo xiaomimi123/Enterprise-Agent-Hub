@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, auth
+from . import agent_api, auth, gpu
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -69,6 +69,15 @@ class RolePackPatch(BaseModel):
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": provider.mode}
+
+
+@app.get("/api/files/{task_id}/{name}")
+def download_file(task_id: str, name: str, exp: int = 0, sig: str = ""):
+    """生成结果下载：凭链接里的签名和有效期访问，不需要登录（链接由 MCP 工具发给员工）。"""
+    f = gpu.verify_file(task_id, name, exp, sig)
+    if f is None:
+        raise HTTPException(404, "链接无效或已过期")
+    return FileResponse(f, media_type="image/png")
 
 
 # ---- 以下接口需要登录 ----

@@ -81,6 +81,9 @@ def main() -> None:
             }}), "创建模拟模型渠道")
             print(f"✓ 创建渠道 {MOCK_CHANNEL} → http://mock-llm:8300")
         values["HUB_DEFAULT_MODEL"] = "hub-mock"
+        # 没有配置 GPU 节点时，使用模拟 ComfyUI 节点
+        if not env.get("HUB_GPU_NODES"):
+            values["HUB_GPU_NODES"] = "gpu-01|GPU-01 模拟节点|http://mock-comfyui:8188|Mock GPU（开发用）"
 
     upsert_env(env_path, values)
     print(f"✓ 已写入 {env_path}")

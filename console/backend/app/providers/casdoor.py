@@ -8,7 +8,7 @@
 | 技能 | skills/ 目录下的 SKILL.md |
 | 知识库 | vault/ 目录（Obsidian），元数据见 content.KB_REGISTRY |
 | 用量与成本 | New API 的调用日志（每个员工一个 key，按 key 名归属到人和部门）；未配置 New API 时为演示数据 |
-| GPU 节点 | 仍为演示数据（待接任务队列） |
+| GPU 节点 | 中枢数据库 gpu_nodes / gpu_tasks（由 GPU 调度服务维护）；未配置节点时为演示数据 |
 
 成员没有分配记录时，按部门的默认岗位包（policy.DEFAULT_ROLE_PACKS），都没有时用「通用办公」。
 """
@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 
@@ -122,6 +123,33 @@ class CasdoorProvider(DemoProvider):
             "knowledge_bases": self._knowledge_bases(events),
         })
         self._sync_usage()
+        self._sync_gpu()
+
+    def _sync_gpu(self) -> None:
+        nodes = db.gpu_nodes()
+        if not nodes:
+            return
+        stats = db.gpu_task_stats()
+        queued = stats.get("_queued", {}).get("n", 0)
+        workflows = [p.stem for p in sorted(Path(settings.workflows_dir).glob("*.json"))]
+        names = {"xhs-cover": "小红书封面"}
+        out = []
+        for n in nodes:
+            st = stats.get(n["id"], {})
+            running = st.get("running", 0) > 0
+            used = (1 - n["vram_free"] / n["vram_total"]) * 100 if n["vram_total"] else 0
+            out.append({
+                "id": n["id"], "name": n["name"], "gpu": n["gpu"] or "未知显卡",
+                "workflows": [names.get(w, w) for w in workflows],
+                "status": "离线" if not n["online"] else ("忙碌" if running else "空闲"),
+                "queue": queued, "jobs_today": st.get("done_today", 0),
+                "utilization": round(used), "online": n["online"],
+            })
+        self.d["gpu_nodes"] = out
+        for svc in self.d["services"]:
+            if svc["name"] == "任务队列":
+                svc["status"] = "正常" if any(n["online"] for n in nodes) else "异常"
+                svc["component"] = f"GPU 调度 · {sum(n['online'] for n in nodes)}/{len(nodes)} 节点在线"
 
     def _sync_usage(self) -> None:
         """用 New API 的调用日志替换演示用量（缓存 60 秒）。"""

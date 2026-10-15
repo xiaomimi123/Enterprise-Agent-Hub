@@ -20,7 +20,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import content, db, policy
+from . import content, db, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -29,6 +29,7 @@ INSTRUCTIONS = """这是企业智能体中枢。你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
+- generate_cover / get_cover_task：派发到公司 GPU 节点生成封面图（排队执行）
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
@@ -154,6 +155,34 @@ def search_knowledge(query: str, ctx: Context, knowledge_base: str | None = None
     if not hits:
         return "没有找到相关内容。"
     return json.dumps(hits, ensure_ascii=False)
+
+
+COVER_WAIT_SECONDS = 90
+
+
+@mcp.tool(description="生成小红书封面图：派发到公司 GPU 节点排队执行，一次出 3 版。"
+                      "title 为封面主文案（8–12 字为宜），description 可补充画面风格。"
+                      "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_cover_task 查询")
+def generate_cover(title: str, ctx: Context, description: str | None = None) -> str:
+    p = _principal()
+    if p.is_external or not policy.can_use_tool(p, "image.cover"):
+        _audit(ctx, p, "拦截", "image.cover", f"岗位包「{p.pack['name']}」没有生成封面图的权限", "拒绝")
+        return "无权使用生成封面图。"
+    trace_id, _ = _trace(ctx)
+    prompt = f"小红书封面，主文案「{title}」，{description or '柔和自然光，干净留白，高级质感'}"
+    t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name, dept=p.dept,
+                        channel=p.channel, workflow="xhs-cover", params={"prompt": prompt, "title": title})
+    _audit(ctx, p, "工具", "image.cover", f"派发封面任务「{title}」，前面排队 {t['ahead']} 个", "通过")
+    return json.dumps(gpu.describe(gpu.wait_task(t["id"], COVER_WAIT_SECONDS)), ensure_ascii=False)
+
+
+@mcp.tool(description="查询封面图任务的进度和结果")
+def get_cover_task(task_id: str, ctx: Context) -> str:
+    p = _principal()
+    t = db.gpu_task(task_id)
+    if not t or t["org"] != p.org or t["user_name"] != p.user_name:
+        return f"没有找到任务 {task_id}。"
+    return json.dumps(gpu.describe(t), ensure_ascii=False)
 
 
 db.init_schema()

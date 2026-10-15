@@ -21,6 +21,9 @@ x-hub-backend: &hub-backend
     # 技能仓库与知识库（Obsidian vault）在宿主机上维护，容器只读挂载
     - ../skills:/data/skills:ro
     - ../vault:/data/vault:ro
+    - ../gpu-node/workflows:/data/workflows:ro
+    # GPU 生成结果：调度服务写入，控制台后端提供带签名的下载
+    - ./data/outputs:/data/outputs
   environment:
     HUB_CONSOLE_MODE: casdoor
     TZ: ${TZ}
@@ -43,6 +46,9 @@ x-hub-backend: &hub-backend
     NEWAPI_ACCESS_TOKEN: ${NEWAPI_ACCESS_TOKEN:-}
     NEWAPI_ADMIN_ID: ${NEWAPI_ADMIN_ID:-}
     HUB_DEFAULT_MODEL: ${HUB_DEFAULT_MODEL:-}
+    HUB_GPU_NODES: ${HUB_GPU_NODES:-}
+    HUB_COMFY_CHECKPOINT: ${HUB_COMFY_CHECKPOINT:-sd_xl_base_1.0.safetensors}
+    HUB_FILE_SECRET: ${HUB_FILE_SECRET:?}
 
 services:
   postgres:
@@ -148,6 +154,22 @@ services:
         condition: service_healthy
     ports:
       - "${MCP_PORT}:8200"
+
+  # GPU 调度：把排队的生图任务派给空闲的 ComfyUI 节点，取回结果
+  hub-worker:
+    <<: *hub-backend
+    command: ["python", "-m", "app.gpu"]
+    depends_on:
+      console-api:
+        condition: service_healthy
+
+  # 开发/演示用的模拟 ComfyUI 节点（没有 N 卡时使用），仅在 demo profile 下启动
+  mock-comfyui:
+    image: hub-backend:${HUB_VERSION:-dev}
+    build: ../console/backend
+    profiles: ["demo"]
+    restart: unless-stopped
+    command: ["uvicorn", "app.mock_comfyui:app", "--host", "0.0.0.0", "--port", "8188"]
 
   # 开发/演示用的模拟大模型，仅在 demo profile 下启动（make bootstrap-demo 会开启）
   mock-llm:

@@ -6,7 +6,7 @@
 - 「管 agent，不管人」：管理员下发任务和策略、查看 agent 操作日志，不看屏幕
 - 两级接入：自研 agent（Hermes 改造，可本机操作）+ 第三方智能体（MCP 只读接入）
 
-> 当前阶段：**阶段 0 · 最小链路验证**（尚无可运行代码）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
+> 当前阶段：**阶段 0 · 最小链路验证**。中台控制台已经可以用演示数据运行，中枢服务部署文件已写好。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
 
 ## 架构
 
@@ -18,11 +18,12 @@
 
 ## 技术栈
 
-Python（自研 MCP Server、任务队列）· Docker Compose · Casdoor · RAGFlow · New API · ComfyUI · Hermes Agent
+Python / FastAPI（自研 MCP Server、任务队列、控制台后端）· React + Ant Design（控制台前端）· Docker Compose · Casdoor · RAGFlow · New API · ComfyUI · Hermes Agent
 
 ## 目录结构
 
 ```
+console/          中台控制台（Web 管理端，自研）
 hub/mcp-server/   中枢 MCP Server（自研）
 hub/task-queue/   GPU 任务队列（自研）
 gpu-node/         ComfyUI 工作流与节点注册
@@ -32,6 +33,13 @@ docs/             方案、阶段计划、决策记录（docs/decisions/）
 ```
 
 ## 快速开始
+
+中台控制台（演示数据，本地即可运行），详见 [console/README.md](console/README.md)：
+
+```bash
+cd console/backend && uv sync && uv run uvicorn app.main:app --port 8100
+cd console/frontend && npm install && npm run dev   # 打开 http://localhost:5173
+```
 
 中枢（Casdoor + New API + RAGFlow），在中枢服务器上执行：
 

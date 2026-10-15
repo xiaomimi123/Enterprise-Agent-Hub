@@ -28,3 +28,7 @@ outputs/
 
 # RAGFlow 官方部署文件（由 hub/ragflow/setup.sh 拉取）
 hub/ragflow/upstream/
+
+# Node / 前端构建产物
+node_modules/
+dist/

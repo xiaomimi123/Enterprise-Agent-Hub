@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "console-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--directory", "console/backend", "uvicorn", "app.main:app", "--reload", "--port", "8100"],
+      "port": 8100
+    },
+    {
+      "name": "console-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "console/frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

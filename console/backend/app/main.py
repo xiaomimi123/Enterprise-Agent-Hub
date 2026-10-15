@@ -5,38 +5,48 @@
 
 from __future__ import annotations
 
-import os
-
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from . import auth
+from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
 
-DATA_MODE = os.getenv("HUB_CONSOLE_MODE", "demo")
-
 
 def make_provider() -> Provider:
-    if DATA_MODE == "demo":
+    if settings.mode == "demo":
         return DemoProvider()
-    raise RuntimeError(f"未实现的数据模式：{DATA_MODE}")
+    if settings.mode == "casdoor":
+        from .providers.casdoor import CasdoorProvider
+        return CasdoorProvider()
+    raise RuntimeError(f"未实现的数据模式：{settings.mode}")
 
 
-app = FastAPI(title="企业智能体中枢 · 控制台 API", version="0.1.0")
+app = FastAPI(title="企业智能体中枢 · 控制台 API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("HUB_CONSOLE_CORS", "http://localhost:5173").split(","),
+    allow_origins=settings.cors.split(","),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 provider: Provider = make_provider()
+app.include_router(auth.router)
+# 除健康检查和登录接口外，所有接口都要求管理员登录
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
 
 
 @app.exception_handler(NotFound)
 async def not_found(_: Request, exc: NotFound):
     return JSONResponse(status_code=404, content={"detail": exc.args[0]})
+
+
+@app.exception_handler(RuntimeError)
+async def upstream_error(_: Request, exc: RuntimeError):
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
 class AssignBody(BaseModel):
@@ -60,78 +70,84 @@ def health():
     return {"ok": True, "mode": provider.mode}
 
 
-@app.get("/api/overview")
+# ---- 以下接口需要登录 ----
+
+
+@api.get("/overview")
 def overview():
     return provider.overview()
 
 
-@app.get("/api/departments")
+@api.get("/departments")
 def departments():
     return provider.departments()
 
 
-@app.get("/api/members")
+@api.get("/members")
 def members(dept: str | None = None, q: str | None = None):
     return provider.members(dept=dept, q=q)
 
 
-@app.put("/api/members/{member_id}/role-pack")
+@api.put("/members/{member_id}/role-pack")
 def assign_role_pack(member_id: str, body: AssignBody):
     return provider.assign_role_pack(member_id, body.role_pack_id)
 
 
-@app.get("/api/role-packs")
+@api.get("/role-packs")
 def role_packs():
     return provider.role_packs()
 
 
-@app.get("/api/role-packs/{role_pack_id}")
+@api.get("/role-packs/{role_pack_id}")
 def role_pack(role_pack_id: str):
     return provider.role_pack(role_pack_id)
 
 
-@app.patch("/api/role-packs/{role_pack_id}")
+@api.patch("/role-packs/{role_pack_id}")
 def update_role_pack(role_pack_id: str, body: RolePackPatch):
     if body.monthly_quota is not None and body.monthly_quota < 0:
         raise HTTPException(400, "额度不能为负数")
     return provider.update_role_pack(role_pack_id, body.model_dump(exclude_none=True))
 
 
-@app.get("/api/catalog")
+@api.get("/catalog")
 def catalog():
     return provider.catalog()
 
 
-@app.get("/api/skills")
+@api.get("/skills")
 def skills():
     return provider.skills()
 
 
-@app.get("/api/skills/{skill_id}")
+@api.get("/skills/{skill_id}")
 def skill(skill_id: str):
     return provider.skill(skill_id)
 
 
-@app.get("/api/knowledge-bases")
+@api.get("/knowledge-bases")
 def knowledge_bases():
     return provider.knowledge_bases()
 
 
-@app.get("/api/knowledge-bases/{kb_id}/documents")
+@api.get("/knowledge-bases/{kb_id}/documents")
 def kb_documents(kb_id: str):
     return provider.kb_documents(kb_id)
 
 
-@app.get("/api/audit/traces")
+@api.get("/audit/traces")
 def traces(member_id: str | None = None, outcome: str | None = None, dept: str | None = None, q: str | None = None):
     return provider.traces(member_id=member_id, outcome=outcome, dept=dept, q=q)
 
 
-@app.get("/api/audit/traces/{trace_id}")
+@api.get("/audit/traces/{trace_id}")
 def trace(trace_id: str):
     return provider.trace(trace_id)
 
 
-@app.get("/api/usage")
+@api.get("/usage")
 def usage(days: int = 30):
     return provider.usage(days=max(1, min(days, 30)))
+
+
+app.include_router(api)

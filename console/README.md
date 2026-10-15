@@ -2,7 +2,14 @@
 
 管理员和老板使用的 Web 控制台：成员与岗位包分配、技能库、知识库、审计日志、用量与成本。
 
-目前是**演示数据模式**：数据由后端在内存中生成，修改岗位包和成员分配会立即生效，重启后恢复初始状态。
+支持两种模式（`HUB_CONSOLE_MODE`）：
+
+| 模式 | 登录 | 成员与组织 | 其余模块 |
+|---|---|---|---|
+| `demo`（默认） | 不需要 | 演示数据 | 演示数据 |
+| `casdoor` | Casdoor 登录，仅组织管理员可进入 | Casdoor 实时数据（生产环境由钉钉同步） | 演示数据 |
+
+演示数据在内存里，修改后立即生效，重启恢复初始状态。Casdoor 模式下，成员的岗位包保存在 Casdoor 用户属性 `hub_role_pack` 中。
 
 ## 技术栈
 
@@ -27,12 +34,37 @@ npm run dev
 
 测试：`cd console/backend && uv run pytest`
 
+### 用本地 Casdoor 运行（casdoor 模式）
+
+```bash
+# 1. 启动 Casdoor（需要 hub/.env，见 hub/README.md；本机开发可把 CASDOOR_ORIGIN 设为 http://localhost:8000）
+cd hub && docker compose up -d casdoor
+
+# 2. 写入测试组织、控制台应用、9 个部门和 18 名成员，并生成 console/backend/.env
+cd console/backend && uv run python scripts/casdoor_dev_seed.py
+
+# 3. 重启后端，打开 http://localhost:5173，会跳转到 Casdoor 登录
+#    账号 admin，密码见 hub/.env 的 XINGHE_ADMIN_PASSWORD
+```
+
+种子脚本可重复运行，只用于开发环境；生产环境的部门和成员来自钉钉同步。
+
 ## 环境变量（后端）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `HUB_CONSOLE_MODE` | `demo` | 数据模式，目前只有 `demo` |
+开发时写在 `console/backend/.env`（可参考 `.env.example`），启动时自动加载。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `HUB_CONSOLE_MODE` | `demo` | `demo` 或 `casdoor` |
 | `HUB_CONSOLE_CORS` | `http://localhost:5173` | 允许跨域访问的前端地址，多个用逗号分隔 |
+| `CONSOLE_PUBLIC_URL` | `http://localhost:5173` | 浏览器访问控制台的地址，登录回调为 `<地址>/callback` |
+| `CASDOOR_ENDPOINT` | — | Casdoor 地址，如 `http://192.168.1.10:8000` |
+| `CASDOOR_ORG` | — | 企业在 Casdoor 中的组织名 |
+| `CASDOOR_APP` | — | 控制台在 Casdoor 中的应用名 |
+| `CASDOOR_CLIENT_ID` / `CASDOOR_CLIENT_SECRET` | — | 该应用的 OAuth 凭证（同时用于读取和更新成员） |
+| `HUB_COOKIE_SECURE` | `false` | 有 HTTPS 时设为 `true`，会话 cookie 只走 HTTPS |
 
 ## 页面
 

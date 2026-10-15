@@ -29,7 +29,7 @@ Linux 上首次启动 RAGFlow 前，需要设置 `vm.max_map_count=262144`（`se
 
 ## 启动后的初始化
 
-- **Casdoor**：`http://<HUB_HOST>:8000`，默认账号 `built-in/admin` / `123`，**登录后立刻改密码**
+- **Casdoor**：`http://<HUB_HOST>:8000`，账号 `built-in/admin`，密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`（只在首次启动时生效）
 - **New API**：`http://<HUB_HOST>:3000`，首次访问时创建管理员
 - **RAGFlow**：`http://<HUB_HOST>:8080`，注册第一个账号；管理员密码见 `.env` 的 `RAGFLOW_ADMIN_PASSWORD`
 

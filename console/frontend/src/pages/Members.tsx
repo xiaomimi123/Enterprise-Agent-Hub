@@ -2,11 +2,13 @@ import { SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { App, Input, Select, Table } from 'antd'
 import { useState } from 'react'
 import { api, type Member } from '../api'
+import { useSession } from '../auth'
 import { DEPT_META, fromNow, useRequest } from '../lib'
 import { Avatar, PageHeader, Panel, Pill, Seg } from '../ui'
 
 export default function Members() {
   const { message } = App.useApp()
+  const live = useSession().mode !== 'demo'
   const [dept, setDept] = useState<string>()
   const [q, setQ] = useState<string>()
   const [status, setStatus] = useState('全部')
@@ -28,8 +30,8 @@ export default function Members() {
     <>
       <PageHeader
         title="成员与组织"
-        sub="人员和部门来自钉钉通讯录：入职自动开通，离职自动吊销令牌，不需要单独维护人员表。"
-        extra={<span className="chip"><SyncOutlined />同步于 3 分钟前</span>}
+        sub="人员和部门来自钉钉通讯录（经 Casdoor 同步）：入职自动开通，离职自动吊销令牌，不需要单独维护人员表。"
+        extra={<span className="chip"><SyncOutlined />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>}
       />
       <div className="split">
         <Panel title="组织架构" tight style={{ position: 'sticky', top: 72 }}>

@@ -191,6 +191,23 @@ export interface Usage {
   top_members: { member_id: string; member: string; dept_name: string; tokens: number; cost: number; calls: number }[]
 }
 
+export interface AuthUser {
+  name: string
+  display_name: string
+  org: string
+  title: string
+  avatar?: string
+  is_admin: boolean
+}
+
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -198,7 +215,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? `请求失败（${res.status}）`)
+    throw new ApiError(res.status, body.detail ?? `请求失败（${res.status}）`)
   }
   return res.json() as Promise<T>
 }
@@ -211,6 +228,11 @@ function qs(params: Record<string, string | undefined>) {
 }
 
 export const api = {
+  me: () => request<{ mode: string; user: AuthUser }>('/auth/me'),
+  loginUrl: () => request<{ url: string }>('/auth/login'),
+  authCallback: (code: string, state: string) =>
+    request<{ user: AuthUser }>('/auth/callback', { method: 'POST', body: JSON.stringify({ code, state }) }),
+  logout: () => request<{ ok: boolean; casdoor_logout_url: string | null }>('/auth/logout', { method: 'POST' }),
   overview: () => request<Overview>('/overview'),
   departments: () => request<Department[]>('/departments'),
   members: (params: { dept?: string; q?: string } = {}) => request<Member[]>(`/members${qs(params)}`),

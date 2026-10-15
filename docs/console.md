@@ -18,7 +18,7 @@
 
 | 模块 | 演示数据 | 真实来源 |
 |---|---|---|
-| 组织与成员 | `demo_seed.py` | Casdoor（钉钉同步） |
+| 组织与成员 | `demo_seed.py` | **已接入**：Casdoor（钉钉同步），`providers/casdoor.py` |
 | 用量与成本 | `demo_seed.py` | New API |
 | 知识库 | `demo_seed.py` | RAGFlow |
 | 技能 | `demo_seed.py` | skills git 仓库 |
@@ -34,6 +34,18 @@
 
 **岗位包是核心对象。** 岗位包 = 技能 + 知识库 + 工具 + 模型 + 每人月额度 + 本机动作上限 + 外部智能体接入策略。成员通过岗位包获得全部权限，修改岗位包即可批量调整。
 
+## 登录与权限（2026-10-15 接入 Casdoor）
+
+- **OAuth2 授权码流程**：前端发现未登录 → 向后端要 Casdoor 授权地址（state 存在 httpOnly cookie 里防 CSRF）→ Casdoor 登录 → 回到 `/callback` → 后端用 code 换取 access_token
+- **会话**：access_token 本身是 Casdoor 签发的 JWT，直接放在 httpOnly cookie `hub_session` 里；每个请求都用 Casdoor 的 JWKS 公钥校验签名、有效期和 audience，后端不存会话状态
+- **谁能进控制台**：必须属于配置的企业组织（`CASDOOR_ORG`），并且是该组织的管理员（Casdoor 用户的 `isAdmin`）。其他人看到「无权访问控制台」
+- **退出**：清除 cookie，并跳转 Casdoor 的 `/api/logout` 作废令牌、结束 Casdoor 会话，否则会被自动登录回来
+- **演示模式不需要登录**，便于离线演示
+
+**成员与组织的映射**：部门 = Casdoor 组织下的分组；成员 = 组织下的用户。成员的岗位包保存在用户属性 `hub_role_pack`，没设置时按部门的默认岗位包（`DEFAULT_ROLE_PACKS`，按客户实际的部门分组名调整），再没有就用「通用办公」。读取结果缓存 30 秒，修改岗位包后立即刷新。员工端 agent 还没接入中枢，所以 Casdoor 模式下成员的 agent 状态都是「未安装」、在线数为 0——这是真实状态。
+
+**取舍**：岗位包分配暂存在 Casdoor 用户属性里，省去自建数据库；等中枢 MCP Server 需要按岗位包做权限判断时，岗位包定义和分配一起迁到 PostgreSQL。
+
 ## 视觉设计
 
 2026-10-15 重新设计，放弃 Ant Design 默认的蓝白后台风格：
@@ -46,12 +58,11 @@
 ## 取舍
 
 - 演示模式数据在内存中，重启即恢复，方便反复演示；不做持久化
-- 暂不做登录。接入 Casdoor 时一起做，控制台本身也通过钉钉扫码登录
 - 前端 bundle 未做代码分割，后台系统可以接受，以后需要再按路由拆分
 
 ## 下一步
 
-1. 控制台登录接 Casdoor
-2. 成员与组织接 Casdoor 的钉钉同步数据
+1. ~~控制台登录接 Casdoor~~（已完成）
+2. ~~成员与组织接 Casdoor~~（已完成）；在客户环境配置 Casdoor 的钉钉登录提供方和组织同步
 3. 岗位包落库（PostgreSQL），作为中枢 MCP Server 做权限判断的依据
 4. 用量接 New API，知识库接 RAGFlow

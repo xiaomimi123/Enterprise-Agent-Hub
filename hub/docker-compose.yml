@@ -56,6 +56,8 @@ services:
       dbName: casdoor
       origin: ${CASDOOR_ORIGIN}
       defaultLanguage: zh
+      # 仅在首次初始化数据库时生效：built-in/admin 的初始密码
+      initAdminPassword: ${CASDOOR_ADMIN_PASSWORD:?}
       TZ: ${TZ}
 
   new-api:

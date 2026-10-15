@@ -3,6 +3,7 @@ import zhCN from 'antd/locale/zh_CN'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { AuthGate, CallbackPage } from './auth'
 import './index.css'
 import ConsoleLayout from './layout/ConsoleLayout'
 import Audit from './pages/Audit'
@@ -48,7 +49,8 @@ createRoot(document.getElementById('root')!).render(
       <AntApp>
         <BrowserRouter>
           <Routes>
-            <Route element={<ConsoleLayout />}>
+            <Route path="callback" element={<CallbackPage />} />
+            <Route element={<AuthGate><ConsoleLayout /></AuthGate>}>
               <Route index element={<Overview />} />
               <Route path="members" element={<Members />} />
               <Route path="role-packs" element={<RolePacks />} />

@@ -48,6 +48,9 @@ x-hub-backend: &hub-backend
     HUB_GPU_NODES: ${HUB_GPU_NODES:-}
     HUB_COMFY_CHECKPOINT: ${HUB_COMFY_CHECKPOINT:-sd_xl_base_1.0.safetensors}
     HUB_FILE_SECRET: ${HUB_FILE_SECRET:?}
+    # RAGFlow 检索：两项都配置时知识库走向量检索，否则回退本地关键词检索
+    RAGFLOW_ENDPOINT: ${RAGFLOW_ENDPOINT:-}
+    RAGFLOW_API_KEY: ${RAGFLOW_API_KEY:-}
 
 services:
   postgres:

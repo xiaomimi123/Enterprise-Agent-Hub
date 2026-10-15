@@ -47,11 +47,16 @@ make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 
 
 之后可以用 `console/backend/scripts/mcp_smoke.py` 或员工端接入器模拟员工使用。
 
-知识库检索接入 RAGFlow 之前，不需要启动 RAGFlow。需要时：
+知识库检索不配置 RAGFlow 时自动用本地关键词检索，可以晚点再接。接入时：
 
 ```bash
-make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_count=262144（setup.sh 会提示）
+make ragflow-up           # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_count=262144（setup.sh 会提示）
+make ragflow-bootstrap    # 把 vault/ 知识库灌进 RAGFlow（建库、传文档、解析；API key 自动写回 .env）
+vim .env                  # 把 RAGFLOW_ENDPOINT 填成 http://<HUB_HOST>:9380
+make up                   # 重启自研服务生效
 ```
+
+细节见 [docs/knowledge.md](../docs/knowledge.md)。
 
 ## 常用命令
 

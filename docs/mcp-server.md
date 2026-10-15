@@ -42,7 +42,7 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 
 **内容。**
 - 技能：`skills/<部门>/<技能 id>/SKILL.md`
-- 知识库：`vault/<知识库名>/*.md`（Obsidian vault）。当前用字符二元组做关键词检索，接入 RAGFlow 后替换 `content.search()`，目录和接口不变
+- 知识库：`vault/<知识库名>/*.md`（Obsidian vault）。检索配了 RAGFlow 走向量检索、没配或故障自动回退本地关键词检索，接口与命中结构不变（见 [knowledge.md](knowledge.md)）
 
 ## 数据库
 

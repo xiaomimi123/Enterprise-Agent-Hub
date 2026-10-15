@@ -54,6 +54,11 @@ class Settings:
     # 用量折算人民币的汇率（New API 的额度以美元计）
     usd_cny: float = float(os.getenv("HUB_USD_CNY", "7.2"))
 
+    # RAGFlow 知识库检索（endpoint 形如 http://<中枢IP>:9380）。两项都配置时启用；
+    # 未配置或 RAGFlow 不可用时，知识库检索自动回退本地关键词检索（content.search）
+    ragflow_endpoint: str = os.getenv("RAGFLOW_ENDPOINT", "").rstrip("/")
+    ragflow_api_key: str = os.getenv("RAGFLOW_API_KEY", "")
+
     # GPU 能力节点：「id|名称|ComfyUI 地址|显卡说明」，多个用英文逗号分隔
     gpu_nodes: str = os.getenv("HUB_GPU_NODES", "")
     workflows_dir: str = os.getenv("HUB_WORKFLOWS_DIR", str(ROOT / "gpu-node" / "workflows"))

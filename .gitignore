@@ -25,3 +25,6 @@ outputs/
 
 # 系统
 .DS_Store
+
+# RAGFlow 官方部署文件（由 hub/ragflow/setup.sh 拉取）
+hub/ragflow/upstream/

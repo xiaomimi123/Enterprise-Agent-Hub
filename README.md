@@ -33,4 +33,13 @@ docs/             方案、阶段计划、决策记录（docs/decisions/）
 
 ## 快速开始
 
-待阶段 0 第 1 步（中枢 docker-compose）完成后补充。
+中枢（Casdoor + New API + RAGFlow），在中枢服务器上执行：
+
+```bash
+cd hub
+make env          # 生成 .env（随机密码），再把 HUB_HOST、CASDOOR_ORIGIN 改成服务器 IP
+make up           # Casdoor :8000、New API :3000
+make ragflow-up   # RAGFlow 网页 :8080、API :9380
+```
+
+详细说明和初始化步骤见 [hub/README.md](hub/README.md)。

@@ -7,7 +7,8 @@
 在员工电脑上运行。它不改 Hermes 的代码，只负责：
 1. 登录：浏览器打开中枢的登录页（生产环境为钉钉扫码），拿到员工本人的令牌
 2. 领取配置：模型 key（按人计量）、中枢 MCP 地址、岗位包内的技能
-3. 生成一套独立的 Hermes 配置（默认 ~/.hub-agent/hermes），与员工个人的 Hermes 配置完全隔开
+3. 生成一套独立的 Hermes 配置（默认 ~/.hub-agent/hermes），与员工个人的 Hermes 配置完全隔开；
+   按岗位包的「本机动作上限」关闭相应工具、危险命令必须确认、写文件限定在工作区（默认 ~/Documents/中枢工作区）
 4. 用这套配置启动 Hermes
 
 用法：
@@ -26,6 +27,7 @@ import hashlib
 import http.server
 import json
 import os
+import platform
 import secrets
 import shutil
 import sys
@@ -38,7 +40,10 @@ from pathlib import Path
 import httpx
 import yaml
 
+VERSION = "0.2.0"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
+# 员工的工作区：agent 只能把文件写在这里（以及它自己的配置目录）
+WORKSPACE = Path(os.environ.get("HUB_AGENT_WORKSPACE", Path.home() / "Documents" / "中枢工作区"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
 SKILLS_DIR = HOME / "skills"
@@ -161,8 +166,10 @@ def fresh_creds() -> dict:
 
 def cmd_sync(_args=None) -> dict:
     creds = fresh_creds()
-    r = httpx.post(f"{creds['hub']}/api/agent/enroll", headers={"Authorization": f"Bearer {creds['access_token']}"},
-                   timeout=30)
+    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=60, headers={
+        "Authorization": f"Bearer {creds['access_token']}", "X-Hub-Client": "hermes",
+        "X-Hub-OS": f"{platform.system()} {platform.release()}", "X-Hub-Agent-Version": VERSION,
+    })
     if r.status_code != 200:
         fail(f"领取配置失败：{r.json().get('detail', r.text)}")
     cfg = r.json()
@@ -183,6 +190,12 @@ def cmd_sync(_args=None) -> dict:
         # 中枢工具是员工每天都要用的核心能力，直接交给模型，不走 Hermes 的延迟加载（tool_search）
         "tools": {"tool_search": {"enabled": "off"}},
     }
+    # 本机动作上限（来自岗位包）：关闭的工具组、危险命令必须人工确认、命令在工作区里执行
+    act = cfg.get("action_policy") or {}
+    conf["agent"] = {"disabled_toolsets": act.get("disabled_toolsets", [])}
+    conf["approvals"] = {"mode": act.get("approvals_mode", "manual")}
+    conf["terminal"] = {"cwd": str(WORKSPACE)}
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
     if cfg.get("model"):
         m = cfg["model"]
         env["HUB_MODEL_KEY"] = m["api_key"]
@@ -194,8 +207,14 @@ def cmd_sync(_args=None) -> dict:
     write_private(HERMES_HOME / ".env", "".join(f"{k}={v}\n" for k, v in env.items()))
 
     e = cfg["employee"]
+    q = cfg.get("quota") or {}
     info(f"{e['name']}（{e['role_pack']}）：已同步技能 {len(cfg['skills'])} 个"
-         + (f"，模型 {cfg['model']['model']}" if cfg.get("model") else "，中枢未下发模型"))
+         + (f"，模型 {cfg['model']['model']}，本月额度剩余 ¥{q.get('remaining_cny')}/{q.get('monthly_cny')}"
+            if cfg.get("model") else f"，未下发模型：{cfg.get('model_note') or '中枢未配置'}"))
+    if cfg.get("model") and cfg.get("model_note"):
+        info(f"注意：{cfg['model_note']}。模型调用会被拒绝（Hermes 里显示为 Invalid token），请联系管理员调整额度")
+    if act:
+        info(f"本机动作上限「{act['level']}」：{act.get('summary', '')}")
     write_private(HOME / "profile.json", json.dumps(cfg | {"skills": [s["id"] for s in cfg["skills"]]},
                                                     ensure_ascii=False, indent=2))
     return cfg
@@ -209,6 +228,11 @@ def cmd_status(_args) -> None:
     print(f"中枢：{creds['hub']}")
     print(f"员工：{e.get('name', '?')} · 岗位包：{e.get('role_pack', '?')}")
     print(f"技能：{', '.join(prof.get('skills', [])) or '无'}")
+    act = prof.get("action_policy") or {}
+    print(f"本机动作上限：{act.get('level', '?')}（{act.get('summary', '')}）")
+    q = prof.get("quota") or {}
+    if q:
+        print(f"本月模型额度：已用 ¥{q.get('used_cny')}，剩余 ¥{q.get('remaining_cny')}，共 ¥{q.get('monthly_cny')}")
     print(f"令牌：{'有效，剩余 %d 分钟' % (left // 60) if left > 0 else '已过期（下次 chat 会自动续期）'}")
     print(f"Hermes 配置目录：{HERMES_HOME}")
 
@@ -226,7 +250,10 @@ def cmd_chat(args) -> None:
     hermes = shutil.which("hermes")
     if not hermes:
         fail("没有找到 hermes 命令，请先安装 Hermes Agent")
-    os.execvpe(hermes, [hermes, "chat", *args.hermes_args], {**os.environ, "HERMES_HOME": str(HERMES_HOME)})
+    env = {**os.environ, "HERMES_HOME": str(HERMES_HOME),
+           # 写文件只允许落在工作区和 agent 自己的配置目录里，其他位置一律拦截
+           "HERMES_WRITE_SAFE_ROOT": os.pathsep.join([str(WORKSPACE), str(HERMES_HOME)])}
+    os.execvpe(hermes, [hermes, "chat", *args.hermes_args], env)
 
 
 def main() -> None:

@@ -17,10 +17,10 @@ import jwt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from . import content, db, policy
+from . import content, db, entitlements, policy
 from .auth import _jwks_client
 from .config import settings
-from .newapi import NewApi, NewApiError, token_name
+from .newapi import NewApiError
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 LOOPBACK_REDIRECT = "http://127.0.0.1:27891/callback"
@@ -79,35 +79,40 @@ def _verify_agent_token(authorization: str | None) -> dict:
 
 
 @router.post("/enroll")
-def enroll(authorization: str | None = Header(default=None)):
+def enroll(authorization: str | None = Header(default=None), x_hub_os: str = Header(default=""),
+           x_hub_agent_version: str = Header(default=""), x_hub_client: str = Header(default="")):
     c = _verify_agent_token(authorization)
     dept = policy.dept_from_groups(c.get("groups"))
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
                          dept=dept, channel=policy.OFFICIAL)
     p.pack = policy.resolve_pack(p.org, p.user_name, dept)
+    db.touch_presence(p.org, p.user_name, dept, x_hub_client, x_hub_os, x_hub_agent_version)
 
-    model = None
-    na = NewApi()
-    if na.configured and settings.default_model:
-        try:
-            model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": na.ensure_token(token_name(p.org, p.user_name)),
-                     "model": settings.default_model}
-        except NewApiError as e:
-            raise HTTPException(502, str(e))
+    # 模型白名单与本月额度写到员工的 key 上，超出由模型网关拒绝
+    try:
+        ent = entitlements.apply_model_limits(p.org, p.user_name, p.pack)
+    except NewApiError as e:
+        raise HTTPException(502, str(e))
 
     allowed = set(p.pack["skills"]) if policy.can_use_tool(p, "skill.read") else set()
     skills = [{"id": s["id"], "name": s["name"], "description": s["description"], "content": content.read_skill(s["id"])}
               for s in content.list_skills() if s["id"] in allowed]
+    action = entitlements.action_policy(p.pack["max_action_level"])
 
+    model_note = (f"模型 {ent['model']['model']}，本月剩余 ¥{ent['quota']['remaining_cny']}" if ent.get("model")
+                  else f"未下发模型（{ent.get('reason')}）")
     db.add_audit(trace_id=f"enroll-{uuid.uuid4().hex[:10]}", org=p.org, user_name=p.user_name,
                  display_name=p.display_name, dept=dept, channel=p.channel, kind="登录", tool="agent.enroll",
-                 detail=f"员工端领取配置：岗位包「{p.pack['name']}」，同步技能 {len(skills)} 个"
-                        + ("，下发模型 key" if model else ""),
+                 detail=f"员工端领取配置：岗位包「{p.pack['name']}」，同步技能 {len(skills)} 个，{model_note}，"
+                        f"本机动作上限「{action['level']}」",
                  result="通过", summary="员工端 agent 登录并同步配置")
     return {
         "employee": {"name": p.display_name, "user": p.user_name, "dept": dept, "role_pack": p.pack["name"]},
         "mcp_url": settings.mcp_public_url,
-        "model": model,
+        "model": ent.get("model"),
+        "quota": ent.get("quota"),
+        "model_note": ent.get("reason", ""),
         "skills": skills,
+        "action_policy": action,
         "max_action_level": p.pack["max_action_level"],
     }

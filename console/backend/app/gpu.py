@@ -1,4 +1,5 @@
 """GPU 调度：任务排队、派发给空闲的 ComfyUI 节点、取回结果。
+（调度服务顺带每 10 分钟按岗位包重新下发员工的模型限制与额度，见 entitlements.resync_all）
 
 - MCP 工具调用 submit_task() 把任务放进队列（数据库 gpu_tasks），再用 wait_task() 等结果
 - 调度服务（python -m app.gpu）循环执行：刷新节点状态 → 给空闲节点派任务 → 收取已完成任务的图片
@@ -163,6 +164,7 @@ def run_worker(interval: float = 1.0) -> None:
     log.info("GPU 调度服务启动，节点：%s", ", ".join(f"{n['id']}({n['url']})" for n in nodes) or "无")
     online: set[str] = set()
     last_refresh = 0.0
+    last_resync = 0.0
     by_id = {n["id"]: n for n in nodes}
     while True:
         try:
@@ -171,6 +173,11 @@ def run_worker(interval: float = 1.0) -> None:
                 last_refresh = time.time()
             _collect(by_id)
             _dispatch(nodes, online)
+            if time.time() - last_resync > 600 and settings.casdoor_org:
+                from . import entitlements
+                n = entitlements.resync_all(settings.casdoor_org)
+                last_resync = time.time()
+                log.info("已按岗位包重新下发 %d 名员工的模型限制与额度", n)
         except Exception:  # noqa: BLE001 数据库短暂不可用等情况，下一轮重试
             log.exception("调度循环出错")
         time.sleep(interval)

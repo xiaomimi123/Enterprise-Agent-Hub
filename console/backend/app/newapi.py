@@ -17,6 +17,9 @@ class NewApiError(RuntimeError):
     pass
 
 
+QUOTA_PER_USD = 500000  # New API 的额度单位：500000 = 1 美元
+
+
 def token_name(org: str, user_name: str) -> str:
     return f"hub-{org}-{user_name}"[:50]
 
@@ -49,18 +52,35 @@ class NewApi:
         items = data.get("items", data) if isinstance(data, dict) else data
         return next((t for t in items or [] if t.get("name") == name), None)
 
-    def ensure_token(self, name: str) -> str:
-        """返回该员工的 key（没有则创建）。key 不限额度，额度控制后续按岗位包实现。"""
+    def ensure_token(self, name: str) -> dict:
+        """返回该员工的 key 记录（没有则创建，初始为禁用、零额度，由 set_limits 按岗位包放开）。"""
         tok = self.find_token(name)
         if tok is None:
             self._call("POST", "/api/token/", json={
-                "name": name, "unlimited_quota": True, "remain_quota": 0, "expired_time": -1,
+                "name": name, "unlimited_quota": False, "remain_quota": 0, "expired_time": -1,
+                "model_limits_enabled": True, "model_limits": "",
             })
             tok = self.find_token(name)
             if tok is None:
                 raise NewApiError(f"创建 key {name} 后未找到")
-        key = self._call("POST", f"/api/token/{tok['id']}/key")["key"]
+        return tok
+
+    def token_key(self, token_id: int) -> str:
+        key = self._call("POST", f"/api/token/{token_id}/key")["key"]
         return key if key.startswith("sk-") else f"sk-{key}"
+
+    def set_limits(self, token: dict, models: list[str], remain_quota: int) -> None:
+        """限定 key 可用的模型和剩余额度。没有可用模型时禁用 key。"""
+        # 没有可用模型 → 禁用；额度用完 → 标记「已耗尽」（模型网关给出额度用尽的提示）；否则启用
+        status = 2 if not models else (1 if remain_quota > 0 else 4)
+        self._call("PUT", "/api/token/", json={
+            **{k: token.get(k) for k in ("id", "name", "expired_time", "allow_ips", "group", "cross_group_retry")},
+            "status": status, "unlimited_quota": False, "remain_quota": max(0, remain_quota),
+            "model_limits_enabled": True, "model_limits": ",".join(models),
+        })
+
+    def enabled_models(self) -> list[str]:
+        return list(self._call("GET", "/api/channel/models_enabled") or [])
 
     # ---- 用量 ----
     def logs(self, days: int = 30, page_size: int = 100, max_pages: int = 50) -> list[dict]:

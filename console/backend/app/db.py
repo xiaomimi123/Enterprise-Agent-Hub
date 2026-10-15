@@ -98,6 +98,19 @@ CREATE TABLE IF NOT EXISTS gpu_tasks (
     finished_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS gpu_tasks_status ON gpu_tasks (status, created_at);
+
+-- 员工端在线状态：领取配置或调用 MCP 时刷新
+CREATE TABLE IF NOT EXISTS agent_presence (
+    org           TEXT NOT NULL,
+    user_name     TEXT NOT NULL,
+    dept          TEXT NOT NULL DEFAULT '',
+    client        TEXT NOT NULL DEFAULT '',
+    os            TEXT NOT NULL DEFAULT '',
+    agent_version TEXT NOT NULL DEFAULT '',
+    first_seen    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org, user_name)
+);
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -294,3 +307,24 @@ def gpu_task_stats() -> dict[str, dict]:
         ).fetchall()
         queued = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'queued'").fetchone()["n"]
     return {r["node_id"]: dict(r) for r in rows} | {"_queued": {"n": queued}}
+
+
+# ---- 员工端在线状态 ----
+
+def touch_presence(org: str, user_name: str, dept: str = "", client: str = "", os: str = "", agent_version: str = "") -> None:
+    """记录员工端最近一次活动；客户端信息只在有值时覆盖。"""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO agent_presence (org, user_name, dept, client, os, agent_version) "
+            "VALUES (%(org)s, %(u)s, %(dept)s, %(client)s, %(os)s, %(ver)s) "
+            "ON CONFLICT (org, user_name) DO UPDATE SET last_seen = now(), "
+            "dept = COALESCE(NULLIF(EXCLUDED.dept, ''), agent_presence.dept), "
+            "client = COALESCE(NULLIF(EXCLUDED.client, ''), agent_presence.client), "
+            "os = COALESCE(NULLIF(EXCLUDED.os, ''), agent_presence.os), "
+            "agent_version = COALESCE(NULLIF(EXCLUDED.agent_version, ''), agent_presence.agent_version)",
+            {"org": org, "u": user_name, "dept": dept, "client": client, "os": os, "ver": agent_version})
+
+
+def agent_presence(org: str) -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM agent_presence WHERE org = %s", (org,)).fetchall()

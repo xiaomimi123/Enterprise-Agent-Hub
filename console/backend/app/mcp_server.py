@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import time
 from urllib.parse import unquote
 
 import jwt
@@ -33,6 +34,23 @@ INSTRUCTIONS = """这是企业智能体中枢。你可以：
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
+_last_touch: dict[str, float] = {}
+
+
+def _touch(claims: dict, client_id: str) -> None:
+    """记录员工端活跃时间（控制台据此显示在线 agent）。同一员工 60 秒内只写一次库。"""
+    if client_id not in settings.agent_client_ids:
+        return
+    key = f"{claims.get('owner')}/{claims.get('name')}"
+    if time.time() - _last_touch.get(key, 0) < 60:
+        return
+    _last_touch[key] = time.time()
+    try:
+        db.touch_presence(claims["owner"], claims["name"], policy.dept_from_groups(claims.get("groups")))
+    except Exception:  # noqa: BLE001 在线状态是附加信息，写库失败不影响调用
+        pass
+
+
 class CasdoorTokenVerifier:
     """校验 Casdoor 签发的 JWT：签名、有效期、受众必须是中枢认可的 agent 应用。"""
 
@@ -49,6 +67,7 @@ class CasdoorTokenVerifier:
             return None
         aud = claims.get("aud")
         client_id = next((a for a in (aud if isinstance(aud, list) else [aud]) if a in audiences), "")
+        _touch(claims, client_id)
         return AccessToken(token=token, client_id=client_id, scopes=[], expires_at=claims.get("exp"),
                            subject=claims.get("sub"), claims=claims)
 

@@ -25,6 +25,7 @@
 | 岗位包、成员分配 | 内存 | **已接入**：中枢数据库 `role_packs` / `role_assignments` |
 | 审计链路 | `demo_seed.py` | **已接入**：中枢 MCP Server 写入的 `audit_events` |
 | GPU 节点 | `demo_seed.py` | **已接入**：调度服务维护的 `gpu_nodes` / `gpu_tasks`，见 [gpu.md](gpu.md) |
+| 成员的 agent 状态 | `demo_seed.py` | **已接入**：`agent_presence`（员工端领取配置与调用 MCP 时刷新） |
 
 **演示数据讲故事。** 种子数据围绕方案的卖点设计，而不是随机数：
 - 运营员工的一条完整链路：加载技能 → 检索知识 → 写稿 → 合规自查 → GPU 出封面 → 保存草稿

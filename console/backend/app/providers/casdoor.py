@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db
+from .. import content, db, entitlements, policy
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import DEFAULT_ROLE_PACKS, FALLBACK_ROLE_PACK
@@ -79,11 +79,16 @@ class CasdoorProvider(DemoProvider):
         packs = db.role_packs()
         pack_ids = {p["id"] for p in packs}
         assigned = db.assignments(self.org)
+        presence = {r["user_name"]: r for r in db.agent_presence(self.org)}
+        now = time.time()
 
         members = []
         for u in self._users.values():
             group = next((g.split("/", 1)[-1] for g in (u.get("groups") or []) if g.split("/", 1)[-1] in dept_names), UNASSIGNED)
             pack = assigned.get(u["name"])
+            pr = presence.get(u["name"])
+            # 最近 10 分钟内领取过配置或调用过中枢 → 在线；用过但超过 10 分钟 → 离线；从没用过 → 未安装
+            status = "未安装" if not pr else ("在线" if now - pr["last_seen"].timestamp() < 600 else "离线")
             members.append({
                 "id": u["name"],
                 "name": u.get("displayName") or u["name"],
@@ -91,12 +96,11 @@ class CasdoorProvider(DemoProvider):
                 "dept_name": dept_names[group],
                 "title": u.get("title") or "",
                 "role_pack": pack if pack in pack_ids else DEFAULT_ROLE_PACKS.get(group, FALLBACK_ROLE_PACK),
-                # 员工端 agent 还没有接入中枢，暂时都显示未安装
-                "agent_status": "未安装",
-                "agent_version": "",
-                "os": "",
+                "agent_status": status,
+                "agent_version": (pr or {}).get("agent_version", ""),
+                "os": (pr or {}).get("os", ""),
                 "dingtalk_bound": bool(u.get("dingtalk")),
-                "last_active": u.get("lastSigninTime") or u.get("createdTime"),
+                "last_active": pr["last_seen"].astimezone().isoformat() if pr else (u.get("lastSigninTime") or u.get("createdTime")),
             })
 
         departments = []
@@ -223,8 +227,9 @@ class CasdoorProvider(DemoProvider):
     def overview(self):
         self._sync()
         data = super().overview()
-        # agent 在线数是真实的（目前为 0），历史趋势也不能沿用演示值
-        data["daily_ops"] = [{**d, "online": 0} for d in data["daily_ops"]]
+        # 在线数只有当前值是真实的，历史趋势没有记录，按 0 显示（不沿用演示值）
+        ops = data["daily_ops"]
+        data["daily_ops"] = [{**d, "online": 0} for d in ops[:-1]] + [{**ops[-1], "online": data["stats"]["agents_online"]}]
         return data
 
     def departments(self):
@@ -249,10 +254,20 @@ class CasdoorProvider(DemoProvider):
         allowed = {"skills", "knowledge_bases", "tools", "models", "monthly_quota",
                    "max_action_level", "external_access", "description", "status"}
         db.upsert_role_pack(role_pack_id, {**rp, **{k: v for k, v in patch.items() if k in allowed and v is not None}})
-        return self.role_pack(role_pack_id)
+        result = self.role_pack(role_pack_id)
+        self._push_entitlements([m["id"] for m in result.get("members", [])])
+        return result
 
     def catalog(self):
         self._sync()
+        if self.newapi.configured:
+            try:
+                known = {m["id"] for m in self.d["models"]}
+                for m in entitlements.available_models(self.newapi):
+                    if m not in known:
+                        self.d["models"].append({"id": m, "name": m, "location": "模型网关", "rate": 0.0})
+            except Exception:  # noqa: BLE001
+                pass
         return super().catalog()
 
     def skills(self):
@@ -290,4 +305,17 @@ class CasdoorProvider(DemoProvider):
         if member_id not in self._users:
             raise NotFound(f"成员 {member_id} 不存在")
         db.assign(self.org, member_id, role_pack_id)
+        self._push_entitlements([member_id])
         return next(m for m in self.members() if m["id"] == member_id)
+
+    def _push_entitlements(self, user_names: list[str]) -> None:
+        """把最新的模型白名单与额度推到这些成员的 key 上（只处理用过员工端的成员；失败时由巡检兜底）。"""
+        enrolled = {r["user_name"]: r for r in db.agent_presence(self.org)}
+        for u in user_names:
+            if u not in enrolled:
+                continue
+            try:
+                pack = policy.resolve_pack(self.org, u, enrolled[u]["dept"])
+                entitlements.apply_model_limits(self.org, u, pack, self.newapi)
+            except Exception:  # noqa: BLE001
+                continue

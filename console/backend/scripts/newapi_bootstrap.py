@@ -2,7 +2,8 @@
 
 - 首次运行时创建管理员（密码 NEWAPI_ADMIN_PASSWORD，自用模式：不做计费，只记用量）
 - 取得管理员的系统访问令牌，写回 hub/.env（NEWAPI_ACCESS_TOKEN、NEWAPI_ADMIN_ID），中枢用它给员工发 key、读用量
-- --demo：再创建一个指向模拟模型（mock-llm）的渠道，并把 HUB_DEFAULT_MODEL 设为 hub-mock
+- --demo：再创建一个指向模拟模型（mock-llm）的渠道（模型 hub-mock、hub-mock-pro），HUB_DEFAULT_MODEL 设为 hub-mock，
+  并把 hub-mock 加入除「财务」以外的岗位包（财务只允许本地模型，用来演示「没有可用模型」）
 
 生产环境请在 New API 后台（http://<中枢>:3000）自行添加真实的模型渠道，并在 .env 里设置 HUB_DEFAULT_MODEL。
 
@@ -21,10 +22,12 @@ import httpx
 from dotenv import dotenv_values
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from casdoor_bootstrap import upsert_env  # noqa: E402
 
 ADMIN_USER = "hubadmin"
 MOCK_CHANNEL = "hub-mock"
+MOCK_MODELS = "hub-mock,hub-mock-pro"
 
 
 def die(msg: str) -> None:
@@ -37,6 +40,19 @@ def ok(r: httpx.Response, what: str) -> object:
     if not body.get("success"):
         die(f"{what} 失败：{body.get('message')}")
     return body.get("data")
+
+
+def add_mock_model_to_packs() -> None:
+    """演示环境：除财务外的岗位包都能用 hub-mock（hub-mock-pro 不加，用来演示模型白名单）。"""
+    from app import db
+
+    db.init_schema()
+    changed = 0
+    for rp in db.role_packs():
+        if rp["id"] != "rp-finance" and "hub-mock" not in rp["models"]:
+            db.upsert_role_pack(rp["id"], {**rp, "models": [*rp["models"], "hub-mock"]})
+            changed += 1
+    print(f"✓ 已把 hub-mock 加入 {changed} 个岗位包（财务除外）")
 
 
 def main() -> None:
@@ -72,14 +88,19 @@ def main() -> None:
                            headers={"Authorization": access, "New-Api-User": admin_id})
         data = ok(api.get("/api/channel/", params={"p": 1, "page_size": 100}), "读取渠道")
         items = data.get("items", []) if isinstance(data, dict) else (data or [])
-        if any(ch.get("name") == MOCK_CHANNEL for ch in items):
+        existing = next((ch for ch in items if ch.get("name") == MOCK_CHANNEL), None)
+        if existing:
+            if existing.get("models") != MOCK_MODELS:
+                ch = ok(api.get(f"/api/channel/{existing['id']}"), "读取渠道")
+                ok(api.put("/api/channel/", json={**ch, "models": MOCK_MODELS}), "更新模拟渠道模型")
             print(f"· 渠道 {MOCK_CHANNEL} 已存在")
         else:
             ok(api.post("/api/channel/", json={"mode": "single", "channel": {
                 "type": 1, "name": MOCK_CHANNEL, "key": "sk-mock-not-a-real-key",
-                "base_url": "http://mock-llm:8300", "models": "hub-mock", "group": "default", "status": 1,
+                "base_url": "http://mock-llm:8300", "models": MOCK_MODELS, "group": "default", "status": 1,
             }}), "创建模拟模型渠道")
-            print(f"✓ 创建渠道 {MOCK_CHANNEL} → http://mock-llm:8300")
+            print(f"✓ 创建渠道 {MOCK_CHANNEL} → http://mock-llm:8300（{MOCK_MODELS}）")
+        add_mock_model_to_packs()
         values["HUB_DEFAULT_MODEL"] = "hub-mock"
         # 没有配置 GPU 节点时，使用模拟 ComfyUI 节点
         if not env.get("HUB_GPU_NODES"):

@@ -19,11 +19,11 @@
 | 模块 | 演示数据 | 真实来源 |
 |---|---|---|
 | 组织与成员 | `demo_seed.py` | **已接入**：Casdoor（钉钉同步），`providers/casdoor.py` |
-| 用量与成本 | `demo_seed.py` | New API |
-| 知识库 | `demo_seed.py` | RAGFlow |
-| 技能 | `demo_seed.py` | skills git 仓库 |
-| 岗位包 | 内存 | 控制台自有数据库（自研，没有开源替代） |
-| 审计链路 | `demo_seed.py` | 中枢 MCP Server 审计日志 |
+| 用量与成本 | `demo_seed.py` | New API（未接入） |
+| 知识库 | `demo_seed.py` | **已接入**：`vault/` 目录（Obsidian），之后换 RAGFlow 检索 |
+| 技能 | `demo_seed.py` | **已接入**：`skills/` 目录下的 SKILL.md |
+| 岗位包、成员分配 | 内存 | **已接入**：中枢数据库 `role_packs` / `role_assignments` |
+| 审计链路 | `demo_seed.py` | **已接入**：中枢 MCP Server 写入的 `audit_events` |
 
 **演示数据讲故事。** 种子数据围绕方案的卖点设计，而不是随机数：
 - 运营员工的一条完整链路：加载技能 → 检索知识 → 写稿 → 合规自查 → GPU 出封面 → 保存草稿
@@ -42,9 +42,9 @@
 - **退出**：清除 cookie，并跳转 Casdoor 的 `/api/logout` 作废令牌、结束 Casdoor 会话，否则会被自动登录回来
 - **演示模式不需要登录**，便于离线演示
 
-**成员与组织的映射**：部门 = Casdoor 组织下的分组；成员 = 组织下的用户。成员的岗位包保存在用户属性 `hub_role_pack`，没设置时按部门的默认岗位包（`DEFAULT_ROLE_PACKS`，按客户实际的部门分组名调整），再没有就用「通用办公」。读取结果缓存 30 秒，修改岗位包后立即刷新。员工端 agent 还没接入中枢，所以 Casdoor 模式下成员的 agent 状态都是「未安装」、在线数为 0——这是真实状态。
+**成员与组织的映射**：部门 = Casdoor 组织下的分组；成员 = 组织下的用户。成员的岗位包保存在中枢数据库 `role_assignments`，没有记录时按部门的默认岗位包（`policy.DEFAULT_ROLE_PACKS`，按客户实际的部门分组名调整），再没有就用「通用办公」。读取结果缓存 30 秒，修改岗位包后立即刷新。员工端 agent 还没接入中枢，所以 Casdoor 模式下成员的 agent 状态都是「未安装」、在线数为 0——这是真实状态。
 
-**取舍**：岗位包分配暂存在 Casdoor 用户属性里，省去自建数据库；等中枢 MCP Server 需要按岗位包做权限判断时，岗位包定义和分配一起迁到 PostgreSQL。
+**岗位包落库**：岗位包定义和成员分配已迁到 PostgreSQL，控制台与 MCP Server 共用，控制台一改，下一次 MCP 调用立即按新岗位包判断。
 
 ## 视觉设计
 
@@ -64,5 +64,5 @@
 
 1. ~~控制台登录接 Casdoor~~（已完成）
 2. ~~成员与组织接 Casdoor~~（已完成）；在客户环境配置 Casdoor 的钉钉登录提供方和组织同步
-3. 岗位包落库（PostgreSQL），作为中枢 MCP Server 做权限判断的依据
-4. 用量接 New API，知识库接 RAGFlow
+3. ~~岗位包落库（PostgreSQL）~~（已完成，见 [mcp-server.md](mcp-server.md)）
+4. 用量接 New API，知识库检索换 RAGFlow

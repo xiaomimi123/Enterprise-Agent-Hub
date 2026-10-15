@@ -1,6 +1,6 @@
 RAGFLOW_DIR := ragflow/upstream/docker
 
-.PHONY: env up down ps logs ragflow-setup ragflow-up ragflow-down ragflow-ps all-up all-down
+.PHONY: env up down ps logs db-hub ragflow-setup ragflow-up ragflow-down ragflow-ps all-up all-down
 
 env:            ## 生成 .env（随机密码）
 	@bash scripts/gen-env.sh
@@ -13,6 +13,9 @@ down:
 
 ps:
 	docker compose ps
+
+db-hub:         ## 为已初始化过的 PostgreSQL 补建中枢数据库（可重复执行）
+	docker compose exec postgres bash /ensure-hub-db.sh
 
 logs:
 	docker compose logs -f --tail=100

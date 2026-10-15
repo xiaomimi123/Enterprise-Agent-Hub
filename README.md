@@ -6,7 +6,7 @@
 - 「管 agent，不管人」：管理员下发任务和策略、查看 agent 操作日志，不看屏幕
 - 两级接入：自研 agent（Hermes 改造，可本机操作）+ 第三方智能体（MCP 只读接入）
 
-> 当前阶段：**阶段 0 · 最小链路验证**。中台控制台已经可以用演示数据运行，中枢服务部署文件已写好。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
+> 当前阶段：**阶段 0 · 最小链路验证**。控制台已接入 Casdoor 登录；中枢 MCP Server 第一版完成（令牌鉴权、按岗位包过滤、审计落库）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
 
 ## 架构
 
@@ -24,11 +24,12 @@ Python / FastAPI（自研 MCP Server、任务队列、控制台后端）· React
 
 ```
 console/          中台控制台（Web 管理端，自研）
-hub/mcp-server/   中枢 MCP Server（自研）
+hub/mcp-server/   中枢 MCP Server 说明（代码在 console/backend/app/mcp_server.py）
 hub/task-queue/   GPU 任务队列（自研）
 gpu-node/         ComfyUI 工作流与节点注册
 agent/            Hermes 员工端配置与改造
-skills/           岗位 skill 仓库（SKILL.md，可用 Obsidian 编辑）
+skills/           岗位技能仓库（<部门>/<技能 id>/SKILL.md，可用 Obsidian 编辑）
+vault/            企业知识库（Obsidian vault，每个文件夹一个知识库）
 docs/             方案、阶段计划、决策记录（docs/decisions/）
 ```
 

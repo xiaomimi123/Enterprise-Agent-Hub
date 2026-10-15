@@ -14,6 +14,8 @@ class NotFound(KeyError):
 
 class DemoProvider:
     mode = "demo"
+    # 演示审计链路只是抽样，统计「今日任务」时按这个比例放大
+    sample_scale = 9
 
     def __init__(self) -> None:
         self.d = demo_seed.build()
@@ -66,8 +68,8 @@ class DemoProvider:
                 "members": len(members),
                 "agents_online": sum(1 for m in members if m["agent_status"] == "在线"),
                 "agents_installed": sum(1 for m in members if m["agent_status"] != "未安装"),
-                "calls_today": sum(len(t["steps"]) for t in traces_today) * 9,  # 背景链路只是抽样，按比例放大
-                "tasks_today": len(traces_today) * 9,
+                "calls_today": sum(len(t["steps"]) for t in traces_today) * self.sample_scale,
+                "tasks_today": len(traces_today) * self.sample_scale,
                 "tokens_today": sum(u["tokens"] for u in usage_today),
                 "cost_today": round(sum(u["cost"] for u in usage_today), 2),
                 "cost_month": round(sum(u["cost"] for u in usage_month), 2),

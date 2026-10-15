@@ -14,16 +14,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       CASDOOR_DB_PASSWORD: ${CASDOOR_DB_PASSWORD:?}
       NEWAPI_DB_PASSWORD: ${NEWAPI_DB_PASSWORD:?}
+      HUB_DB_PASSWORD: ${HUB_DB_PASSWORD:?}
       TZ: ${TZ}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
       - ./postgres/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+      - ./postgres/ensure-hub-db.sh:/ensure-hub-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 20
-    # 不映射到宿主机端口，只在 hub 网络内访问
+    # 只映射到本机回环地址：中枢自研服务（控制台、MCP Server）在宿主机上运行时用它连库
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-25432}:5432"
 
   redis:
     image: redis:7-alpine

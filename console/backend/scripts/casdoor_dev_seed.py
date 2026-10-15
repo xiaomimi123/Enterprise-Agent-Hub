@@ -5,7 +5,8 @@
 
 运行：cd console/backend && uv run python scripts/casdoor_dev_seed.py
 读取 hub/.env 里的 CASDOOR_ORIGIN、CASDOOR_ADMIN_PASSWORD；
-把控制台需要的配置写入 console/backend/.env，把测试组织管理员密码写入 hub/.env（XINGHE_ADMIN_PASSWORD）。
+把控制台和 MCP Server 需要的配置写入 console/backend/.env，
+把测试账号密码写入 hub/.env（XINGHE_ADMIN_PASSWORD 管理员、XINGHE_USER_PASSWORD 其他成员）。
 """
 
 from __future__ import annotations
@@ -80,11 +81,39 @@ def upsert_env(path: Path, values: dict[str, str]) -> None:
     path.chmod(0o600)
 
 
+def ensure_app(c: httpx.Client, name: str, display: str, redirect_uris: list[str], grant_types: list[str]) -> dict:
+    """创建或更新一个 Casdoor 应用（OAuth 客户端），返回应用信息。"""
+    app = c.get("/api/get-application", params={"id": f"admin/{name}"}).json().get("data")
+    if app:
+        if app.get("redirectUris") != redirect_uris or app.get("grantTypes") != grant_types:
+            app.update({"redirectUris": redirect_uris, "grantTypes": grant_types})
+            ok(c.post("/api/update-application", params={"id": f"admin/{name}"}, json=app), f"更新应用 {name}")
+        print(f"· 应用 {name} 已存在")
+        return app
+    base = ok(c.get("/api/get-application", params={"id": "admin/app-built-in"}), "读取 app-built-in")["data"]
+    app = copy.deepcopy(base)
+    for k in ("organizationObj", "certPublicKey"):
+        app.pop(k, None)
+    app.update({
+        "name": name, "displayName": display, "organization": ORG,
+        "clientId": secrets.token_hex(10), "clientSecret": secrets.token_hex(20),
+        "redirectUris": redirect_uris, "grantTypes": grant_types,
+        "enableSignUp": False, "homepageUrl": CONSOLE_URL, "expireInHours": 24, "refreshExpireInHours": 168,
+    })
+    ok(c.post("/api/add-application", json=app), f"创建应用 {name}")
+    print(f"✓ 创建应用 {name}")
+    return app
+
+
 def main() -> None:
     hub = dotenv_values(HUB_ENV)
     endpoint = hub.get("CASDOOR_ORIGIN") or die("hub/.env 缺少 CASDOOR_ORIGIN")
     admin_pw = hub.get("CASDOOR_ADMIN_PASSWORD") or die("hub/.env 缺少 CASDOOR_ADMIN_PASSWORD")
     org_admin_pw = hub.get("XINGHE_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+    # 所有测试成员共用一个密码，便于用脚本模拟不同员工的 agent
+    user_pw = hub.get("XINGHE_USER_PASSWORD") or secrets.token_urlsafe(12)
+    db_pw = hub.get("HUB_DB_PASSWORD") or die("hub/.env 缺少 HUB_DB_PASSWORD")
+    db_port = hub.get("POSTGRES_HOST_PORT") or "25432"
 
     c = httpx.Client(base_url=endpoint, timeout=15)
     ok(c.post("/api/login", json={
@@ -106,25 +135,13 @@ def main() -> None:
 
     # ---- 应用（OAuth 客户端）----
     redirect_uris = [f"{CONSOLE_URL}/callback", CONSOLE_URL]  # 后者用于退出登录后跳回
-    app = c.get("/api/get-application", params={"id": f"admin/{APP}"}).json().get("data")
-    if app:
-        if app.get("redirectUris") != redirect_uris:
-            app["redirectUris"] = redirect_uris
-            ok(c.post("/api/update-application", params={"id": f"admin/{APP}"}, json=app), "更新应用回调地址")
-        print(f"· 应用 {APP} 已存在")
-    else:
-        base = ok(c.get("/api/get-application", params={"id": "admin/app-built-in"}), "读取 app-built-in")["data"]
-        app = copy.deepcopy(base)
-        for k in ("organizationObj", "certPublicKey"):
-            app.pop(k, None)
-        app.update({
-            "name": APP, "displayName": "智能体中枢控制台", "organization": ORG,
-            "clientId": secrets.token_hex(10), "clientSecret": secrets.token_hex(20),
-            "redirectUris": redirect_uris, "grantTypes": ["authorization_code", "refresh_token"],
-            "enableSignUp": False, "homepageUrl": CONSOLE_URL, "expireInHours": 24, "refreshExpireInHours": 168,
-        })
-        ok(c.post("/api/add-application", json=app), "创建应用")
-        print(f"✓ 创建应用 {APP}")
+    console_app = ensure_app(c, APP, "智能体中枢控制台", redirect_uris, ["authorization_code", "refresh_token"])
+    # 员工端官方 agent 与外部智能体各用一个应用，MCP Server 按令牌来自哪个应用区分入口。
+    # 开发环境开启 password 授权，便于脚本直接取令牌测试；生产环境应改为授权码或设备码流程
+    agent_app = ensure_app(c, "hub-agent", "员工端 agent", ["http://localhost/callback"],
+                           ["authorization_code", "password", "refresh_token"])
+    external_app = ensure_app(c, "hub-external", "外部智能体（MCP 接入）", ["http://localhost/callback"],
+                              ["authorization_code", "password", "refresh_token"])
 
     # ---- 部门（Casdoor 分组）----
     existing = {g["name"] for g in (c.get("/api/get-groups", params={"owner": ORG}).json().get("data") or [])}
@@ -142,10 +159,12 @@ def main() -> None:
     created = 0
     for name, display, dept, title in USERS:
         if name in users:
+            ok(c.post("/api/set-password", data={"userOwner": ORG, "userName": name, "newPassword": user_pw}),
+               f"重置 {display} 的密码")
             continue
         ok(c.post("/api/add-user", json={
             "owner": ORG, "name": name, "displayName": display, "title": title,
-            "groups": [f"{ORG}/{dept}"], "password": secrets.token_urlsafe(16),
+            "groups": [f"{ORG}/{dept}"], "password": user_pw,
             "signupApplication": APP, "type": "normal-user", "properties": {},
         }), f"创建成员 {display}")
         created += 1
@@ -158,7 +177,7 @@ def main() -> None:
         created += 1
     print(f"✓ 成员 {len(USERS) + 1} 人（本次新建 {created}）")
 
-    app = ok(c.get("/api/get-application", params={"id": f"admin/{APP}"}), "读取应用")["data"]
+    app = console_app
     upsert_env(CONSOLE_ENV, {
         "HUB_CONSOLE_MODE": "casdoor",
         "CASDOOR_ENDPOINT": endpoint,
@@ -167,10 +186,16 @@ def main() -> None:
         "CASDOOR_CLIENT_ID": app["clientId"],
         "CASDOOR_CLIENT_SECRET": app["clientSecret"],
         "CONSOLE_PUBLIC_URL": CONSOLE_URL,
+        "HUB_DATABASE_URL": f"postgresql://hub:{db_pw}@127.0.0.1:{db_port}/hub",
+        "HUB_AGENT_CLIENT_IDS": agent_app["clientId"],
+        "HUB_EXTERNAL_CLIENT_IDS": external_app["clientId"],
+        "HUB_AGENT_CLIENT_SECRET": agent_app["clientSecret"],
+        "HUB_EXTERNAL_CLIENT_SECRET": external_app["clientSecret"],
     })
-    upsert_env(HUB_ENV, {"XINGHE_ADMIN_PASSWORD": org_admin_pw})
+    upsert_env(HUB_ENV, {"XINGHE_ADMIN_PASSWORD": org_admin_pw, "XINGHE_USER_PASSWORD": user_pw})
     print("✓ 已写入 console/backend/.env")
     print(f"✓ 控制台管理员：{ORG}/admin，密码见 hub/.env 的 XINGHE_ADMIN_PASSWORD")
+    print("✓ 其他测试成员的密码见 hub/.env 的 XINGHE_USER_PASSWORD")
 
 
 if __name__ == "__main__":

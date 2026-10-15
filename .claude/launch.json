@@ -4,14 +4,43 @@
     {
       "name": "console-api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--directory", "console/backend", "uvicorn", "app.main:app", "--reload", "--port", "8100"],
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "console/backend",
+        "uvicorn",
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8100"
+      ],
       "port": 8100
     },
     {
       "name": "console-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "console/frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "console/frontend",
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "hub-mcp",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "console/backend",
+        "uvicorn",
+        "app.mcp_server:app",
+        "--reload",
+        "--port",
+        "8200"
+      ],
+      "port": 8200
     }
   ]
 }

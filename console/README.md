@@ -7,9 +7,11 @@
 | 模式 | 登录 | 成员与组织 | 其余模块 |
 |---|---|---|---|
 | `demo`（默认） | 不需要 | 演示数据 | 演示数据 |
-| `casdoor` | Casdoor 登录，仅组织管理员可进入 | Casdoor 实时数据（生产环境由钉钉同步） | 演示数据 |
+| `casdoor` | Casdoor 登录，仅组织管理员可进入 | Casdoor 实时数据（生产环境由钉钉同步） | 岗位包、审计、技能、知识库为真实数据；用量与 GPU 节点仍为演示 |
 
-演示数据在内存里，修改后立即生效，重启恢复初始状态。Casdoor 模式下，成员的岗位包保存在 Casdoor 用户属性 `hub_role_pack` 中。
+演示数据在内存里，修改后立即生效，重启恢复初始状态。casdoor 模式下，岗位包和成员分配存在中枢数据库（PostgreSQL 的 `hub` 库），审计日志来自中枢 MCP Server。
+
+同一个 Python 项目里还有**中枢 MCP Server**（`app/mcp_server.py`，端口 8200），见 [docs/mcp-server.md](../docs/mcp-server.md)。
 
 ## 技术栈
 
@@ -37,14 +39,19 @@ npm run dev
 ### 用本地 Casdoor 运行（casdoor 模式）
 
 ```bash
-# 1. 启动 Casdoor（需要 hub/.env，见 hub/README.md；本机开发可把 CASDOOR_ORIGIN 设为 http://localhost:8000）
+# 1. 启动 Casdoor 和 PostgreSQL（需要 hub/.env，见 hub/README.md；本机开发可把 CASDOOR_ORIGIN 设为 http://localhost:8000）
 cd hub && docker compose up -d casdoor
+make db-hub   # 已有数据目录时补建中枢数据库；全新初始化会自动创建
 
-# 2. 写入测试组织、控制台应用、9 个部门和 18 名成员，并生成 console/backend/.env
+# 2. 写入测试组织、控制台 / agent / 外部智能体三个应用、9 个部门和 18 名成员，并生成 console/backend/.env
 cd console/backend && uv run python scripts/casdoor_dev_seed.py
 
 # 3. 重启后端，打开 http://localhost:5173，会跳转到 Casdoor 登录
 #    账号 admin，密码见 hub/.env 的 XINGHE_ADMIN_PASSWORD
+
+# 4. 启动 MCP Server，并模拟几名员工的 agent 调用（结果会出现在控制台审计日志）
+uv run uvicorn app.mcp_server:app --reload --port 8200
+uv run python scripts/mcp_smoke.py
 ```
 
 种子脚本可重复运行，只用于开发环境；生产环境的部门和成员来自钉钉同步。
@@ -65,6 +72,11 @@ cd console/backend && uv run python scripts/casdoor_dev_seed.py
 | `CASDOOR_APP` | — | 控制台在 Casdoor 中的应用名 |
 | `CASDOOR_CLIENT_ID` / `CASDOOR_CLIENT_SECRET` | — | 该应用的 OAuth 凭证（同时用于读取和更新成员） |
 | `HUB_COOKIE_SECURE` | `false` | 有 HTTPS 时设为 `true`，会话 cookie 只走 HTTPS |
+| `HUB_DATABASE_URL` | — | 中枢数据库，如 `postgresql://hub:<密码>@127.0.0.1:25432/hub`（casdoor 模式必填） |
+| `HUB_SKILLS_DIR` / `HUB_VAULT_DIR` | 仓库根目录下的 `skills/`、`vault/` | 技能仓库与知识库目录 |
+| `HUB_MCP_PUBLIC_URL` | `http://localhost:8200/mcp` | MCP Server 对外地址 |
+| `HUB_AGENT_CLIENT_IDS` | — | 「官方 agent」应用的 client id，逗号分隔 |
+| `HUB_EXTERNAL_CLIENT_IDS` | — | 「外部智能体」应用的 client id，逗号分隔 |
 
 ## 页面
 

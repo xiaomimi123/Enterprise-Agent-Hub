@@ -19,7 +19,7 @@
 | 模块 | 演示数据 | 真实来源 |
 |---|---|---|
 | 组织与成员 | `demo_seed.py` | **已接入**：Casdoor（钉钉同步），`providers/casdoor.py` |
-| 用量与成本 | `demo_seed.py` | New API（未接入） |
+| 用量与成本 | `demo_seed.py` | **已接入**：New API 调用日志，按员工专属 key 归属到人和部门 |
 | 知识库 | `demo_seed.py` | **已接入**：`vault/` 目录（Obsidian），之后换 RAGFlow 检索 |
 | 技能 | `demo_seed.py` | **已接入**：`skills/` 目录下的 SKILL.md |
 | 岗位包、成员分配 | 内存 | **已接入**：中枢数据库 `role_packs` / `role_assignments` |
@@ -65,4 +65,4 @@
 1. ~~控制台登录接 Casdoor~~（已完成）
 2. ~~成员与组织接 Casdoor~~（已完成）；在客户环境配置 Casdoor 的钉钉登录提供方和组织同步
 3. ~~岗位包落库（PostgreSQL）~~（已完成，见 [mcp-server.md](mcp-server.md)）
-4. 用量接 New API，知识库检索换 RAGFlow
+4. ~~用量接 New API~~（已完成，见 [agent.md](agent.md)）；知识库检索换 RAGFlow

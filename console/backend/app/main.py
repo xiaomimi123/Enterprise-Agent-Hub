@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import auth
+from . import agent_api, auth
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 provider: Provider = make_provider()
 app.include_router(auth.router)
+app.include_router(agent_api.router)
 # 除健康检查和登录接口外，所有接口都要求管理员登录
 api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
 

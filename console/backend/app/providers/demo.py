@@ -209,7 +209,9 @@ class DemoProvider:
             by_model[u["model"]]["tokens"] += u["tokens"]
             by_model[u["model"]]["cost"] += u["cost"]
 
-        dept_order = [x[1] for x in demo_seed.DEPARTMENTS]
+        # 部门顺序跟随组织架构；用量里出现但组织里没有的部门（如未分配）排在最后
+        dept_order = [dep["name"] for dep in d["departments"]]
+        dept_order += sorted({dn for dn in by_dept if dn not in dept_order})
         quota = {}
         for dep in d["departments"]:
             rp = self._find(d["role_packs"], dep["role_pack"], "岗位包")

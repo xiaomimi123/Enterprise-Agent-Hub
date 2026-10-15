@@ -14,17 +14,21 @@ down:
 ps:
 	docker compose ps
 
-# 首次部署：在 Casdoor 中创建企业组织和三个登录应用，把凭证写回 .env，再重启自研服务使其生效
-BOOTSTRAP = docker compose run --rm --no-deps -v ./.env:/hub.env console-api \
-	python scripts/casdoor_bootstrap.py --env-file /hub.env --casdoor-url http://casdoor:8000
+# 首次部署：初始化 Casdoor（企业组织、三个登录应用）和 New API（管理员、访问令牌），
+# 凭证写回 .env，再重启自研服务使其生效
+RUN_SCRIPT = docker compose run --rm --no-deps -v ./.env:/hub.env console-api python
+CASDOOR_BOOTSTRAP = $(RUN_SCRIPT) scripts/casdoor_bootstrap.py --env-file /hub.env --casdoor-url http://casdoor:8000
+NEWAPI_BOOTSTRAP = $(RUN_SCRIPT) scripts/newapi_bootstrap.py --env-file /hub.env --newapi-url http://new-api:3000
 
-bootstrap:      ## 初始化 Casdoor 组织与应用（生产）
-	$(BOOTSTRAP)
-	docker compose up -d console-api hub-mcp console-web
+bootstrap:      ## 初始化 Casdoor 与 New API（生产）
+	$(CASDOOR_BOOTSTRAP)
+	$(NEWAPI_BOOTSTRAP)
+	docker compose up -d
 
-bootstrap-demo: ## 初始化 Casdoor，并创建测试部门与成员（开发/演示）
-	$(BOOTSTRAP) --demo
-	docker compose up -d console-api hub-mcp console-web
+bootstrap-demo: ## 初始化，并创建测试部门、成员和模拟模型（开发/演示）
+	$(CASDOOR_BOOTSTRAP) --demo
+	$(NEWAPI_BOOTSTRAP) --demo
+	docker compose up -d
 
 db-hub:         ## 为已初始化过的 PostgreSQL 补建中枢数据库（可重复执行）
 	docker compose exec postgres bash /ensure-hub-db.sh

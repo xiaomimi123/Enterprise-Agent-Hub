@@ -155,7 +155,8 @@ def main() -> None:
     console_app = ensure_app(c, org_name, "hub-console", "智能体中枢控制台", redirect_uris,
                              ["authorization_code", "refresh_token"], console_url)
     # 员工端官方 agent 与外部智能体各用一个应用，MCP Server 按令牌来自哪个应用区分入口
-    agent_app = ensure_app(c, org_name, "hub-agent", "员工端 agent", ["http://localhost/callback"],
+    # 员工端在本机 127.0.0.1:27891 接收浏览器登录回调（授权码 + PKCE）
+    agent_app = ensure_app(c, org_name, "hub-agent", "员工端 agent", ["http://127.0.0.1:27891/callback"],
                            agent_grants, console_url)
     external_app = ensure_app(c, org_name, "hub-external", "外部智能体（MCP 接入）", ["http://localhost/callback"],
                               agent_grants, console_url)
@@ -172,7 +173,9 @@ def main() -> None:
         "HUB_EXTERNAL_CLIENT_SECRET": external_app["clientSecret"],
     }
     if args.demo:
-        values |= {"XINGHE_ADMIN_PASSWORD": org_admin_pw, "XINGHE_USER_PASSWORD": user_pw}
+        # COMPOSE_PROFILES=demo 让 docker compose 同时管理模拟模型服务
+        values |= {"XINGHE_ADMIN_PASSWORD": org_admin_pw, "XINGHE_USER_PASSWORD": user_pw,
+                   "HUB_AGENT_PASSWORD_LOGIN": "true", "COMPOSE_PROFILES": "demo"}
     upsert_env(env_path, values)
     print(f"✓ 应用凭证已写入 {env_path}")
 

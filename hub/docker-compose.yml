@@ -35,7 +35,14 @@ x-hub-backend: &hub-backend
     HUB_DATABASE_URL: postgresql://hub:${HUB_DB_PASSWORD}@postgres:5432/hub
     HUB_MCP_PUBLIC_URL: http://${HUB_HOST}:${MCP_PORT}/mcp
     HUB_AGENT_CLIENT_IDS: ${HUB_AGENT_CLIENT_ID:-}
+    HUB_AGENT_CLIENT_SECRET: ${HUB_AGENT_CLIENT_SECRET:-}
+    HUB_AGENT_PASSWORD_LOGIN: ${HUB_AGENT_PASSWORD_LOGIN:-false}
     HUB_EXTERNAL_CLIENT_IDS: ${HUB_EXTERNAL_CLIENT_ID:-}
+    NEWAPI_ENDPOINT: http://new-api:3000
+    NEWAPI_PUBLIC_URL: http://${HUB_HOST}:${NEWAPI_PORT}
+    NEWAPI_ACCESS_TOKEN: ${NEWAPI_ACCESS_TOKEN:-}
+    NEWAPI_ADMIN_ID: ${NEWAPI_ADMIN_ID:-}
+    HUB_DEFAULT_MODEL: ${HUB_DEFAULT_MODEL:-}
 
 services:
   postgres:
@@ -141,6 +148,14 @@ services:
         condition: service_healthy
     ports:
       - "${MCP_PORT}:8200"
+
+  # 开发/演示用的模拟大模型，仅在 demo profile 下启动（make bootstrap-demo 会开启）
+  mock-llm:
+    image: hub-backend:${HUB_VERSION:-dev}
+    build: ../console/backend
+    profiles: ["demo"]
+    restart: unless-stopped
+    command: ["uvicorn", "app.mock_llm:app", "--host", "0.0.0.0", "--port", "8300"]
 
   console-web:
     build: ../console/frontend

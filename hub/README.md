@@ -4,11 +4,12 @@
 
 | 服务 | 作用 | 默认端口 | 来源 |
 |---|---|---|---|
-| console-web | 控制台前端（nginx，并转发 /api） | **8088** | 自研，`console/frontend` |
+| console-web | 控制台前端（nginx，并转发 /api，员工端接入接口也走这里） | **8088** | 自研，`console/frontend` |
 | console-api | 控制台后端 | 不对外 | 自研，`console/backend` |
 | hub-mcp | 中枢 MCP Server，员工端 agent 连这里 | **8200** | 自研，与 console-api 同一镜像 |
 | Casdoor 4.20.0 | 身份（钉钉登录、组织架构） | 8000 | 开源镜像 |
-| New API v0.13.2 | 模型网关（按人发 key、计量） | 3000 | 开源镜像 |
+| New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 3000 | 开源镜像 |
+| mock-llm | 开发用模拟大模型，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
 | RAGFlow v0.27.2 | 知识库检索（尚未接入） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
 
@@ -27,15 +28,21 @@ cd hub
 make env          # 生成 .env，所有密码随机
 vim .env          # 把 HUB_HOST、CASDOOR_ORIGIN 改成服务器局域网 IP；HUB_ORG / HUB_ORG_DISPLAY 改成企业名
 make up           # 构建并启动全部服务
-make bootstrap    # 在 Casdoor 里创建企业组织和三个登录应用，凭证自动写回 .env，并重启自研服务
+make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 New API（管理员、访问令牌），凭证写回 .env 并重启
 ```
 
 然后：
 1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），给企业组织配置钉钉登录和组织同步，并把管理员账号设为组织管理员
 2. 打开控制台 `http://<HUB_HOST>:8088`，用组织管理员登录
-3. 员工端 agent 连接 `http://<HUB_HOST>:8200/mcp`
+3. 在 New API 后台 `http://<HUB_HOST>:3000`（管理员 `hubadmin`，密码见 `.env` 的 `NEWAPI_ADMIN_PASSWORD`）添加真实模型渠道，把 `.env` 的 `HUB_DEFAULT_MODEL` 设为渠道里的模型名，再执行 `make up`
+4. 员工电脑上用接入器登录：`uv run agent/hub_agent.py login --hub http://<HUB_HOST>:8088`，见 [agent/README.md](../agent/README.md)
 
-**开发或演示环境**用 `make bootstrap-demo` 代替 `make bootstrap`：会额外创建 9 个部门、18 名测试成员（含管理员 `admin`），密码写在 `.env` 的 `XINGHE_ADMIN_PASSWORD` / `XINGHE_USER_PASSWORD`；并给 agent 应用开启 password 授权，方便用 `console/backend/scripts/mcp_smoke.py` 模拟员工调用。
+**开发或演示环境**用 `make bootstrap-demo` 代替 `make bootstrap`，会额外：
+- 创建 9 个部门、18 名测试成员（含管理员 `admin`），密码写在 `.env` 的 `XINGHE_ADMIN_PASSWORD` / `XINGHE_USER_PASSWORD`
+- 开启员工端账号密码登录（`HUB_AGENT_PASSWORD_LOGIN=true`）
+- 启动模拟大模型 `mock-llm`（`.env` 写入 `COMPOSE_PROFILES=demo`），并在 New API 里建好渠道，`HUB_DEFAULT_MODEL=hub-mock`
+
+之后可以用 `console/backend/scripts/mcp_smoke.py` 或员工端接入器模拟员工使用。
 
 知识库检索接入 RAGFlow 之前，不需要启动 RAGFlow。需要时：
 
@@ -50,7 +57,7 @@ make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_cou
 | `make up` | 构建并启动全部服务；代码更新后再执行一次即可升级 |
 | `make ps` / `make logs` | 查看状态 / 日志 |
 | `make down` | 停止全部服务（数据保留在 `data/`） |
-| `make bootstrap` / `make bootstrap-demo` | 初始化 Casdoor（可重复执行） |
+| `make bootstrap` / `make bootstrap-demo` | 初始化 Casdoor 与 New API（可重复执行） |
 | `make db-hub` | 给早期创建的 PostgreSQL 数据目录补建 `hub` 库 |
 | `make ragflow-up` / `make ragflow-down` | 启停 RAGFlow |
 

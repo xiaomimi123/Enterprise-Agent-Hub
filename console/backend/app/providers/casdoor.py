@@ -7,7 +7,8 @@
 | 审计链路 | 中枢数据库 audit_events（由 MCP Server 写入） |
 | 技能 | skills/ 目录下的 SKILL.md |
 | 知识库 | vault/ 目录（Obsidian），元数据见 content.KB_REGISTRY |
-| 用量、GPU 节点 | 仍为演示数据（待接 New API 与任务队列） |
+| 用量与成本 | New API 的调用日志（每个员工一个 key，按 key 名归属到人和部门）；未配置 New API 时为演示数据 |
+| GPU 节点 | 仍为演示数据（待接任务队列） |
 
 成员没有分配记录时，按部门的默认岗位包（policy.DEFAULT_ROLE_PACKS），都没有时用「通用办公」。
 """
@@ -15,12 +16,14 @@
 from __future__ import annotations
 
 import time
-from collections import Counter
+from collections import Counter, defaultdict
+from datetime import datetime
 
 import httpx
 
 from .. import content, db
 from ..config import settings
+from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import DEFAULT_ROLE_PACKS, FALLBACK_ROLE_PACK
 from .demo import DemoProvider, NotFound
 
@@ -42,6 +45,8 @@ class CasdoorProvider(DemoProvider):
             timeout=10,
         )
         self._org_synced_at = 0.0
+        self.newapi = NewApi()
+        self._usage_synced_at = 0.0
         self._users: dict[str, dict] = {}
         self._groups: list[dict] = []
         db.init_schema()
@@ -116,6 +121,46 @@ class CasdoorProvider(DemoProvider):
             "skills": self._skills(events),
             "knowledge_bases": self._knowledge_bases(events),
         })
+        self._sync_usage()
+
+    def _sync_usage(self) -> None:
+        """用 New API 的调用日志替换演示用量（缓存 60 秒）。"""
+        if not self.newapi.configured or time.time() - self._usage_synced_at < 60:
+            return
+        try:
+            logs = self.newapi.logs(days=30)
+        except (NewApiError, httpx.HTTPError):
+            return  # New API 暂时不可用时保留上一次的数据
+        by_user = {m["id"]: m for m in self.d["members"]}
+        daily: dict[tuple, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
+        per_member: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "calls": 0})
+        models = {m["id"] for m in self.d["models"]}
+        for log in logs:
+            user = user_from_token_name(log.get("token_name") or "", self.org)
+            if not user:
+                continue
+            tokens = int(log.get("prompt_tokens") or 0) + int(log.get("completion_tokens") or 0)
+            # New API 的额度单位：500000 = 1 美元
+            cost = (log.get("quota") or 0) / 500000 * settings.usd_cny
+            model = log.get("model_name") or "unknown"
+            if model not in models:
+                self.d["models"].append({"id": model, "name": model, "location": "模型网关", "rate": 0.0})
+                models.add(model)
+            day = datetime.fromtimestamp(log.get("created_at") or 0).date().isoformat()
+            dept = by_user.get(user, {}).get("dept", UNASSIGNED)
+            daily[(day, dept, model)]["tokens"] += tokens
+            daily[(day, dept, model)]["cost"] += cost
+            pm = per_member[user]
+            pm["tokens"] += tokens
+            pm["cost"] += cost
+            pm["calls"] += 1
+        self.d["usage_daily"] = [{"date": d, "dept": dept, "model": m, "tokens": v["tokens"], "cost": round(v["cost"], 4)}
+                                 for (d, dept, m), v in sorted(daily.items())]
+        self.d["member_usage"] = sorted([{
+            "member_id": u, "member": by_user.get(u, {}).get("name", u), "dept_name": by_user.get(u, {}).get("dept_name", ""),
+            "tokens": v["tokens"], "cost": round(v["cost"], 2), "calls": v["calls"],
+        } for u, v in per_member.items()], key=lambda x: x["tokens"], reverse=True)
+        self._usage_synced_at = time.time()
 
     def _skills(self, events: list[dict]) -> list[dict]:
         used = Counter(e["detail"] for e in events if e["tool"] == "skill.read" and e["result"] == "通过")

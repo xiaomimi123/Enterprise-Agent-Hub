@@ -161,11 +161,11 @@ export default function ConsoleLayout() {
           <div className="top-right">
             {live ? (
               <>
-                <Tooltip title="成员与组织来自 Casdoor（生产环境由钉钉同步）">
-                  <span className="chip"><span className="dot green" />组织：Casdoor 实时</span>
+                <Tooltip title="成员与组织来自 Casdoor（生产环境由钉钉同步），用量来自模型网关 New API，审计来自中枢 MCP Server">
+                  <span className="chip"><span className="dot green" />真实数据</span>
                 </Tooltip>
-                <Tooltip title="技能、知识库、审计、用量仍为演示数据，接入 RAGFlow / New API / MCP Server 后切换">
-                  <span className="chip warn">其余模块为演示数据</span>
+                <Tooltip title="成员、岗位包、技能、知识库、审计、用量均为真实数据；GPU 节点与服务状态待接入任务队列后切换">
+                  <span className="chip warn">GPU 节点为演示数据</span>
                 </Tooltip>
               </>
             ) : (

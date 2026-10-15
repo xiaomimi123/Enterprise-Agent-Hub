@@ -40,6 +40,19 @@ class Settings:
     mcp_public_url: str = os.getenv("HUB_MCP_PUBLIC_URL", "http://localhost:8200/mcp")
     agent_client_ids: tuple[str, ...] = tuple(x for x in os.getenv("HUB_AGENT_CLIENT_IDS", "").split(",") if x)
     external_client_ids: tuple[str, ...] = tuple(x for x in os.getenv("HUB_EXTERNAL_CLIENT_IDS", "").split(",") if x)
+    # 员工端登录时由中枢代为换取令牌，agent 应用的密钥只保存在中枢
+    agent_client_secret: str = os.getenv("HUB_AGENT_CLIENT_SECRET", "")
+    # 开发环境允许员工端用账号密码登录（生产环境走浏览器 / 钉钉扫码）
+    agent_password_login: bool = os.getenv("HUB_AGENT_PASSWORD_LOGIN", "false").lower() == "true"
+
+    # 模型网关 New API：服务端访问地址、员工端访问地址、管理员访问令牌，以及下发给员工的默认模型
+    newapi_endpoint: str = os.getenv("NEWAPI_ENDPOINT", "").rstrip("/")
+    newapi_public_url: str = (os.getenv("NEWAPI_PUBLIC_URL") or os.getenv("NEWAPI_ENDPOINT", "")).rstrip("/")
+    newapi_access_token: str = os.getenv("NEWAPI_ACCESS_TOKEN", "")
+    newapi_admin_id: str = os.getenv("NEWAPI_ADMIN_ID", "")
+    default_model: str = os.getenv("HUB_DEFAULT_MODEL", "")
+    # 用量折算人民币的汇率（New API 的额度以美元计）
+    usd_cny: float = float(os.getenv("HUB_USD_CNY", "7.2"))
 
     # 会话 cookie 是否只走 HTTPS；生产环境有 HTTPS 时设为 true
     cookie_secure: bool = os.getenv("HUB_COOKIE_SECURE", "false").lower() == "true"

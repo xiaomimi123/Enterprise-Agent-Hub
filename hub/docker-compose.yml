@@ -1,6 +1,6 @@
 # 中枢全部服务：
 #   开源组件：Casdoor（身份）、New API（模型网关）、PostgreSQL、Redis
-#   自研服务：console-web（控制台前端）、console-api（控制台后端）、hub-mcp（中枢 MCP Server）
+#   自研服务：console-web（控制台前端）、console-api（控制台后端 + 模型代理 /v1）、hub-mcp（中枢 MCP Server）
 # RAGFlow 依赖较多（ES、MySQL、MinIO 等），用官方 compose 单独部署，见 ragflow/setup.sh
 #
 # 用法：make env → 编辑 .env → make up → make bootstrap（首次）
@@ -42,7 +42,6 @@ x-hub-backend: &hub-backend
     HUB_AGENT_PASSWORD_LOGIN: ${HUB_AGENT_PASSWORD_LOGIN:-false}
     HUB_EXTERNAL_CLIENT_IDS: ${HUB_EXTERNAL_CLIENT_ID:-}
     NEWAPI_ENDPOINT: http://new-api:3000
-    NEWAPI_PUBLIC_URL: http://${HUB_HOST}:${NEWAPI_PORT}
     NEWAPI_ACCESS_TOKEN: ${NEWAPI_ACCESS_TOKEN:-}
     NEWAPI_ADMIN_ID: ${NEWAPI_ADMIN_ID:-}
     HUB_DEFAULT_MODEL: ${HUB_DEFAULT_MODEL:-}
@@ -118,8 +117,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # 只绑回环：员工的模型调用一律走中枢 /v1 代理（审计、追踪），不直连模型网关；
+    # 这个端口只留给管理员在本机开 New API 后台
     ports:
-      - "${NEWAPI_PORT}:3000"
+      - "127.0.0.1:${NEWAPI_PORT}:3000"
     environment:
       SQL_DSN: "postgresql://newapi:${NEWAPI_DB_PASSWORD}@postgres:5432/newapi"
       REDIS_CONN_STRING: "redis://:${REDIS_PASSWORD}@redis:6379"

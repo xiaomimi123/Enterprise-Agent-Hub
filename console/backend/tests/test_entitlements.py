@@ -1,3 +1,5 @@
+import pytest
+
 from app import entitlements
 from app.newapi import NewApi
 
@@ -31,6 +33,12 @@ def setup_function():
     entitlements._models_cache = (0.0, [])
 
 
+@pytest.fixture(autouse=True)
+def _no_model_key_db(monkeypatch):
+    """演示模式的测试没有数据库；发放 key 时的归属登记在这里一律跳过。"""
+    monkeypatch.setattr(entitlements.db, "register_model_key", lambda *a, **k: None)
+
+
 def test_action_policy_levels():
     assert "terminal" in entitlements.action_policy("只读")["disabled_toolsets"]
     assert "terminal" not in entitlements.action_policy("需确认")["disabled_toolsets"]
@@ -59,3 +67,15 @@ def test_quota_exhausted_marks_key():
     ent = entitlements.apply_model_limits("xinghe", "u1", PACK, na)
     assert ent["quota"]["remaining_cny"] == 0 and ent["reason"] == "本月额度已用完"
     assert na.updates[-1]["status"] == 4 and na.updates[-1]["remain_quota"] == 0
+
+
+def test_apply_registers_key_with_hub_base_url(monkeypatch):
+    reg = []
+    monkeypatch.setattr(entitlements.db, "register_model_key",
+                        lambda key, org, user, display_name="", dept="", channel="官方 agent":
+                        reg.append((key, org, user, display_name, dept)))
+    ent = entitlements.apply_model_limits("xinghe", "u1", PACK, FakeNewApi(["hub-mock"]),
+                                          display_name="林小运", dept="运营部")
+    assert reg == [("sk-test", "xinghe", "u1", "林小运", "运营部")]
+    # 模型地址指向中枢代理（审计链路），不再直连模型网关
+    assert ent["model"]["base_url"] == entitlements.settings.public_url + "/v1"

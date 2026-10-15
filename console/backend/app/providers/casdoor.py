@@ -311,11 +311,13 @@ class CasdoorProvider(DemoProvider):
     def _push_entitlements(self, user_names: list[str]) -> None:
         """把最新的模型白名单与额度推到这些成员的 key 上（只处理用过员工端的成员；失败时由巡检兜底）。"""
         enrolled = {r["user_name"]: r for r in db.agent_presence(self.org)}
+        names = {m["id"]: m["name"] for m in self.d["members"]}
         for u in user_names:
             if u not in enrolled:
                 continue
             try:
                 pack = policy.resolve_pack(self.org, u, enrolled[u]["dept"])
-                entitlements.apply_model_limits(self.org, u, pack, self.newapi)
+                entitlements.apply_model_limits(self.org, u, pack, self.newapi,
+                                                display_name=names.get(u, ""), dept=enrolled[u]["dept"])
             except Exception:  # noqa: BLE001
                 continue

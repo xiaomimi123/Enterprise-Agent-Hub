@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Iterator
@@ -110,6 +111,18 @@ CREATE TABLE IF NOT EXISTS agent_presence (
     first_seen    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (org, user_name)
+);
+
+-- 模型 key → 员工 的映射：中枢给员工发 key 时写入（只存哈希），
+-- 模型代理（model_proxy.py）据此把每次模型调用归属到人并写进审计
+CREATE TABLE IF NOT EXISTS model_keys (
+    key_hash     TEXT PRIMARY KEY,
+    org          TEXT NOT NULL,
+    user_name    TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    dept         TEXT NOT NULL DEFAULT '',
+    channel      TEXT NOT NULL DEFAULT '官方 agent',
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 """
 
@@ -328,3 +341,27 @@ def touch_presence(org: str, user_name: str, dept: str = "", client: str = "", o
 def agent_presence(org: str) -> list[dict]:
     with connect() as conn:
         return conn.execute("SELECT * FROM agent_presence WHERE org = %s", (org,)).fetchall()
+
+
+# ---- 模型 key 映射 ----
+
+def _key_hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def register_model_key(key: str, org: str, user_name: str, display_name: str = "", dept: str = "",
+                       channel: str = "官方 agent") -> None:
+    """员工专属模型 key 发放时登记归属；重复登记只补空缺字段（姓名、部门以最新一次有值的为准）。"""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO model_keys (key_hash, org, user_name, display_name, dept, channel) "
+            "VALUES (%(h)s, %(org)s, %(u)s, %(dn)s, %(dept)s, %(ch)s) "
+            "ON CONFLICT (key_hash) DO UPDATE SET org = EXCLUDED.org, user_name = EXCLUDED.user_name, "
+            "display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), model_keys.display_name), "
+            "dept = COALESCE(NULLIF(EXCLUDED.dept, ''), model_keys.dept), updated_at = now()",
+            {"h": _key_hash(key), "org": org, "u": user_name, "dn": display_name, "dept": dept, "ch": channel})
+
+
+def model_key_owner(key: str) -> dict | None:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM model_keys WHERE key_hash = %s", (_key_hash(key),)).fetchone()

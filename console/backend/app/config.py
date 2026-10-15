@@ -46,8 +46,8 @@ class Settings:
     agent_password_login: bool = os.getenv("HUB_AGENT_PASSWORD_LOGIN", "false").lower() == "true"
 
     # 模型网关 New API：服务端访问地址、员工端访问地址、管理员访问令牌，以及下发给员工的默认模型
+    # 员工端不直连模型网关：模型地址由 entitlements 指向中枢 /v1 代理（审计链路），这里只留服务端访问地址
     newapi_endpoint: str = os.getenv("NEWAPI_ENDPOINT", "").rstrip("/")
-    newapi_public_url: str = (os.getenv("NEWAPI_PUBLIC_URL") or os.getenv("NEWAPI_ENDPOINT", "")).rstrip("/")
     newapi_access_token: str = os.getenv("NEWAPI_ACCESS_TOKEN", "")
     newapi_admin_id: str = os.getenv("NEWAPI_ADMIN_ID", "")
     default_model: str = os.getenv("HUB_DEFAULT_MODEL", "")

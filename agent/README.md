@@ -6,7 +6,7 @@
 2. **领取配置**：专属模型 key（按人计量）、中枢 MCP 地址、岗位包里的技能
 3. **生成独立的 Hermes 配置**：默认在 `~/.hub-agent/hermes`，与员工个人的 Hermes（`~/.hermes`）完全隔开
 4. **按岗位包约束本机**：关闭不允许的工具、危险命令必须确认、写文件只能写在工作区（默认 `~/Documents/中枢工作区`，可用 `HUB_AGENT_WORKSPACE` 修改）
-5. **启动 Hermes**
+5. **启动 Hermes**：每次启动生成一个追踪 ID，随请求头带给中枢（模型代理 + MCP），同一场对话在控制台审计里是同一条链路
 
 ## 前提
 
@@ -43,8 +43,8 @@ uv run agent/hub_agent.py logout    # 退出，清除本机的令牌、模型 ke
 ├── profile.json         # 最近一次领取的配置摘要
 ├── skills/<技能>/SKILL.md # 只包含岗位包里的技能，每次同步整体替换
 └── hermes/              # 专用的 HERMES_HOME
-    ├── config.yaml      # 模型 → New API，MCP → 中枢，技能目录 → 上面的 skills/
-    └── .env             # HUB_AGENT_TOKEN、HUB_MODEL_KEY（权限 600）
+    ├── config.yaml      # 模型 → 中枢 /v1 代理，MCP → 中枢，技能目录 → 上面的 skills/（两处都带追踪头）
+    └── .env             # HUB_AGENT_TOKEN、HUB_MODEL_KEY、HUB_TRACE_ID（权限 600）
 ```
 
 设计说明见 [docs/agent.md](../docs/agent.md)。

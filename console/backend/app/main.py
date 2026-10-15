@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, auth, gpu
+from . import agent_api, auth, gpu, model_proxy
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -36,6 +36,8 @@ app.add_middleware(
 provider: Provider = make_provider()
 app.include_router(auth.router)
 app.include_router(agent_api.router)
+# 员工模型调用代理（/v1）：不经管理员登录，靠员工专属模型 key 鉴权
+app.include_router(model_proxy.router)
 # 除健康检查和登录接口外，所有接口都要求管理员登录
 api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
 

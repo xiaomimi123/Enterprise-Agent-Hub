@@ -9,7 +9,8 @@
 2. 领取配置：模型 key（按人计量）、中枢 MCP 地址、岗位包内的技能
 3. 生成一套独立的 Hermes 配置（默认 ~/.hub-agent/hermes），与员工个人的 Hermes 配置完全隔开；
    按岗位包的「本机动作上限」关闭相应工具、危险命令必须确认、写文件限定在工作区（默认 ~/Documents/中枢工作区）
-4. 用这套配置启动 Hermes
+4. 用这套配置启动 Hermes。每次启动 chat 生成一个追踪 ID（HUB_TRACE_ID），随请求头带给中枢的
+   模型代理和 MCP——同一次对话的模型调用、检索、出图在控制台审计里是同一条链路
 
 用法：
     uv run agent/hub_agent.py login --hub http://<中枢>:8088          # 浏览器登录
@@ -34,13 +35,14 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 import webbrowser
 from pathlib import Path
 
 import httpx
 import yaml
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 # 员工的工作区：agent 只能把文件写在这里（以及它自己的配置目录）
 WORKSPACE = Path(os.environ.get("HUB_AGENT_WORKSPACE", Path.home() / "Documents" / "中枢工作区"))
@@ -166,10 +168,11 @@ def fresh_creds() -> dict:
 
 def cmd_sync(_args=None) -> dict:
     creds = fresh_creds()
-    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=60, headers={
-        "Authorization": f"Bearer {creds['access_token']}", "X-Hub-Client": "hermes",
-        "X-Hub-OS": f"{platform.system()} {platform.release()}", "X-Hub-Agent-Version": VERSION,
-    })
+    headers = {"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Client": "hermes",
+               "X-Hub-OS": f"{platform.system()} {platform.release()}", "X-Hub-Agent-Version": VERSION}
+    if os.environ.get("HUB_TRACE_ID"):
+        headers["X-Hub-Trace-Id"] = os.environ["HUB_TRACE_ID"]
+    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=60, headers=headers)
     if r.status_code != 200:
         fail(f"领取配置失败：{r.json().get('detail', r.text)}")
     cfg = r.json()
@@ -183,9 +186,10 @@ def cmd_sync(_args=None) -> dict:
         p.write_text(s["content"] or "")
 
     # Hermes 配置：这个目录由接入器管理，每次同步整体重写
-    env = {"HUB_AGENT_TOKEN": creds["access_token"]}
+    env = {"HUB_AGENT_TOKEN": creds["access_token"], "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID", "")}
     conf: dict = {
-        "mcp_servers": {"hub": {"url": cfg["mcp_url"], "headers": {"Authorization": "Bearer ${HUB_AGENT_TOKEN}"}}},
+        "mcp_servers": {"hub": {"url": cfg["mcp_url"], "headers": {
+            "Authorization": "Bearer ${HUB_AGENT_TOKEN}", "X-Hub-Trace-Id": "${HUB_TRACE_ID}"}}},
         "skills": {"external_dirs": [str(SKILLS_DIR)]},
         # 中枢工具是员工每天都要用的核心能力，直接交给模型，不走 Hermes 的延迟加载（tool_search）
         "tools": {"tool_search": {"enabled": "off"}},
@@ -200,7 +204,9 @@ def cmd_sync(_args=None) -> dict:
         m = cfg["model"]
         env["HUB_MODEL_KEY"] = m["api_key"]
         conf["model"] = {"provider": "custom", "default": m["model"], "base_url": m["base_url"],
-                         "api_key": "${HUB_MODEL_KEY}"}
+                         "api_key": "${HUB_MODEL_KEY}",
+                         # 模型调用也带上追踪头：中枢的模型代理据此把调用并入同一条审计链路
+                         "default_headers": {"X-Hub-Trace-Id": "${HUB_TRACE_ID}"}}
     HERMES_HOME.mkdir(parents=True, exist_ok=True)
     write_private(HERMES_HOME / "config.yaml", "# 由企业智能体中枢接入器生成，请勿手动修改\n"
                   + yaml.safe_dump(conf, allow_unicode=True, sort_keys=False))
@@ -246,6 +252,8 @@ def cmd_logout(_args) -> None:
 
 
 def cmd_chat(args) -> None:
+    # 每次对话一个追踪 ID：这一场里的模型调用与中枢工具调用共用（enroll、MCP、模型代理都认它）
+    os.environ["HUB_TRACE_ID"] = f"chat-{uuid.uuid4().hex[:12]}"
     cmd_sync()
     hermes = shutil.which("hermes")
     if not hermes:

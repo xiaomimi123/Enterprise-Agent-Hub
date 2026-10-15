@@ -5,10 +5,10 @@
 | 服务 | 作用 | 默认端口 | 来源 |
 |---|---|---|---|
 | console-web | 控制台前端（nginx，并转发 /api，员工端接入接口也走这里） | **8088** | 自研，`console/frontend` |
-| console-api | 控制台后端 | 不对外 | 自研，`console/backend` |
+| console-api | 控制台后端；含模型代理 `/v1`（员工模型调用经它进审计） | 不对外（经 console-web 转发 /api、/v1） | 自研，`console/backend` |
 | hub-mcp | 中枢 MCP Server，员工端 agent 连这里 | **8200** | 自研，与 console-api 同一镜像 |
 | Casdoor 4.20.0 | 身份（钉钉登录、组织架构） | 8000 | 开源镜像 |
-| New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 3000 | 开源镜像 |
+| New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 仅本机回环（管理后台） | 开源镜像 |
 | hub-worker | GPU 调度：把生图任务派给 ComfyUI 节点、取回结果 | 不对外 | 自研，与 console-api 同一镜像 |
 | mock-llm / mock-comfyui | 开发用模拟大模型 / 模拟 GPU 节点，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
@@ -35,7 +35,7 @@ make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 
 然后：
 1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），给企业组织配置钉钉登录和组织同步，并把管理员账号设为组织管理员
 2. 打开控制台 `http://<HUB_HOST>:8088`，用组织管理员登录
-3. 在 New API 后台 `http://<HUB_HOST>:3000`（管理员 `hubadmin`，密码见 `.env` 的 `NEWAPI_ADMIN_PASSWORD`）添加真实模型渠道，把 `.env` 的 `HUB_DEFAULT_MODEL` 设为渠道里的模型名，再执行 `make up`
+3. 在中枢服务器本机打开 New API 后台 `http://127.0.0.1:3001`（不对局域网开放，员工调用一律走中枢代理；管理员 `hubadmin`，密码见 `.env` 的 `NEWAPI_ADMIN_PASSWORD`）添加真实模型渠道，把 `.env` 的 `HUB_DEFAULT_MODEL` 设为渠道里的模型名，再执行 `make up`
 4. 在 `.env` 的 `HUB_GPU_NODES` 里登记 GPU 机器上的 ComfyUI（见 [docs/gpu.md](../docs/gpu.md)），再执行 `make up`
 5. 员工电脑上用接入器登录：`uv run agent/hub_agent.py login --hub http://<HUB_HOST>:8088`，见 [agent/README.md](../agent/README.md)
 

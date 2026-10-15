@@ -26,7 +26,7 @@ cd console/backend
 uv sync
 uv run uvicorn app.main:app --reload --port 8100
 
-# 前端：http://localhost:5173（/api 自动代理到 8100）
+# 前端：http://localhost:5173（/api、/v1 自动代理到 8100；/v1 是员工模型调用代理，见 docs/audit.md）
 cd console/frontend
 npm install
 npm run dev

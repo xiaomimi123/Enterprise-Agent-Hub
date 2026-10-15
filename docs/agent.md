@@ -7,11 +7,13 @@
 ## 链路
 
 ```
-员工 ──> hub_agent.py chat ──> Hermes（独立的 HERMES_HOME）
-                                 ├─ 模型 ──> New API（员工专属 key，按人计量）──> 真实模型 / 开发用模拟模型
+员工 ──> hub_agent.py chat ──> Hermes（独立的 HERMES_HOME，本次对话一个追踪 ID）
+                                 ├─ 模型 ──> 中枢 /v1 代理（审计 token 数）──> New API（员工专属 key，按人计量）──> 真实模型 / 开发用模拟模型
                                  ├─ MCP  ──> 中枢 hub-mcp（员工令牌鉴权、按岗位包过滤、审计）
                                  └─ 技能 ──> ~/.hub-agent/skills（只含岗位包里的技能）
 ```
+
+每次启动 `chat`，接入器生成一个追踪 ID（如 `chat-079e33ba88ea`），通过 Hermes 配置里的 `model.default_headers` 和 MCP `headers` 同时下发——同一场对话的模型调用、检索、出图在控制台审计里是同一条链路（见 [audit.md](audit.md)）。
 
 ## 关键设计
 
@@ -24,7 +26,7 @@
 中枢刻意不代换授权码：实测发现，带着应用密钥换码时，Casdoor 对未带 PKCE 的授权码不做校验，被截获的授权码就可能被冒用；不带密钥时 Casdoor 必须校验 PKCE。中枢的 `/api/agent/token` 只保留开发用的账号密码登录，并且需要显式开启（`HUB_AGENT_PASSWORD_LOGIN=true`，`make bootstrap-demo` 会开启）。
 
 **领取配置：`POST /api/agent/enroll`。** 凭员工令牌返回：
-- 模型：New API 地址、员工专属 key（名为 `hub-<组织>-<用户名>`，不存在则自动创建）、默认模型 `HUB_DEFAULT_MODEL`
+- 模型：中枢代理地址（`<中枢>/v1`，见 [audit.md](audit.md)）、员工专属 key（名为 `hub-<组织>-<用户名>`，不存在则自动创建）、默认模型 `HUB_DEFAULT_MODEL`
 - MCP 地址
 - 岗位包里的技能全文（岗位包没有 `skill.read` 工具时为空）
 
@@ -50,7 +52,7 @@
 
 **在线状态。** 员工端领取配置、或调用中枢 MCP 时刷新 `agent_presence`（同一员工 60 秒内只写一次）。控制台：10 分钟内活跃为「在线」，用过但超过 10 分钟为「离线」，从没用过为「未安装」，并显示系统和接入器版本。
 
-**按人计量。** New API 的调用日志按 key 名记录，控制台「用量与成本」据此按人、按部门、按模型统计（缓存 60 秒）。额度单位 500000 = 1 美元，按 `HUB_USD_CNY`（默认 7.2）折算人民币。
+**按人计量。** New API 的调用日志按 key 名记录，控制台「用量与成本」据此按人、按部门、按模型统计（缓存 60 秒）。额度单位 500000 = 1 美元，按 `HUB_USD_CNY`（默认 7.2）折算人民币。模型调用本身走中枢的 `/v1` 代理（token 数进审计链路），直连 New API 被网络层封堵（端口只对中枢开放）。
 
 **中枢工具不延迟加载。** Hermes 默认把 MCP 工具藏在 `tool_search` 后面，用到时再搜。中枢工具是员工的核心能力，接入器设置 `tools.tool_search.enabled: off`，让模型直接看到这些工具。
 

@@ -1,7 +1,8 @@
 """岗位包 → 员工端的实际权益。
 
 岗位包里配置的「可用模型、每人月额度、本机动作上限」在这里落地：
-- 模型与额度：写到员工专属的 New API key 上（模型白名单 + 本月剩余额度），超出由模型网关直接拒绝
+- 模型与额度：写到员工专属的 New API key 上（模型白名单 + 本月剩余额度），超出由模型网关直接拒绝；
+  模型地址指向中枢 /v1 代理，模型调用进入审计链路（key → 员工 的映射同时登记到 model_keys 表）
 - 本机动作上限：翻译成 Hermes 的配置（关闭哪些工具组、危险命令是否必须确认、写文件限定在工作区）
 
 调用时机：员工端领取配置时、控制台修改岗位包或成员分配时、GPU 调度服务每 10 分钟巡检一次（跨月自动恢复额度）。
@@ -59,8 +60,13 @@ def month_used_quota(na: NewApi, name: str) -> int:
                if log.get("token_name") == name and (log.get("created_at") or 0) >= start)
 
 
-def apply_model_limits(org: str, user_name: str, pack: dict, na: NewApi | None = None) -> dict:
-    """按岗位包设置员工 key 的模型白名单和本月剩余额度，返回下发给员工端的模型信息。"""
+def apply_model_limits(org: str, user_name: str, pack: dict, na: NewApi | None = None,
+                       display_name: str = "", dept: str = "") -> dict:
+    """按岗位包设置员工 key 的模型白名单和本月剩余额度，返回下发给员工端的模型信息。
+
+    base_url 指向中枢的 /v1 代理而不是模型网关：员工的每次模型调用都经过中枢，
+    进入审计链路（model_proxy.py）；白名单、额度、计量仍由模型网关执行。
+    """
     na = na or NewApi()
     if not na.configured:
         return {"model": None, "reason": "中枢未配置模型网关"}
@@ -70,6 +76,8 @@ def apply_model_limits(org: str, user_name: str, pack: dict, na: NewApi | None =
     used = month_used_quota(na, name)
     token = na.ensure_token(name)
     na.set_limits(token, allowed, budget - used)
+    key = na.token_key(token["id"])
+    db.register_model_key(key, org, user_name, display_name, dept)
     quota = {"monthly_cny": pack.get("monthly_quota", 0),
              "used_cny": round(used / QUOTA_PER_USD * settings.usd_cny, 2),
              "remaining_cny": round(max(0, budget - used) / QUOTA_PER_USD * settings.usd_cny, 2)}
@@ -77,7 +85,7 @@ def apply_model_limits(org: str, user_name: str, pack: dict, na: NewApi | None =
         return {"model": None, "quota": quota,
                 "reason": f"岗位包「{pack['name']}」没有配置模型网关里可用的模型，请联系管理员"}
     default = settings.default_model if settings.default_model in allowed else allowed[0]
-    return {"model": {"base_url": f"{settings.newapi_public_url}/v1", "api_key": na.token_key(token["id"]),
+    return {"model": {"base_url": f"{settings.public_url}/v1", "api_key": key,
                       "model": default, "allowed": allowed},
             "quota": quota,
             "reason": "本月额度已用完" if budget - used <= 0 else ""}
@@ -94,7 +102,7 @@ def resync_all(org: str) -> int:
     for p in db.agent_presence(org):
         pack = policy.resolve_pack(org, p["user_name"], p["dept"])
         try:
-            apply_model_limits(org, p["user_name"], pack, na)
+            apply_model_limits(org, p["user_name"], pack, na, dept=p["dept"])
             n += 1
         except NewApiError:
             continue

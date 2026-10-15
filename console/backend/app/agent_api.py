@@ -90,7 +90,7 @@ def enroll(authorization: str | None = Header(default=None), x_hub_os: str = Hea
 
     # 模型白名单与本月额度写到员工的 key 上，超出由模型网关拒绝
     try:
-        ent = entitlements.apply_model_limits(p.org, p.user_name, p.pack)
+        ent = entitlements.apply_model_limits(p.org, p.user_name, p.pack, display_name=p.display_name, dept=dept)
     except NewApiError as e:
         raise HTTPException(502, str(e))
 

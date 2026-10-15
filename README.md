@@ -6,13 +6,13 @@
 - 「管 agent，不管人」：管理员下发任务和策略、查看 agent 操作日志，不看屏幕
 - 两级接入：自研 agent（Hermes 改造，可本机操作）+ 第三方智能体（MCP 只读接入）
 
-> 当前阶段：**阶段 0 · 最小链路验证**。控制台已接入 Casdoor 登录；中枢 MCP Server 完成（令牌鉴权、按岗位包过滤、审计落库）；员工端 Hermes 已通过接入器接入（专属模型 key、按人计量）；GPU 调度完成（模拟节点验证）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
+> 当前阶段：**阶段 0 · 最小链路验证（5 步全部完成）**。控制台已接入 Casdoor 登录；中枢 MCP Server 完成（令牌鉴权、按岗位包过滤、审计落库）；员工端 Hermes 已通过接入器接入（专属模型 key、按人计量）；GPU 调度完成（模拟节点验证）；审计串联完成（模型调用经中枢代理，登录 → 查询 → 出图 → token 消耗一条链路）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)。
 
 ## 架构
 
 | 角色 | 部署位置 | 组成 |
 |---|---|---|
-| 中枢 | 1 台服务器（无需 GPU） | Casdoor（钉钉登录）、RAGFlow（知识库）、New API（模型网关）、自研 MCP Server、任务队列、审计日志 |
+| 中枢 | 1 台服务器（无需 GPU） | Casdoor（钉钉登录）、RAGFlow（知识库）、New API（模型网关）、自研 MCP Server、模型代理（/v1）、任务队列、审计串联 |
 | GPU 能力节点 | 带 N 卡的机器 | ComfyUI |
 | 员工端 | 每位员工电脑 | Hermes agent，通过 MCP 连中枢 |
 
@@ -24,7 +24,7 @@ Python / FastAPI（自研 MCP Server、任务队列、控制台后端）· React
 
 ```
 console/          中台控制台（Web 管理端，自研）
-hub/mcp-server/   中枢 MCP Server 说明（代码在 console/backend/app/mcp_server.py）
+hub/mcp-server/   中枢 MCP Server 说明（代码在 console/backend/app/mcp_server.py；模型代理在 app/model_proxy.py）
 gpu-node/         GPU 节点的 ComfyUI 工作流模板（调度代码在 console/backend/app/gpu.py）
 agent/            员工端接入器 hub_agent.py（把 Hermes 接到中枢）
 skills/           岗位技能仓库（<部门>/<技能 id>/SKILL.md，可用 Obsidian 编辑）

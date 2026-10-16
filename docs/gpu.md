@@ -20,7 +20,16 @@
 
 **节点就是标准 ComfyUI，不装插件。** 中枢只用 ComfyUI 自带的 HTTP 接口：`POST /prompt`、`GET /history/{id}`、`GET /view`、`GET /system_stats`。GPU 机器上照常运行 ComfyUI（加 `--listen` 让局域网可访问），在 `.env` 的 `HUB_GPU_NODES` 里登记即可。
 
-**工作流是模板文件。** `gpu-node/workflows/xhs-cover.json` 是 ComfyUI 的 API 格式工作流（3:4 竖版，一次 3 张），其中的 `{{prompt}}`、`{{seed}}`、`{{checkpoint}}` 等在派发时替换。设计师在 ComfyUI 里调好工作流后，用「导出（API）」替换这个文件，把需要变化的值改成占位符即可。只读挂载进容器，改完不用重建镜像。
+**工作流是模板文件 + 一张注册表。** 模板放在 `gpu-node/workflows/*.json`（ComfyUI 的 API 格式），`{{prompt}}`、`{{seed}}`、`{{checkpoint}}` 等在派发时替换；设计师在 ComfyUI 里调好后用「导出（API）」覆盖对应文件、把该变的值改成占位符即可，改完不用重建镜像。`app/gpu.py` 的 `WORKFLOWS` 是调度注册表，决定每个工作流用哪个 MCP 工具、等多久：
+
+| 模板 | 用途 | 输出 | 等待 | 要求岗位包的 |
+|---|---|---|---|---|
+| `xhs-cover.json` | 封面图（SDXL 通用模板） | 3 张 3:4 竖版 | 90 秒 | `image.cover` |
+| `zimage-cover.json` | 封面图（Z-Image Turbo，实机在跑） | 1 张 1140×1472 | 90 秒 | `image.cover` |
+| `minimax-video-t2v.json` | 短视频 · 文生视频 | 1 条 768×1344、约 4.5 秒含音频 | 15 分钟 | `video.clip` |
+| `minimax-video.json` | 短视频 · 图生视频（R2V） | 同上 | 15 分钟 | `video.clip` |
+
+**等待时长写在模板的 `_meta.wait_seconds` 里**，缺省按类型给（图 90 秒、视频 15 分钟）。生图是秒级、视频是分钟级，员工端 agent 一直是同一个「提交 → 等待 → 超时就拿任务号查」的流程。
 
 **队列在数据库里。** 任务状态 `queued → running → done / failed`。领取任务用 `FOR UPDATE SKIP LOCKED`，以后多开几个调度进程也不会重复派发。员工端的 MCP 调用最多等 90 秒：完成就直接返回图片链接；没完成就返回任务号，用 `get_cover_task` 查进度。
 
@@ -30,12 +39,30 @@
 
 **控制台显示真实状态。** 总览的「GPU 能力节点」卡片读取 `gpu_nodes` / `gpu_tasks`：在线 / 忙碌 / 空闲 / 离线、显存占用、全局排队数、今日完成数。
 
+**视频：图生视频要先把参考图送到节点上。** 参考图在员工电脑上，中枢读不到那个路径，所以 `generate_video` 收的是 **base64**（员工端 agent 读本地图片后编码传过来），中枢解码后上传到节点的 ComfyUI `input` 目录，再按文件名构造 `timeline_data`。帧数由秒数换算到 MiniMax H3 的 `17k+5` 网格（4 秒 → 107 帧 ≈ 4.5 秒），分辨率是 32 的倍数。
+
+**结果可能是视频。** 收取结果时保留节点给出的扩展名（`.png` / `.mp4`），下载接口按扩展名给媒体类型，浏览器能直接播。审计里写「生成 1 条视频」还是「生成 3 张图」按实际结果区分。
+
+## 实机节点（2026-10-16 交接）
+
+用户的 Windows 机器已搭好并接入：
+
+| 项 | 值 |
+|---|---|
+| 地址 | `http://100.89.237.82:8188`（Tailscale 网段，端口只对 100.64.0.0/10 放行） |
+| 硬件 | RTX 5080 16GB / ComfyUI 0.40.0 / PyTorch 2.12.1+cu130，已注册为 Windows 服务开机自启 |
+| 生图 | Z-Image Turbo（int8 量化）+ qwen_3_4b 文本编码器 + ae VAE → 约 24 秒/张 |
+| 生视频 | MiniMax H3（ref2va / fl2va int8 量化）+ qwen3vl_32b nvfp4 编码器 → 约 8.5 分钟/条（16GB 显存 offload，属正常） |
+| 视频硬约束 | 帧数必须 17k+5、分辨率必须 32 的倍数 |
+
 ## 开发用模拟节点
 
-`console/backend/app/mock_comfyui.py`，在 `demo` profile 下作为 `mock-comfyui` 服务运行，接口与真 ComfyUI 一致：一次只处理一个任务，每个约 4 秒，按提示词里的主文案画 3 张占位封面。`make bootstrap-demo` 在没有配置节点时会自动登记它。
+`console/backend/app/mock_comfyui.py`，在 `demo` profile 下作为 `mock-comfyui` 服务运行，接口与真 ComfyUI 一致（含 `/upload/image`）：一次只处理一个任务，出图约 4 秒、出视频约 13 秒，按提示词里的主文案画占位图；视频工作流返回一个最小 MP4 容器（只为跑通链路）。`make bootstrap-demo` 在没有配置节点时会自动登记它。
 
 ```bash
-cd console/backend && uv run python scripts/gpu_smoke.py   # 两人同时出图（第二个排队）+ 财务被拒
+cd console/backend
+uv run python scripts/gpu_smoke.py     # 两人同时出图（第二个排队）+ 财务被拒
+uv run python scripts/video_smoke.py   # 文生视频 + 图生视频（base64 参考图）+ 运营岗位被拒
 ```
 
 ## 接入真实 GPU 机器

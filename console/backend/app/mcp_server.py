@@ -11,8 +11,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import time
+import uuid
+from pathlib import Path
 from urllib.parse import unquote
 
 import jwt
@@ -21,7 +25,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import content, db, gpu, policy
+from . import comfyui, content, db, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -30,7 +34,7 @@ INSTRUCTIONS = """这是企业智能体中枢。你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
-- generate_cover / get_cover_task：派发到公司 GPU 节点生成封面图（排队执行）
+- generate_cover / generate_video / get_cover_task：派发到公司 GPU 节点生成封面图或短视频（排队执行）
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
@@ -176,26 +180,95 @@ def search_knowledge(query: str, ctx: Context, knowledge_base: str | None = None
     return json.dumps(hits, ensure_ascii=False)
 
 
-COVER_WAIT_SECONDS = 90
+def _dispatch(p: policy.Principal, ctx: Context, tool: str, workflow: str, params: dict, note: str) -> str:
+    """派发一个 GPU 任务并等待结果：等待时长取工作流自己声明的值（生图 90 秒、视频 15 分钟）。"""
+    spec = gpu.workflow_spec(workflow)
+    trace_id, _ = _trace(ctx)
+    t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name,
+                        dept=p.dept, channel=p.channel, workflow=workflow, params=params)
+    _audit(ctx, p, "工具", tool, f"派发{spec['label']}任务{note}，前面排队 {t['ahead']} 个", "通过")
+    return json.dumps(gpu.describe(gpu.wait_task(t["id"], spec["wait_seconds"])), ensure_ascii=False)
 
 
-@mcp.tool(description="生成小红书封面图：派发到公司 GPU 节点排队执行，一次出 3 版。"
+@mcp.tool(description="生成小红书封面图：派发到公司 GPU 节点排队执行。"
                       "title 为封面主文案（8–12 字为宜），description 可补充画面风格。"
-                      "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_cover_task 查询")
+                      "完成后返回图片链接；若还在排队/生成，返回任务号，稍后用 get_cover_task 查询")
 def generate_cover(title: str, ctx: Context, description: str | None = None) -> str:
     p = _principal()
     if p.is_external or not policy.can_use_tool(p, "image.cover"):
         _audit(ctx, p, "拦截", "image.cover", f"岗位包「{p.pack['name']}」没有生成封面图的权限", "拒绝")
         return "无权使用生成封面图。"
-    trace_id, _ = _trace(ctx)
     prompt = f"小红书封面，主文案「{title}」，{description or '柔和自然光，干净留白，高级质感'}"
-    t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name, dept=p.dept,
-                        channel=p.channel, workflow="xhs-cover", params={"prompt": prompt, "title": title})
-    _audit(ctx, p, "工具", "image.cover", f"派发封面任务「{title}」，前面排队 {t['ahead']} 个", "通过")
-    return json.dumps(gpu.describe(gpu.wait_task(t["id"], COVER_WAIT_SECONDS)), ensure_ascii=False)
+    return _dispatch(p, ctx, "image.cover", "zimage-cover", {"prompt": prompt, "title": title}, f"「{title}」")
 
 
-@mcp.tool(description="查询封面图任务的进度和结果")
+MAX_REF_BYTES = 12 * 1024 * 1024  # 参考图上限（百万像素级产品图够用）
+
+
+def _reference_bytes(reference_image: str) -> bytes | None:
+    """取参考图内容：优先 base64。
+
+    员工的参考图在员工电脑上，中枢 MCP 读不到那个路径——正常走 base64
+    （agent 读本地文件后编码传过来），本地测试时也可以直接给中枢能访问的路径。
+    """
+    data = reference_image.strip()
+    if data.startswith("data:"):
+        data = data.split(",", 1)[-1]
+    if len(data) > 256 and not data.startswith(("/", "~")):
+        try:
+            return base64.b64decode(data, validate=True)
+        except (ValueError, binascii.Error):
+            pass
+    path = Path(data).expanduser()
+    return path.read_bytes() if path.is_file() else None
+
+
+@mcp.tool(description="生成短视频：给一句画面描述，在公司 GPU 节点上生成 4–5 秒的竖版视频（含音频）。"
+                      "给了参考图就是图生视频（画面跟着这张图走，适合产品图/人物图动起来）——"
+                      "参考图请用 base64 传入（先读本机图片再编码），不要传本机文件路径，"
+                      "不给就是文生视频。视频是分钟级任务，一般先返回任务号，"
+                      "用 get_cover_task 查进度和视频链接。可选 seconds（默认 4，范围 1–9）控制时长")
+def generate_video(prompt: str, ctx: Context, reference_image: str | None = None, seconds: float = 4.0) -> str:
+    p = _principal()
+    if p.is_external or not policy.can_use_tool(p, "video.clip"):
+        _audit(ctx, p, "拦截", "video.clip", f"岗位包「{p.pack['name']}」没有生成短视频的权限", "拒绝")
+        return "无权使用生成短视频。"
+
+    remote = None
+    workflow = "minimax-video-t2v"
+    if reference_image:
+        data = _reference_bytes(reference_image)
+        if data is None:
+            _audit(ctx, p, "拦截", "video.clip", "参考图无法读取（既不是 base64 也不是中枢可访问的文件）", "拒绝")
+            return ("读不到参考图。图片在员工电脑上，中枢读不到本机路径——"
+                    "请把图片内容按 base64 传入 reference_image。")
+        if len(data) > MAX_REF_BYTES:
+            _audit(ctx, p, "拦截", "video.clip", f"参考图过大（{len(data) // 1024}KB）", "拒绝")
+            return f"参考图太大（{len(data) // 1024}KB），请压缩到 {MAX_REF_BYTES // (1024 * 1024)}MB 以内。"
+        node = gpu.online_node()
+        if node is None:
+            _audit(ctx, p, "拦截", "video.clip", "当前没有在线的 GPU 节点", "拒绝")
+            return "当前没有在线的 GPU 节点，稍后再试。"
+        try:
+            # 参考图先上传到节点的 ComfyUI input 目录，工作流里按文件名引用
+            remote = comfyui.ComfyUI(node["url"]).upload_image(
+                f"hub-{uuid.uuid4().hex[:8]}.png", data, subfolder="hub")
+            workflow = "minimax-video"
+        except Exception as e:  # noqa: BLE001 节点临时故障，如实告知
+            _audit(ctx, p, "拦截", "video.clip", f"上传参考图到 {node['id']} 失败：{e}", "拒绝")
+            return f"上传参考图失败：{e}"
+
+    frames = comfyui.frames_for_seconds(seconds)
+    timeline = comfyui.build_timeline(prompt, remote, frames, 768, 1344)
+    params = {"prompt": prompt, "timeline_data": timeline, "title": prompt[:20],
+              "seconds": round(frames / 24.0, 1)}
+    if remote:
+        params["reference_image"] = remote
+    mode = "图生视频" if remote else "文生视频"
+    return _dispatch(p, ctx, "video.clip", workflow, params, f"「{prompt[:20]}」（{mode}，约 {params['seconds']} 秒）")
+
+
+@mcp.tool(description="查询出图/出视频任务的进度与结果（图片在 images，视频在 videos）")
 def get_cover_task(task_id: str, ctx: Context) -> str:
     p = _principal()
     t = db.gpu_task(task_id)

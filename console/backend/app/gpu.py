@@ -16,12 +16,32 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
-from . import db
-from .comfyui import ComfyUI, load_workflow
+from . import comfyui, db
+from .comfyui import ComfyUI, load_workflow, workflow_meta
 from .config import settings
 
 log = logging.getLogger("hub.gpu")
 LINK_TTL = 7 * 86400  # 下载链接有效期
+
+# 调度用的工作流注册表：MCP 工具按名字派发，等待时长与输出类型取自模板的 _meta。
+# 模板放在 gpu-node/workflows/，设计师在 ComfyUI 里调好后导出（API 格式）替换即可，不用改代码。
+WORKFLOWS = {
+    "xhs-cover": {"label": "小红书封面", "kind": "image", "tool": "image.cover"},
+    "zimage-cover": {"label": "封面图（Z-Image）", "kind": "image", "tool": "image.cover"},
+    "minimax-video": {"label": "短视频（图生视频）", "kind": "video", "tool": "video.clip"},
+    "minimax-video-t2v": {"label": "短视频（文生视频）", "kind": "video", "tool": "video.clip"},
+}
+DEFAULT_WAIT = 90  # 生图默认等 90 秒；工作流可在 _meta.wait_seconds 里覆盖（视频是分钟级）
+
+
+def workflow_spec(name: str) -> dict:
+    """工作流的调度参数：注册表为准，等待时长取模板 _meta（缺失则按类型给默认值）。"""
+    spec = {"kind": "image", "tool": "image.cover", "label": name, **WORKFLOWS.get(name, {})}
+    meta = workflow_meta(name)
+    spec["kind"] = meta.get("kind", spec["kind"])
+    spec["wait_seconds"] = int(meta.get("wait_seconds") or (60 * 30 if spec["kind"] == "video" else DEFAULT_WAIT))
+    spec["label"] = meta.get("name") or spec["label"]
+    return spec
 
 
 def parse_nodes(spec: str) -> list[dict]:
@@ -63,7 +83,7 @@ def submit_task(*, trace_id: str, org: str, user_name: str, display_name: str, d
     task = {"id": f"gpu-{uuid.uuid4().hex[:12]}", "trace_id": trace_id, "org": org, "user_name": user_name,
             "display_name": display_name, "dept": dept, "channel": channel, "workflow": workflow, "params": params}
     db.create_gpu_task(task)
-    return {**task, "ahead": db.queue_position(task["id"])}
+    return {**task, "ahead": db.queue_position(task["id"]), "spec": workflow_spec(workflow)}
 
 
 def wait_task(task_id: str, timeout: float) -> dict:
@@ -83,7 +103,13 @@ def describe(t: dict) -> dict:
     if t["node_id"]:
         out["node"] = t["node_id"]
     if t["status"] == "done":
-        out["images"] = [file_url(t["id"], name) for name in t["images"]]
+        # 按存下来的文件名判断是图还是视频（下载链接带 ?exp=&sig= 后缀，不能拿链接判断）
+        videos = [file_url(t["id"], n) for n in t["images"] if comfyui.is_video(n)]
+        images = [file_url(t["id"], n) for n in t["images"] if not comfyui.is_video(n)]
+        if videos:
+            out["videos"] = videos
+        if images:
+            out["images"] = images
         if t["started_at"] and t["finished_at"]:
             out["seconds"] = round((t["finished_at"] - t["started_at"]).total_seconds(), 1)
     if t["status"] == "failed":
@@ -93,9 +119,15 @@ def describe(t: dict) -> dict:
 
 # ---- 调度服务 ----
 
+def online_node() -> dict | None:
+    """挑一个在线的 GPU 节点（图生视频要先把参考图传到节点上，派发前得知道往哪传）。"""
+    return next((n for n in db.gpu_nodes() if n["online"]), None)
+
+
 def _audit(t: dict, detail: str, result: str) -> None:
     db.add_audit(trace_id=t["trace_id"], org=t["org"], user_name=t["user_name"], display_name=t["display_name"],
-                 dept=t["dept"], channel=t["channel"], kind="工具", tool="image.cover", detail=detail, result=result)
+                 dept=t["dept"], channel=t["channel"], kind="工具",
+                 tool=workflow_spec(t["workflow"])["tool"], detail=detail, result=result)
 
 
 def _refresh_nodes(nodes: list[dict]) -> set[str]:
@@ -138,17 +170,20 @@ def _collect(nodes: dict[str, dict]) -> None:
             if status == "running":
                 continue
             if status == "error" or not images:
-                raise RuntimeError("ComfyUI 执行失败或没有输出图片")
+                raise RuntimeError("ComfyUI 执行失败或没有输出文件")
             folder = Path(settings.outputs_dir) / t["id"]
             folder.mkdir(parents=True, exist_ok=True)
             names = []
-            for i, img in enumerate(images, 1):
-                name = f"{i}.png"
-                (folder / name).write_bytes(client.download(img))
+            for i, item in enumerate(images, 1):
+                # 保留节点给出的扩展名：视频是 .mp4，一律写成 .png 会让下载时的媒体类型出错
+                suffix = Path(item.get("filename", "")).suffix or ".png"
+                name = f"{i}{suffix}"
+                (folder / name).write_bytes(client.download(item))
                 names.append(name)
             db.update_gpu_task(t["id"], status="done", images=names)
             took = time.time() - t["started_at"].timestamp()
-            _audit(t, f"{node['name']} 生成 {len(names)} 张「{t['params'].get('title', '')}」，耗时 {took:.0f} 秒", "通过")
+            unit = "条视频" if any(comfyui.is_video(n) for n in names) else "张图"
+            _audit(t, f"{node['name']} 生成 {len(names)} {unit}「{t['params'].get('title', '')}」，耗时 {took:.0f} 秒", "通过")
             log.info("任务 %s 完成，%d 张", t["id"], len(names))
         except Exception as e:  # noqa: BLE001
             db.update_gpu_task(t["id"], status="failed", error=str(e)[:500])

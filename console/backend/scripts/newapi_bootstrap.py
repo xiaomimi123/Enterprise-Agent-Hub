@@ -3,7 +3,9 @@
 - 首次运行时创建管理员（密码 NEWAPI_ADMIN_PASSWORD，自用模式：不做计费，只记用量）
 - 取得管理员的系统访问令牌，写回 hub/.env（NEWAPI_ACCESS_TOKEN、NEWAPI_ADMIN_ID），中枢用它给员工发 key、读用量
 - --demo：再创建一个指向模拟模型（mock-llm）的渠道（模型 hub-mock、hub-mock-pro），HUB_DEFAULT_MODEL 设为 hub-mock，
-  并把 hub-mock 加入除「财务」以外的岗位包（财务只允许本地模型，用来演示「没有可用模型」）
+  把 hub-mock 加入除「财务」以外的岗位包（财务只允许本地模型，用来演示「没有可用模型」），
+  并给 hub-mock 登记一个接近免费的计费倍率——不登记的话 New API 会按兜底默认倍率 37.5 计费
+  （约 ¥548/百万 token，比真实模型贵两个数量级，演示时控制台的「本月花费」会严重虚高）
 
 生产环境请在 New API 后台（http://<中枢>:3000）自行添加真实的模型渠道，并在 .env 里设置 HUB_DEFAULT_MODEL。
 
@@ -14,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import secrets
 import sys
 from pathlib import Path
@@ -29,6 +32,11 @@ ADMIN_USER = "hubadmin"
 MOCK_CHANNEL = "hub-mock"
 MOCK_MODELS = "hub-mock,hub-mock-pro"
 
+# 模拟模型的计费倍率。New API 的计费是 quota = token × 倍率，500000 quota = 1 美元，
+# 即「每百万 token 花 倍率 × 2 美元」。真实模型一般在 0.1–2 之间；模拟模型取 0.1（约 ¥1.5/百万 token），
+# 既不是 0（0 会让用量统计失去意义），也不会像兜底默认值 37.5 那样把花费算到天上。
+MOCK_RATIO = 0.1
+
 
 def die(msg: str) -> None:
     print(f"✗ {msg}")
@@ -40,6 +48,23 @@ def ok(r: httpx.Response, what: str) -> object:
     if not body.get("success"):
         die(f"{what} 失败：{body.get('message')}")
     return body.get("data")
+
+
+def set_mock_model_ratio(api: httpx.Client) -> None:
+    """给模拟模型登记计费倍率。不登记时 New API 用兜底默认值 37.5，演示数据会虚高两个数量级。"""
+    data = ok(api.get("/api/option/"), "读取系统设置")
+    options = {o["key"]: o.get("value") for o in (data or [])}
+    try:
+        ratio = json.loads(options.get("ModelRatio") or "{}")
+    except ValueError:
+        die("读取 ModelRatio 失败，无法登记模拟模型倍率")
+    if ratio.get(MOCK_CHANNEL) == MOCK_RATIO:
+        print(f"· 模拟模型倍率已是 {MOCK_RATIO}")
+        return
+    ratio[MOCK_CHANNEL] = MOCK_RATIO
+    ok(api.put("/api/option/", json={"key": "ModelRatio", "value": json.dumps(ratio, ensure_ascii=False)}),
+       "写入模型倍率")
+    print(f"✓ 模拟模型倍率 = {MOCK_RATIO}（约 {MOCK_RATIO * 2:.1f} 美元/百万 token）")
 
 
 def add_mock_model_to_packs() -> None:
@@ -100,6 +125,7 @@ def main() -> None:
                 "base_url": "http://mock-llm:8300", "models": MOCK_MODELS, "group": "default", "status": 1,
             }}), "创建模拟模型渠道")
             print(f"✓ 创建渠道 {MOCK_CHANNEL} → http://mock-llm:8300（{MOCK_MODELS}）")
+        set_mock_model_ratio(api)
         add_mock_model_to_packs()
         values["HUB_DEFAULT_MODEL"] = "hub-mock"
         # 没有配置 GPU 节点时，使用模拟 ComfyUI 节点

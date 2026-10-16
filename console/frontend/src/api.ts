@@ -181,6 +181,8 @@ export interface Trace extends TraceBrief {
 
 export interface Usage {
   days: number
+  /** 成员总数，用于算人均花费 */
+  member_count: number
   total_tokens: number
   total_cost: number
   local_ratio: number

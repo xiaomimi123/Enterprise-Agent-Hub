@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from mimetypes import guess_type
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -75,11 +77,14 @@ def health():
 
 @app.get("/api/files/{task_id}/{name}")
 def download_file(task_id: str, name: str, exp: int = 0, sig: str = ""):
-    """生成结果下载：凭链接里的签名和有效期访问，不需要登录（链接由 MCP 工具发给员工）。"""
+    """生成结果下载：凭链接里的签名和有效期访问，不需要登录（链接由 MCP 工具发给员工）。
+
+    结果可能是图片（.png）或视频（.mp4），按扩展名给媒体类型，便于浏览器直接播放。
+    """
     f = gpu.verify_file(task_id, name, exp, sig)
     if f is None:
         raise HTTPException(404, "链接无效或已过期")
-    return FileResponse(f, media_type="image/png")
+    return FileResponse(f, media_type=guess_type(name)[0] or "application/octet-stream")
 
 
 # ---- 以下接口需要登录 ----

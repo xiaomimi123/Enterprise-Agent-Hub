@@ -79,3 +79,11 @@ def test_apply_registers_key_with_hub_base_url(monkeypatch):
     assert reg == [("sk-test", "xinghe", "u1", "林小运", "运营部")]
     # 模型地址指向中枢代理（审计链路），不再直连模型网关
     assert ent["model"]["base_url"] == entitlements.settings.public_url + "/v1"
+
+
+def test_usage_reports_member_count_for_per_capita(monkeypatch):
+    """用量接口要带成员数：前端人均花费曾写死除以 50，真实组织 18 人时算错。"""
+    from app.providers.demo import DemoProvider
+
+    u = DemoProvider().usage(30)
+    assert u["member_count"] > 0

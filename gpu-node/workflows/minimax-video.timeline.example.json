@@ -1,0 +1,57 @@
+{
+  "version": 4,
+  "editMode": "global",
+  "totalFrames": 107,
+  "frameRate": 24.0,
+  "width": 768,
+  "height": 1344,
+  "refMaxSize": 768,
+  "output": {
+    "mode": "fixed",
+    "longEdge": 768,
+    "width": 768,
+    "height": 1344,
+    "maxExportFrames": 0,
+    "exportMode": "all",
+    "audioMode": "generate",
+    "refImageSize": "match"
+  },
+  "videoClips": [],
+  "video": {
+    "fileName": "",
+    "videoFile": "",
+    "subfolder": "",
+    "type": "input",
+    "frames": [],
+    "frameMap": []
+  },
+  "global": {
+    "taskType": "r2v — 参考主体生视频(Reference to Video)",
+    "prompt": "<提示词>",
+    "refs": [
+      {
+        "index": 0,
+        "imageFile": "<上传返回的文件名>"
+      }
+    ],
+    "referenceVideo": {},
+    "continuousReference": false
+  },
+  "segments": [
+    {
+      "id": "s0",
+      "start": 0,
+      "length": 107,
+      "frameCount": 107,
+      "prompt": "<提示词>",
+      "taskType": "r2v — 参考主体生视频(Reference to Video)",
+      "refs": [
+        {
+          "index": 0,
+          "imageFile": "<上传返回的文件名>"
+        }
+      ],
+      "referenceVideo": {}
+    }
+  ]
+}

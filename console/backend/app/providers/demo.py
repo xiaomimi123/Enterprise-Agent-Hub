@@ -219,6 +219,7 @@ class DemoProvider:
 
         return {
             "days": days,
+            "member_count": len(d["members"]),
             "total_tokens": sum(u["tokens"] for u in rows),
             "total_cost": round(sum(u["cost"] for u in rows), 2),
             "local_ratio": round(sum(u["tokens"] for u in rows if u["model"] == "qwen-local") /

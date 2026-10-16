@@ -16,7 +16,7 @@ import textwrap
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 
@@ -40,15 +40,24 @@ def _font(size: int) -> ImageFont.ImageFont:
 
 
 def _prompt_text(workflow: dict) -> tuple[str, int, int, int]:
-    """从工作流里找正向提示词、尺寸和数量。"""
+    """从工作流里找正向提示词、尺寸和数量（兼容 SDXL / Z-Image / MiniMax H3 三种写法）。"""
     text, w, h, n = "封面", 768, 1024, 1
     for node in workflow.values():
-        inputs = node.get("inputs", {})
-        if node.get("class_type") == "CLIPTextEncode" and text == "封面":
+        kind, inputs = node.get("class_type"), node.get("inputs", {})
+        if kind == "CLIPTextEncode" and text == "封面":
             text = str(inputs.get("text", text))
-        if node.get("class_type") == "EmptyLatentImage":
+        if kind == "TextEncodeZImageOmni" and text == "封面":
+            text = str(inputs.get("prompt", text))
+        if kind == "MiniMaxH3Director":
+            text = str(inputs.get("global_prompt", text))
+            w, h = int(inputs.get("width", w)), int(inputs.get("height", h))
+        if kind == "EmptyLatentImage":
             w, h, n = int(inputs.get("width", w)), int(inputs.get("height", h)), int(inputs.get("batch_size", n))
     return text, w, h, n
+
+
+def _is_video_workflow(workflow: dict) -> bool:
+    return any(v.get("class_type") == "MiniMaxH3Director" for v in workflow.values())
 
 
 def _render(text: str, w: int, h: int, idx: int) -> bytes:
@@ -68,21 +77,36 @@ def _render(text: str, w: int, h: int, idx: int) -> bytes:
     return buf.getvalue()
 
 
+def _fake_mp4(cover_png: bytes, height: int) -> bytes:
+    """最小可下载的 MP4 容器（不是真能播的视频）：只为让「视频结果」这条链路在模拟环境里跑通。"""
+    ftyp = (b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+    mdat = b"\x00\x00\x00\x08mdat" + cover_png[:200_000]
+    return ftyp + mdat
+
+
 async def _worker() -> None:
     while True:
         prompt_id, workflow = await queue.get()
         state["pending"].remove(prompt_id)
         state["running"] = prompt_id
-        await asyncio.sleep(RENDER_SECONDS)
         text, w, h, n = _prompt_text(workflow)
-        images = []
-        for i in range(n):
-            name = f"hub-cover_{prompt_id[:8]}_{i + 1:05d}_.png"
-            files[name] = _render(text, w, h, i)
-            images.append({"filename": name, "subfolder": "", "type": "output"})
-        save_node = next((k for k, v in workflow.items() if v.get("class_type") == "SaveImage"), "9")
-        history[prompt_id] = {"prompt": [0, prompt_id, workflow, {}, [save_node]],
-                              "outputs": {save_node: {"images": images}},
+        video = _is_video_workflow(workflow)
+        await asyncio.sleep(RENDER_SECONDS * (3 if video else 1))  # 视频是分钟级任务，模拟时也慢一点
+        if video:
+            # 视频：拿占位封面当首帧，包一层最简 MP4 容器（只为跑通链路，不追求可播性）
+            name = f"hub-video_{prompt_id[:8]}_00001_.mp4"
+            files[name] = _fake_mp4(_render(text, w, h, 0), h)
+            save_node = next((k for k, v in workflow.items() if v.get("class_type") == "SaveVideo"), "7")
+            outputs = {save_node: {"videos": [{"filename": name, "subfolder": "", "type": "output"}]}}
+        else:
+            images = []
+            for i in range(n):
+                name = f"hub-cover_{prompt_id[:8]}_{i + 1:05d}_.png"
+                files[name] = _render(text, w, h, i)
+                images.append({"filename": name, "subfolder": "", "type": "output"})
+            save_node = next((k for k, v in workflow.items() if v.get("class_type") == "SaveImage"), "9")
+            outputs = {save_node: {"images": images}}
+        history[prompt_id] = {"prompt": [0, prompt_id, workflow, {}, [save_node]], "outputs": outputs,
                               "status": {"status_str": "success", "completed": True, "messages": []}}
         state["running"] = None
 
@@ -90,6 +114,14 @@ async def _worker() -> None:
 @app.on_event("startup")
 async def _start() -> None:
     asyncio.create_task(_worker())
+
+
+@app.post("/upload/image")
+async def upload_image(image: UploadFile = File(...), subfolder: str = "", overwrite: str = "true"):
+    """接收参考图（真 ComfyUI 的同名接口），返回文件名供工作流引用。"""
+    name = Path(image.filename or "ref.png").name
+    files[f"{subfolder}/{name}" if subfolder else name] = await image.read()
+    return {"name": name, "subfolder": subfolder, "type": "input"}
 
 
 @app.post("/prompt")
@@ -110,9 +142,11 @@ def get_history(prompt_id: str):
 
 @app.get("/view")
 def view(filename: str, subfolder: str = "", type: str = "output"):  # noqa: A002 与 ComfyUI 参数名一致
-    if filename not in files:
+    key = f"{subfolder}/{filename}" if subfolder and f"{subfolder}/{filename}" in files else filename
+    if key not in files:
         raise HTTPException(404)
-    return Response(files[filename], media_type="image/png")
+    media = "video/mp4" if filename.endswith(".mp4") else "image/png"
+    return Response(files[key], media_type=media)
 
 
 @app.get("/queue")

@@ -45,7 +45,7 @@ export default function UsagePage() {
           <div className="kpi"><div className="kpi-label">Token 用量</div><div className="kpi-value num">{tokens(data.total_tokens)}</div></div>
           <div className="kpi">
             <div className="kpi-label">人均花费</div>
-            <div className="kpi-value num">{yuan(data.total_cost / 50, 1)}<small>/ 人</small></div>
+            <div className="kpi-value num">{yuan(data.total_cost / Math.max(1, data.member_count), 1)}<small>/ 人</small></div>
           </div>
           <div className="kpi">
             <div className="kpi-label">本地模型占比</div>

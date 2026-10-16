@@ -21,8 +21,9 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 | `list_skills` | 岗位包内的技能列表 | 官方 agent，岗位包含 `skill.read` |
 | `read_skill(skill_id)` | 读取 SKILL.md 全文 | 同上，且技能在岗位包内 |
 | `search_knowledge(query, knowledge_base?)` | 检索知识库；指定库名则只查该库 | 岗位包含 `kb.search`；外部智能体另需岗位包「外部只读」且知识库开放给外部 |
-| `generate_cover(title, description?)` | 派发到 GPU 节点生成 3 版封面，最多等 90 秒，见 [gpu.md](gpu.md) | 官方 agent，岗位包含 `image.cover` |
-| `get_cover_task(task_id)` | 查询封面任务进度和图片链接 | 只能查自己的任务 |
+| `generate_cover(title, description?)` | 派发到 GPU 节点生成封面图，最多等 90 秒，见 [gpu.md](gpu.md) | 官方 agent，岗位包含 `image.cover` |
+| `generate_video(prompt, reference_image?, seconds?)` | 生成短视频：给参考图（base64）就是图生视频，不给就是文生视频；最多等 15 分钟 | 官方 agent，岗位包含 `video.clip` |
+| `get_cover_task(task_id)` | 查询出图/出视频任务的进度与结果（图片 `images`、视频 `videos`） | 只能查自己的任务 |
 
 被拒绝时返回明确原因（例如「岗位包『小红书运营』没有『财务制度与报表』的检索权限」），并记一条「拒绝」审计。
 

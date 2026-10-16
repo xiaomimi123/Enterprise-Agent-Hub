@@ -47,6 +47,8 @@ cd console/backend && uv run python scripts/gpu_smoke.py   # 两人同时出图�
 
 ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器开放（防火墙或交换机 ACL）。
 
+**Windows 机器与远程节点**：ComfyUI 原生支持 Windows（portable 包即可），中枢只依赖它的 HTTP 接口，操作系统无关。节点不在中枢同网段时用 Tailscale / WireGuard 组网或 frp 反向隧道接入（`HUB_GPU_NODES` 填隧道地址；隧道映射在宿主机上时容器内用 `host.docker.internal`，compose 已配 host-gateway）。8188 绝不直接暴露公网。详细步骤与显存选型见 [部署清单.md](部署清单.md) 第 6 节。
+
 ## 已验证 / 未验证
 
 - 已验证（模拟节点）：MCP 出图、两人同时出图时第二个排队、财务岗位被拒、Hermes 一句话出图、审计两步记录、控制台节点状态、签名链接（正常 / 篡改 / 过期 / 路径穿越）

@@ -12,6 +12,9 @@ x-hub-backend: &hub-backend
   build: ../console/backend
   image: hub-backend:${HUB_VERSION:-dev}
   restart: unless-stopped
+  # GPU 节点经宿主机上的隧道（frp/Tailscale）接入时，容器内用 host.docker.internal 访问宿主机端口
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   depends_on:
     postgres:
       condition: service_healthy

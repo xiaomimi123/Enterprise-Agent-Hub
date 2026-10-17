@@ -131,3 +131,76 @@ def test_search_falls_back_to_local_on_error(monkeypatch):
 def test_search_uses_local_when_not_configured(monkeypatch):
     use(monkeypatch, None)
     assert content.search("保湿精华", ["kb-product"]) == content.local_search("保湿精华", ["kb-product"])
+
+
+# ---- vault → RAGFlow 同步 ----
+
+from app import kb_sync  # noqa: E402
+
+
+class SyncFake:
+    """内存里的 RAGFlow：记录上传、删除和解析。"""
+
+    def __init__(self):
+        self.datasets: dict[str, dict[str, dict]] = {}   # 数据集名 → {文档名: {id, size}}
+        self.calls: list[tuple] = []
+        self._n = 0
+
+    def ensure_dataset(self, name, description=""):
+        self.datasets.setdefault(name, {})
+        return name
+
+    def list_documents(self, ds):
+        return [{"id": v["id"], "name": k, "size": v["size"], "run": "DONE"} for k, v in self.datasets[ds].items()]
+
+    def upload(self, ds, filename, data):
+        self._n += 1
+        self.datasets[ds][filename] = {"id": f"d{self._n}", "size": len(data)}
+        self.calls.append(("upload", ds, filename))
+        return f"d{self._n}"
+
+    def delete_documents(self, ds, ids):
+        self.datasets[ds] = {k: v for k, v in self.datasets[ds].items() if v["id"] not in ids}
+        self.calls.append(("delete", ds, tuple(ids)))
+
+    def parse(self, ds, ids):
+        self.calls.append(("parse", ds, tuple(ids)))
+
+
+@pytest.fixture
+def vault(tmp_path):
+    (tmp_path / "品牌调性与人设").mkdir()
+    (tmp_path / "品牌调性与人设" / "a.md").write_text("# 主张\n温暖", encoding="utf-8")
+    (tmp_path / "品牌调性与人设" / "b.md").write_text("人设", encoding="utf-8")
+    (tmp_path / "不在注册表的文件夹").mkdir()
+    (tmp_path / "不在注册表的文件夹" / "x.md").write_text("忽略我", encoding="utf-8")
+    return tmp_path
+
+
+def test_first_sync_uploads_and_parses_everything(vault):
+    rf = SyncFake()
+    stats = kb_sync.sync_vault(rf, str(vault))
+    assert stats == {"uploaded": 2, "updated": 0, "deleted": 0, "skipped": 0}
+    assert set(rf.datasets) == {"hub-kb-brand"}  # 不在注册表的文件夹被忽略，没建数据集
+    assert [c[0] for c in rf.calls].count("parse") == 1
+
+
+def test_resync_unchanged_is_a_noop(vault):
+    rf = SyncFake()
+    kb_sync.sync_vault(rf, str(vault))
+    rf.calls.clear()
+    assert kb_sync.sync_vault(rf, str(vault)) == {"uploaded": 0, "updated": 0, "deleted": 0, "skipped": 2}
+    assert rf.calls == []
+
+
+def test_changed_file_is_replaced_and_removed_file_is_deleted(vault):
+    rf = SyncFake()
+    kb_sync.sync_vault(rf, str(vault))
+    (vault / "品牌调性与人设" / "a.md").write_text("# 主张\n温暖而且更长", encoding="utf-8")
+    (vault / "品牌调性与人设" / "b.md").unlink()
+    rf.calls.clear()
+    stats = kb_sync.sync_vault(rf, str(vault))
+    assert stats == {"uploaded": 0, "updated": 1, "deleted": 1, "skipped": 0}
+    kinds = [c[0] for c in rf.calls]
+    assert kinds.index("delete") < kinds.index("upload")  # 先删旧文档再传新文档
+    assert set(rf.datasets["hub-kb-brand"]) == {"a.md"}

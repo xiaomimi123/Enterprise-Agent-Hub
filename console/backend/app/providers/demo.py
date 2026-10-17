@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from .. import demo_seed
+from .. import demo_seed, metering
 
 
 class NotFound(KeyError):
@@ -130,7 +130,8 @@ class DemoProvider:
     def update_role_pack(self, role_pack_id: str, patch: dict) -> dict:
         rp = self._find(self.d["role_packs"], role_pack_id, "岗位包")
         allowed = {"skills", "knowledge_bases", "tools", "models", "monthly_quota",
-                   "max_action_level", "external_access", "description", "status"}
+                   "max_action_level", "external_access", "description", "status",
+                   "model_mode", "gpu_quota_minutes"}
         rp.update({k: v for k, v in patch.items() if k in allowed and v is not None})
         return self.role_pack(role_pack_id)
 
@@ -191,6 +192,27 @@ class DemoProvider:
         return self._find(self.d["traces"], trace_id, "链路")
 
     # ---- 用量 ----
+    def _usage_maps(self) -> tuple[dict, dict]:
+        members = {m["id"]: {"name": m["name"], "dept_name": m["dept_name"], "role_pack": m["role_pack"]}
+                   for m in self.d["members"]}
+        return members, {p["id"]: p for p in self.d["role_packs"]}
+
+    def _hub_usage(self, days: int) -> dict:
+        """中枢资源（演示数据）：工具调用来自演示链路；每次出封面按 3 张、约 40 秒 GPU 计。"""
+        since = (date.today() - timedelta(days=days - 1)).isoformat()
+        events, tasks = [], []
+        for t in self.d["traces"]:
+            if t["started_at"][:10] < since:
+                continue
+            for s in t["steps"]:
+                events.append({"user_name": t["member_id"], "kind": s["kind"], "tool": s["tool"], "result": s["result"]})
+                if s["tool"] == "image.cover" and s["result"] == "通过":
+                    end = datetime.fromisoformat(s["time"])
+                    tasks.append({"user_name": t["member_id"], "status": "done", "images": ["1.png", "2.png", "3.png"],
+                                  "started_at": end - timedelta(seconds=40), "finished_at": end})
+        members, packs = self._usage_maps()
+        return metering.hub_usage(events, tasks, members, packs)
+
     def usage(self, days: int = 30) -> dict:
         d = self.d
         since = (date.today() - timedelta(days=days - 1)).isoformat()
@@ -230,4 +252,5 @@ class DemoProvider:
             "by_model": [{"model": model_names[k], "location": model_loc[k], "tokens": v["tokens"],
                           "cost": round(v["cost"], 2)} for k, v in by_model.items()],
             "top_members": d["member_usage"][:10],
+            "hub": self._hub_usage(days),
         }

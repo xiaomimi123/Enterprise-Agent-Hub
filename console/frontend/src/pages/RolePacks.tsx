@@ -66,7 +66,8 @@ function PackCard({ p, onClick }: { p: RolePack; onClick: () => void }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 16px' }}>
         <span className="muted" style={{ fontSize: 12 }}>
-          <span className="num" style={{ color: 'var(--ink)', fontWeight: 600 }}>{p.member_count}</span> 人 · ¥{p.monthly_quota}/人/月
+          <span className="num" style={{ color: 'var(--ink)', fontWeight: 600 }}>{p.member_count}</span> 人 ·{' '}
+          {p.model_mode === '自带模型' ? '自带模型' : `¥${p.monthly_quota}/人/月`} · GPU {p.gpu_quota_minutes ? `${p.gpu_quota_minutes} 分钟/人/月` : '不限'}
         </span>
         <span className="muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
           <GlobalOutlined style={{ color: p.external_access === '关闭' ? 'var(--ink-4)' : 'var(--violet)' }} />
@@ -153,12 +154,21 @@ function RolePackDrawer({ id, catalog, onClose, onSaved }: {
             </Form.Item>
           </Section>
           <Section icon={<CloudServerOutlined />} title="模型与额度">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 12, marginBottom: 12 }}>
+              <Form.Item name="model_mode" label="模型方式" style={{ marginBottom: 0 }}
+                extra="中枢模型：中枢下发员工专属 key，按 token 计费。自带模型：员工用自己 agent（WorkBuddy、Cursor 等）的模型和积分，中枢不发 key、不计 token。">
+                <Segmented block options={['中枢模型', '自带模型']} />
+              </Form.Item>
+              <Form.Item name="gpu_quota_minutes" label="GPU 额度" style={{ marginBottom: 0 }} extra="每人每月，0 表示不限。">
+                <InputNumber min={0} step={30} suffix="分钟" style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 12 }}>
               <Form.Item name="models" label="可用模型" style={{ marginBottom: 0 }}>
                 <Select mode="multiple" optionFilterProp="label"
                   options={catalog.models.map((m) => ({ value: m.id, label: `${m.name} · ${m.location}` }))} />
               </Form.Item>
-              <Form.Item name="monthly_quota" label="每人月额度" style={{ marginBottom: 0 }}>
+              <Form.Item name="monthly_quota" label="每人月模型额度" style={{ marginBottom: 0 }}>
                 <InputNumber min={0} step={50} prefix="¥" style={{ width: '100%' }} />
               </Form.Item>
             </div>

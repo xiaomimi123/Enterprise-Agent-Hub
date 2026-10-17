@@ -2,10 +2,10 @@ import { Skeleton, Table } from 'antd'
 import dayjs from 'dayjs'
 import type { EChartsOption } from 'echarts'
 import { useMemo, useState } from 'react'
-import { api } from '../api'
+import { api, type HubMemberUsage } from '../api'
 import EChart from '../components/EChart'
 import { deptColor, tokens, useRequest, yuan } from '../lib'
-import { Avatar, Meter, PageHeader, Panel, Seg } from '../ui'
+import { Avatar, Meter, PageHeader, Panel, Pill, Seg } from '../ui'
 
 const MODEL_COLOR: Record<string, string> = {
   'Claude Sonnet': '#d97757', 'GPT-4o': '#1b1a17', 'DeepSeek V3': '#4d6bfe', 'Qwen 本地模型': '#30a46c',
@@ -36,10 +36,53 @@ export default function UsagePage() {
     <>
       <PageHeader
         title="用量与成本"
-        sub="所有模型调用都经过中枢的模型网关，按人、按部门计量。敏感数据只走本地模型，不出公司。"
+        sub="中枢资源（工具调用、GPU 出图出视频）按人统计，不管员工用哪种 agent；模型 token 只统计用「中枢模型」的岗位，用 agent 自带模型的由那家产品自己计费。"
         extra={<Seg value={days} onChange={setDays} options={[{ value: 7, label: '近 7 天' }, { value: 30, label: '近 30 天' }]} />}
       />
       <div className="stack">
+        <div className="section-label">中枢资源 · 所有 agent</div>
+        <section className="panel kpi-strip">
+          <div className="kpi"><div className="kpi-label">工具调用</div><div className="kpi-value num">{data.hub.totals.tool_calls.toLocaleString()}</div></div>
+          <div className="kpi"><div className="kpi-label">GPU 用时</div><div className="kpi-value num">{data.hub.totals.gpu_minutes}<small>分钟</small></div></div>
+          <div className="kpi"><div className="kpi-label">出图</div><div className="kpi-value num">{data.hub.totals.images}<small>张</small></div></div>
+          <div className="kpi"><div className="kpi-label">视频</div><div className="kpi-value num">{data.hub.totals.videos}<small>条</small></div></div>
+        </section>
+        <Panel title="按人统计" sub="GPU 额度按岗位包，每人每月" tight>
+          <Table<HubMemberUsage>
+            rowKey="member_id" dataSource={data.hub.by_member} pagination={{ pageSize: 8, showSizeChanger: false, size: 'small' }}
+            locale={{ emptyText: '这段时间没有经过中枢的调用' }} scroll={{ x: 760 }}
+            columns={[
+              {
+                title: '成员', dataIndex: 'member', render: (v, r) => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Avatar name={v} size={24} />
+                    <span style={{ fontWeight: 500 }}>{v}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>{r.dept_name}</span>
+                  </div>
+                ),
+              },
+              { title: '模型方式', dataIndex: 'model_mode', width: 100, render: (v) => <Pill tone={v === '自带模型' ? 'violet' : 'blue'} dot={false}>{v}</Pill> },
+              { title: '工具调用', dataIndex: 'tool_calls', width: 90, align: 'right', render: (v) => <span className="num">{v}</span> },
+              { title: '出图 / 视频', key: 'gen', width: 100, align: 'right', render: (_, r) => <span className="num">{r.images} / {r.videos}</span> },
+              {
+                title: 'GPU 用时 / 额度', key: 'gpu', width: 240, render: (_, r) => {
+                  const monthly = days === 30 ? r.gpu_minutes : (r.gpu_minutes / 7) * 30
+                  const pct = r.gpu_quota_minutes ? Math.round((monthly / r.gpu_quota_minutes) * 100) : 0
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ flex: 1 }}>{r.gpu_quota_minutes ? <Meter value={Math.min(pct, 100)} color={pct >= 100 ? 'var(--red)' : undefined} /> : null}</div>
+                      <span className="num muted" style={{ width: 110, textAlign: 'right', fontSize: 12 }}>
+                        {r.gpu_minutes} 分 / {r.gpu_quota_minutes ? `${r.gpu_quota_minutes} 分` : '不限'}
+                      </span>
+                    </div>
+                  )
+                },
+              },
+            ]}
+          />
+        </Panel>
+
+        <div className="section-label">模型 token · 仅中枢模型</div>
         <section className="panel kpi-strip">
           <div className="kpi"><div className="kpi-label">模型花费</div><div className="kpi-value num">{yuan(data.total_cost, 0)}</div></div>
           <div className="kpi"><div className="kpi-label">Token 用量</div><div className="kpi-value num">{tokens(data.total_tokens)}</div></div>

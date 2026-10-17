@@ -100,9 +100,11 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
                          dept=dept, channel=policy.OFFICIAL)
     p.pack = policy.resolve_pack(p.org, p.user_name, dept)
 
+    # 岗位包选「自带模型」时，员工用自己 agent 的模型和积分，中枢不发模型 key
+    model_mode = p.pack.get("model_mode") or "中枢模型"
     model = None
-    na = NewApi()
-    if na.configured and settings.default_model:
+    na = NewApi() if model_mode == "中枢模型" else None
+    if na and na.configured and settings.default_model:
         try:
             model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": na.ensure_token(token_name(p.org, p.user_name)),
                      "model": settings.default_model}
@@ -124,6 +126,7 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
         "employee": {"name": p.display_name, "user": p.user_name, "dept": dept, "role_pack": p.pack["name"]},
         "mcp_url": settings.mcp_public_url,
         "model": model,
+        "model_mode": model_mode,
         "skills": skills,
         "max_action_level": p.pack["max_action_level"],
     }

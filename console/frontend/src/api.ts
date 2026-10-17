@@ -96,6 +96,8 @@ export interface RolePack {
   tools: string[]
   models: string[]
   monthly_quota: number
+  model_mode: '中枢模型' | '自带模型'
+  gpu_quota_minutes: number
   max_action_level: string
   external_access: string
   member_count: number
@@ -179,6 +181,25 @@ export interface Trace extends TraceBrief {
   steps: TraceStep[]
 }
 
+export interface HubMemberUsage {
+  member_id: string
+  member: string
+  dept_name: string
+  role_pack: string
+  model_mode: string
+  tool_calls: number
+  images: number
+  videos: number
+  gpu_minutes: number
+  gpu_quota_minutes: number
+}
+
+export interface HubUsage {
+  totals: { tool_calls: number; images: number; videos: number; gpu_minutes: number }
+  by_member: HubMemberUsage[]
+  by_dept: { dept: string; tool_calls: number; gpu_minutes: number }[]
+}
+
 export interface Usage {
   days: number
   total_tokens: number
@@ -189,6 +210,7 @@ export interface Usage {
   by_dept: { dept: string; tokens: number; cost: number; quota: number }[]
   by_model: { model: string; location: string; tokens: number; cost: number }[]
   top_members: { member_id: string; member: string; dept_name: string; tokens: number; cost: number; calls: number }[]
+  hub: HubUsage
 }
 
 export interface AuthUser {

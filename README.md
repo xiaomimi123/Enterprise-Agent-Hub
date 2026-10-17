@@ -43,4 +43,4 @@ make up               # 构建并启动：控制台 :8088、MCP Server :8200、C
 make bootstrap-demo   # 首次：初始化 Casdoor 并创建测试部门和成员（生产环境用 make bootstrap）
 ```
 
-打开 `http://<服务器>:8088` 登录控制台。部署细节见 [hub/README.md](hub/README.md)，本地开发（不用 Docker、热更新）见 [console/README.md](console/README.md)。
+打开 `http://<服务器>:8088` 登录控制台。计费与额度见 [docs/billing.md](docs/billing.md)。部署细节见 [hub/README.md](hub/README.md)，本地开发（不用 Docker、热更新）见 [console/README.md](console/README.md)。

@@ -136,7 +136,7 @@ def list_tasks(limit: int = 100) -> dict:
 
 def _audit(t: dict, detail: str, result: str) -> None:
     db.add_audit(trace_id=t["trace_id"], org=t["org"], user_name=t["user_name"], display_name=t["display_name"],
-                 dept=t["dept"], channel=t["channel"], kind="工具", tool=(t["params"] or {}).get("tool", "image.cover"),
+                 dept=t["dept"], channel=t["channel"], kind="生成", tool=(t["params"] or {}).get("tool", "image.cover"),
                  detail=detail, result=result)
 
 

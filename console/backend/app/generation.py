@@ -31,6 +31,10 @@ class Denied(Exception):
     """没有权限或参数不合法，消息可以直接告诉调用方。"""
 
 
+class QuotaExceeded(Denied):
+    """本月 GPU 额度用完了。"""
+
+
 class Busy(Denied):
     """这个人未完成的任务太多，稍后再提交。"""
 
@@ -58,6 +62,10 @@ def _submit(p: policy.Principal, trace_id: str, tool: str, workflow: str, params
     if limit > 0 and db.pending_task_count(p.org, p.user_name) >= limit:
         _audit(p, trace_id, tool, f"未完成任务已达上限 {limit} 个，{label}未入队", "拒绝")
         raise Busy(f"你还有 {limit} 个生成任务没完成（每人最多同时 {limit} 个），请等完成后再提交。")
+    quota = int(p.pack.get("gpu_quota_minutes") or 0)
+    if quota > 0 and db.gpu_seconds_this_month(p.org, p.user_name) >= quota * 60:
+        _audit(p, trace_id, tool, f"本月 GPU 额度 {quota} 分钟已用完，{label}未入队", "拒绝")
+        raise QuotaExceeded(f"本月 GPU 额度（{quota} 分钟）已用完，请联系管理员在岗位包里调整。")
     t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name, dept=p.dept,
                         channel=p.channel, workflow=workflow, params={**params, "tool": tool})
     _audit(p, trace_id, tool, f"派发{label}，前面排队 {t['ahead']} 个", "通过")

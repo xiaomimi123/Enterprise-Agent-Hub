@@ -130,7 +130,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-brand", "kb-product", "kb-banned", "kb-xhs-hits", "kb-competitor", "kb-company"],
         "tools": ["kb.search", "skill.read", "xhs.collect", "image.cover", "image.generate", "video.generate", "draft.save", "file.write"],
         "models": ["claude-sonnet", "deepseek-v3", "qwen-local"],
-        "monthly_quota": 300, "max_action_level": "需确认", "external_access": "只读",
+        "monthly_quota": 300, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 120,
+        "external_access": "只读",
     },
     {
         "id": "rp-designer", "name": "设计师", "dept": "design", "status": "规划中",
@@ -139,7 +140,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-brand", "kb-product", "kb-design-spec", "kb-company"],
         "tools": ["kb.search", "skill.read", "image.cover", "image.generate", "file.write"],
         "models": ["claude-sonnet", "qwen-local"],
-        "monthly_quota": 200, "max_action_level": "需确认", "external_access": "只读",
+        "monthly_quota": 200, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 600,
+        "external_access": "只读",
     },
     {
         "id": "rp-video", "name": "视频剪辑", "dept": "video", "status": "规划中",
@@ -148,7 +150,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-brand", "kb-product", "kb-company"],
         "tools": ["kb.search", "skill.read", "video.clip", "video.generate", "image.generate", "file.write"],
         "models": ["claude-sonnet", "deepseek-v3"],
-        "monthly_quota": 200, "max_action_level": "需确认", "external_access": "只读",
+        "monthly_quota": 200, "max_action_level": "需确认", "model_mode": "自带模型", "gpu_quota_minutes": 600,
+        "external_access": "只读",
     },
     {
         "id": "rp-sales", "name": "销售", "dept": "sales", "status": "规划中",
@@ -157,7 +160,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-product", "kb-sales-policy", "kb-company"],
         "tools": ["kb.search", "skill.read", "crm.query", "file.write", "im.send"],
         "models": ["claude-sonnet", "gpt-4o", "deepseek-v3"],
-        "monthly_quota": 200, "max_action_level": "需二次确认", "external_access": "关闭",
+        "monthly_quota": 200, "max_action_level": "需二次确认", "model_mode": "中枢模型", "gpu_quota_minutes": 0,
+        "external_access": "关闭",
     },
     {
         "id": "rp-cs", "name": "客服", "dept": "cs", "status": "规划中",
@@ -166,7 +170,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-product", "kb-cs-faq", "kb-company"],
         "tools": ["kb.search", "skill.read", "crm.query"],
         "models": ["deepseek-v3", "qwen-local"],
-        "monthly_quota": 100, "max_action_level": "只读", "external_access": "只读",
+        "monthly_quota": 100, "max_action_level": "只读", "model_mode": "中枢模型", "gpu_quota_minutes": 0,
+        "external_access": "只读",
     },
     {
         "id": "rp-finance", "name": "财务", "dept": "finance", "status": "规划中",
@@ -175,7 +180,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-finance", "kb-company"],
         "tools": ["kb.search", "skill.read", "erp.finance", "file.write"],
         "models": ["qwen-local"],
-        "monthly_quota": 100, "max_action_level": "需确认", "external_access": "关闭",
+        "monthly_quota": 100, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 0,
+        "external_access": "关闭",
     },
     {
         "id": "rp-hr", "name": "人事行政", "dept": "hr", "status": "规划中",
@@ -184,7 +190,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-hr", "kb-company"],
         "tools": ["kb.search", "skill.read", "file.write"],
         "models": ["deepseek-v3", "qwen-local"],
-        "monthly_quota": 100, "max_action_level": "需确认", "external_access": "关闭",
+        "monthly_quota": 100, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 0,
+        "external_access": "关闭",
     },
     {
         "id": "rp-general", "name": "通用办公", "dept": "all", "status": "已上线",
@@ -193,7 +200,8 @@ ROLE_PACKS = [
         "knowledge_bases": ["kb-product", "kb-company"],
         "tools": ["kb.search", "skill.read", "file.write"],
         "models": ["claude-sonnet", "deepseek-v3"],
-        "monthly_quota": 150, "max_action_level": "需确认", "external_access": "只读",
+        "monthly_quota": 150, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 0,
+        "external_access": "只读",
     },
 ]
 

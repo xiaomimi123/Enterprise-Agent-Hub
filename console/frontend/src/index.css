@@ -355,3 +355,6 @@ body {
 .code-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line-2); font-size: 12px; }
 .code-head:has(.muted:empty) { justify-content: flex-end; }
 .code-block pre { margin: 0; padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+
+/* 页面内分区标题（用量页：中枢资源 / 模型 token） */
+.section-label { font-size: 12px; font-weight: 600; color: var(--ink-3); letter-spacing: .02em; margin: 6px 2px -6px; }

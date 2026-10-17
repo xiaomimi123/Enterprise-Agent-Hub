@@ -58,6 +58,8 @@ def _enqueue(submit, authorization: str | None, trace_id: str | None, **args) ->
     p = _principal(authorization)
     try:
         t = submit(p, (trace_id or "").strip()[:64] or f"api-{uuid.uuid4().hex[:10]}", **args)
+    except generation.QuotaExceeded as e:
+        raise HTTPException(403, str(e))
     except generation.Busy as e:
         raise HTTPException(429, str(e))
     except generation.Denied as e:

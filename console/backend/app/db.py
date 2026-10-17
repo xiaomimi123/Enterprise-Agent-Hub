@@ -98,10 +98,15 @@ CREATE TABLE IF NOT EXISTS gpu_tasks (
     finished_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS gpu_tasks_status ON gpu_tasks (status, created_at);
+
+-- 计费：岗位包选模型方式（中枢模型 / 自带模型），以及每人每月 GPU 分钟额度（0 = 不限）
+ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS model_mode TEXT NOT NULL DEFAULT '中枢模型';
+ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS gpu_quota_minutes INTEGER NOT NULL DEFAULT 0;
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
-               "monthly_quota", "max_action_level", "external_access")
+               "monthly_quota", "max_action_level", "external_access", "model_mode", "gpu_quota_minutes")
+PACK_DEFAULTS = {"model_mode": "中枢模型", "gpu_quota_minutes": 0}
 JSON_FIELDS = {"skills", "knowledge_bases", "tools", "models"}
 
 
@@ -134,6 +139,7 @@ def role_packs() -> list[dict]:
 
 
 def upsert_role_pack(pack_id: str, data: dict, conn: psycopg.Connection | None = None) -> None:
+    data = {**PACK_DEFAULTS, **data}
     vals = {k: (Jsonb(data[k]) if k in JSON_FIELDS else data[k]) for k in PACK_FIELDS}
     cols = ", ".join(PACK_FIELDS)
     params = ", ".join(f"%({k})s" for k in PACK_FIELDS)
@@ -293,6 +299,20 @@ def create_gpu_task(task: dict) -> None:
 def gpu_task(task_id: str) -> dict | None:
     with connect() as conn:
         return conn.execute("SELECT * FROM gpu_tasks WHERE id = %s", (task_id,)).fetchone()
+
+
+def gpu_seconds_this_month(org: str, user_name: str) -> float:
+    """本月这个人占用 GPU 的秒数：已结束的按实际时长，正在跑的算到现在。"""
+    with connect() as conn:
+        return float(conn.execute(
+            "SELECT coalesce(sum(extract(epoch FROM coalesce(finished_at, now()) - started_at)), 0) AS s FROM gpu_tasks "
+            "WHERE org = %s AND user_name = %s AND started_at >= date_trunc('month', now())", (org, user_name)).fetchone()["s"])
+
+
+def gpu_tasks_since(org: str, days: int) -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_tasks WHERE org = %s AND created_at > now() - make_interval(days => %s)",
+                            (org, days)).fetchall()
 
 
 def pending_task_count(org: str, user_name: str) -> int:

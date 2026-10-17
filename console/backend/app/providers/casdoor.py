@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db
+from .. import content, db, metering
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import DEFAULT_ROLE_PACKS, FALLBACK_ROLE_PACK
@@ -250,7 +250,8 @@ class CasdoorProvider(DemoProvider):
         self._sync()
         rp = self._find(self.d["role_packs"], role_pack_id, "岗位包")
         allowed = {"skills", "knowledge_bases", "tools", "models", "monthly_quota",
-                   "max_action_level", "external_access", "description", "status"}
+                   "max_action_level", "external_access", "description", "status",
+                   "model_mode", "gpu_quota_minutes"}
         db.upsert_role_pack(role_pack_id, {**rp, **{k: v for k, v in patch.items() if k in allowed and v is not None}})
         return self.role_pack(role_pack_id)
 
@@ -286,6 +287,11 @@ class CasdoorProvider(DemoProvider):
     def usage(self, days=30):
         self._sync()
         return super().usage(days)
+
+    def _hub_usage(self, days: int) -> dict:
+        """中枢资源（真实数据）：审计事件 + GPU 任务。"""
+        members, packs = self._usage_maps()
+        return metering.hub_usage(db.recent_audit(self.org, days), db.gpu_tasks_since(self.org, days), members, packs)
 
     def assign_role_pack(self, member_id: str, role_pack_id: str) -> dict:
         self._sync()

@@ -67,6 +67,8 @@ class RolePackPatch(BaseModel):
     external_access: str | None = None
     description: str | None = None
     status: str | None = None
+    model_mode: str | None = None
+    gpu_quota_minutes: int | None = None
 
 
 @app.get("/api/health")
@@ -120,6 +122,10 @@ def role_pack(role_pack_id: str):
 def update_role_pack(role_pack_id: str, body: RolePackPatch):
     if body.monthly_quota is not None and body.monthly_quota < 0:
         raise HTTPException(400, "额度不能为负数")
+    if body.gpu_quota_minutes is not None and body.gpu_quota_minutes < 0:
+        raise HTTPException(400, "GPU 额度不能为负数")
+    if body.model_mode is not None and body.model_mode not in ("中枢模型", "自带模型"):
+        raise HTTPException(400, "模型方式只能是「中枢模型」或「自带模型」")
     return provider.update_role_pack(role_pack_id, body.model_dump(exclude_none=True))
 
 

@@ -16,6 +16,10 @@
     uv run agent/hub_agent.py chat                                     # 启动 Hermes（会先自动同步）
     uv run agent/hub_agent.py chat -q "帮我查一下保湿精华的卖点"          # 其余参数原样传给 hermes
     uv run agent/hub_agent.py sync | status | logout
+    uv run agent/hub_agent.py mcp                                      # 本地 MCP 桥：给 WorkBuddy 等桌面智能体用
+
+接 WorkBuddy、Cursor 等支持本地（stdio）MCP 的桌面智能体：在它的 mcp.json 里加一个服务器，
+命令为 uv，参数为 ["run", "<路径>/agent/hub_agent.py", "mcp"]。桥会自动续期令牌，配置一次长期可用。
 """
 
 from __future__ import annotations
@@ -246,6 +250,60 @@ def cmd_chat(args) -> None:
     os.execvpe(hermes, [hermes, "chat", *args.hermes_args], {**os.environ, "HERMES_HOME": str(HERMES_HOME)})
 
 
+# ---------------- 本地 MCP 桥 ----------------
+
+def _post_mcp(http: httpx.Client, url: str, msg: dict, headers: dict) -> httpx.Response:
+    creds = fresh_creds()  # 令牌快过期时自动续期
+    return http.post(url, json=msg, headers={**headers, "Authorization": f"Bearer {creds['access_token']}"})
+
+
+def _relay(resp: httpx.Response, out) -> None:
+    """把中枢的回复写给桌面智能体：JSON 直接转发，SSE 流按事件拆出 data 逐条转发。"""
+    if resp.status_code == 202 or not resp.content:
+        return
+    if resp.headers.get("content-type", "").startswith("text/event-stream"):
+        data: list[str] = []
+        for line in resp.text.splitlines() + [""]:
+            if line.startswith("data:"):
+                data.append(line[5:].lstrip())
+            elif not line and data:
+                out.write(("".join(data) + "\n").encode("utf-8"))
+                data = []
+    else:
+        out.write(resp.content.rstrip(b"\n") + b"\n")
+    out.flush()
+
+
+def cmd_mcp(_args=None) -> None:
+    """stdio ↔ 中枢 MCP（Streamable HTTP）的桥。stdout 只输出协议消息，日志写 stderr。"""
+    creds = fresh_creds()
+    mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
+    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
+               "X-Hub-Trace-Id": new_trace_id(), "X-Hub-Task": quote("桌面智能体会话")}
+    out = sys.stdout.buffer
+    with httpx.Client(timeout=httpx.Timeout(30, read=300)) as http:
+        for raw in sys.stdin.buffer:
+            if not raw.strip():
+                continue
+            msg = json.loads(raw)
+            try:
+                resp = _post_mcp(http, mcp_url, msg, headers)
+                if resp.status_code == 404 and "Mcp-Session-Id" in headers:  # 中枢重启后会话失效：去掉会话号重试
+                    headers.pop("Mcp-Session-Id")
+                    resp = _post_mcp(http, mcp_url, msg, headers)
+                if sid := resp.headers.get("mcp-session-id"):
+                    headers["Mcp-Session-Id"] = sid
+                if resp.status_code >= 400 and resp.status_code != 202:
+                    raise RuntimeError(f"中枢返回 HTTP {resp.status_code}：{resp.text[:200]}")
+                _relay(resp, out)
+            except Exception as e:  # noqa: BLE001 出错时给请求方一个 JSON-RPC 错误，而不是让桥退出
+                print(f"hub-agent mcp: {e}", file=sys.stderr, flush=True)
+                if "id" in msg:
+                    err = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32603, "message": f"中枢不可用：{e}"}}
+                    out.write((json.dumps(err, ensure_ascii=False) + "\n").encode("utf-8"))
+                    out.flush()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="企业智能体中枢 · 员工端接入器")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -257,11 +315,13 @@ def main() -> None:
     sub.add_parser("status", help="查看当前登录状态")
     sub.add_parser("logout", help="退出并清除本机凭证")
     sub.add_parser("chat", help="启动 Hermes（其余参数原样传给 hermes）")
+    sub.add_parser("mcp", help="本地 MCP 桥（stdio），给 WorkBuddy 等桌面智能体用")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
-    {"login": cmd_login, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat}[args.cmd](args)
+    {"login": cmd_login, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
+     "mcp": cmd_mcp}[args.cmd](args)
 
 
 if __name__ == "__main__":

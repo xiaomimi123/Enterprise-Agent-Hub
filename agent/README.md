@@ -34,6 +34,23 @@ uv run agent/hub_agent.py logout    # 退出，清除本机的令牌、模型 ke
 
 环境变量 `HUB_AGENT_HOME` 可以改数据目录（默认 `~/.hub-agent`），同一台电脑上模拟多个员工时有用。
 
+## 接 WorkBuddy 等桌面智能体
+
+不用 Hermes 也可以：WorkBuddy、Cursor 这类支持本地（stdio）MCP 的桌面智能体，通过接入器的 `mcp` 子命令连中枢。它在本机把 MCP 请求转发给中枢，并自动续期令牌（员工令牌 24 小时过期、续期令牌 7 天），配置一次长期可用。
+
+1. 先登录一次：`uv run agent/hub_agent.py login --hub http://<中枢>:8088`
+2. 在桌面智能体的 MCP 配置里加一个服务器（WorkBuddy 是 `~/.workbuddy/mcp.json`）：
+
+```json
+"enterprise-hub": {
+  "command": "C:\Users\<你>\.local\bin\uv.exe",
+  "args": ["run", "<仓库路径>\agent\hub_agent.py", "mcp"],
+  "env": {"PYTHONUTF8": "1"}
+}
+```
+
+权限和审计与 Hermes 完全相同（同一个员工令牌、同一套岗位包）。区别是桌面智能体用它自己的大模型，不走中枢的 New API，所以这部分模型用量不会记到「用量与成本」里。超过 7 天没用、续期令牌也过期时，重新执行一次 `login`。
+
 ## 本机会生成的文件
 
 ```

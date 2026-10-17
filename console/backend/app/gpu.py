@@ -113,7 +113,7 @@ def list_tasks(limit: int = 100) -> dict:
         tasks.append({
             "id": t["id"], "trace_id": t["trace_id"], "member": t["display_name"] or t["user_name"],
             "member_id": t["user_name"], "dept": t["dept"], "channel": t["channel"],
-            "kind": "video" if t["workflow"] == "video-h3" else "image", "workflow": t["workflow"],
+            "kind": "video" if t["workflow"].startswith("video-") else "image", "workflow": t["workflow"],
             "title": p.get("title", ""), "prompt": p.get("prompt", ""),
             "size": f"{p['width']}×{p['height']}" if p.get("width") else "", "count": p.get("count", 1),
             "status": STATUS_TEXT[t["status"]], "node_id": t["node_id"], "ahead": ahead.get(t["id"]),
@@ -160,8 +160,13 @@ def _dispatch(nodes: list[dict], online: set[str]) -> None:
         if not t:
             continue
         try:
-            wf, outputs = load_workflow(t["workflow"], **t["params"])
-            prompt_id = ComfyUI(n["url"]).submit(wf)
+            client = ComfyUI(n["url"])
+            params = dict(t["params"])
+            if params.get("_input"):  # 图生视频：先把参考图传到这个节点的 ComfyUI
+                src = Path(settings.outputs_dir) / params["_input"]
+                params["image"] = client.upload_image(f"hub-{t['id']}{src.suffix}", src.read_bytes())
+            wf, outputs = load_workflow(t["workflow"], **params)
+            prompt_id = client.submit(wf)
             db.update_gpu_task(t["id"], prompt_id=prompt_id, params={**t["params"], "_outputs": outputs})
             log.info("任务 %s 派发到 %s", t["id"], n["id"])
         except Exception as e:  # noqa: BLE001

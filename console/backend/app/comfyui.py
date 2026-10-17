@@ -73,5 +73,12 @@ class ComfyUI:
         r.raise_for_status()
         return r.content
 
+    def upload_image(self, name: str, data: bytes) -> str:
+        """上传参考图到 ComfyUI 的 input 目录，返回工作流 LoadImage 里要填的文件名。"""
+        r = self.http.post("/upload/image", files={"image": (name, data)}, data={"overwrite": "true"}, timeout=60)
+        r.raise_for_status()
+        body = r.json()
+        return f"{body['subfolder']}/{body['name']}" if body.get("subfolder") else body["name"]
+
     def stats(self) -> dict:
         return self.http.get("/system_stats", timeout=5).json()

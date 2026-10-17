@@ -7,6 +7,13 @@
 
 from __future__ import annotations
 
+import io
+import uuid
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+from PIL import Image, UnidentifiedImageError
+
 from . import db, gpu, policy
 from .config import settings
 
@@ -16,6 +23,8 @@ VIDEO_ASPECTS = {"9:16": (480, 832), "16:9": (832, 480), "1:1": (640, 640), "3:4
 MAX_IMAGES = 4
 VIDEO_SECONDS = (2, 10)
 FPS = 24
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+IMAGE_FORMATS = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
 
 
 class Denied(Exception):
@@ -88,6 +97,51 @@ def submit_video(p: policy.Principal, trace_id: str, prompt: str, aspect: str = 
     return _submit(p, trace_id, "video.generate", "video-h3",
                    {"prompt": prompt, "title": prompt[:20], "width": w, "height": h, "length": video_frames(seconds)},
                    f"文生视频任务（{aspect}，约 {seconds:g} 秒）")
+
+
+def _image_ext(data: bytes) -> str:
+    if len(data) > MAX_IMAGE_BYTES:
+        raise Denied(f"参考图不能超过 {MAX_IMAGE_BYTES // 1024 // 1024} MB。")
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im.verify()
+            fmt = im.format
+    except (UnidentifiedImageError, OSError, SyntaxError):
+        raise Denied("参考图不是有效的图片，支持 PNG、JPEG、WEBP。")
+    if fmt not in IMAGE_FORMATS:
+        raise Denied("参考图格式不支持，支持 PNG、JPEG、WEBP。")
+    return IMAGE_FORMATS[fmt]
+
+
+def image_from_hub_url(url: str) -> bytes:
+    """只接受中枢自己签发的下载链接（如刚生成的封面），不去抓任意网址，避免被用来探测内网（SSRF）。"""
+    parts = urlsplit(url)
+    base = urlsplit(settings.public_url)
+    segs = parts.path.split("/")
+    q = parse_qs(parts.query)
+    ok = (parts.scheme, parts.netloc) == (base.scheme, base.netloc) and len(segs) == 5 and segs[1:3] == ["api", "files"]
+    f = None
+    if ok and q.get("exp") and q.get("sig") and q["exp"][0].isdigit():
+        f = gpu.verify_file(segs[3], segs[4], int(q["exp"][0]), q["sig"][0])
+    if f is None:
+        raise Denied("参考图链接无效：只接受中枢生成的、未过期的图片链接；其他图片请通过上传接口提交。")
+    return f.read_bytes()
+
+
+def submit_video_from_image(p: policy.Principal, trace_id: str, image: bytes, prompt: str, seconds: float = 4) -> dict:
+    _check(p, trace_id, "video.generate", "图生视频")
+    ext = _image_ext(image)
+    if not prompt.strip():
+        raise Denied("请描述画面要怎么动（提示词不能为空）。")
+    lo, hi = VIDEO_SECONDS
+    seconds = max(lo, min(float(seconds), hi))
+    rel = f"_inputs/{uuid.uuid4().hex}{ext}"
+    dest = Path(settings.outputs_dir) / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(image)
+    return _submit(p, trace_id, "video.generate", "video-h3-i2v",
+                   {"prompt": prompt, "title": prompt[:20], "length": video_frames(seconds), "_input": rel},
+                   f"图生视频任务（约 {seconds:g} 秒）")
 
 
 def get_task(p: policy.Principal, task_id: str) -> dict | None:

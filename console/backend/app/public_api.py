@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 
 import jwt
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from . import generation, gpu, policy
@@ -75,6 +75,16 @@ def create_image(body: ImageBody, authorization: str | None = Header(default=Non
 def create_video(body: VideoBody, authorization: str | None = Header(default=None),
                  x_hub_trace_id: str | None = Header(default=None)):
     return _enqueue(generation.submit_video, authorization, x_hub_trace_id, **body.model_dump())
+
+
+@router.post("/videos/from-image", status_code=202)
+async def create_video_from_image(image: UploadFile = File(...), prompt: str = Form(...), seconds: float = Form(4),
+                                  authorization: str | None = Header(default=None),
+                                  x_hub_trace_id: str | None = Header(default=None)):
+    """图生视频：上传参考图（PNG / JPEG / WEBP，≤ 10MB）作为首帧，画幅跟随参考图。"""
+    data = await image.read(generation.MAX_IMAGE_BYTES + 1)
+    return _enqueue(generation.submit_video_from_image, authorization, x_hub_trace_id, image=data, prompt=prompt,
+                    seconds=max(generation.VIDEO_SECONDS[0], min(seconds, generation.VIDEO_SECONDS[1])))
 
 
 @router.get("/tasks/{task_id}")

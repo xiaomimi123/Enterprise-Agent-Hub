@@ -22,7 +22,12 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 | `read_skill(skill_id)` | 读取 SKILL.md 全文 | 同上，且技能在岗位包内 |
 | `search_knowledge(query, knowledge_base?)` | 检索知识库；指定库名则只查该库 | 岗位包含 `kb.search`；外部智能体另需岗位包「外部只读」且知识库开放给外部 |
 | `generate_cover(title, description?)` | 派发到 GPU 节点生成 3 版封面，最多等 90 秒，见 [gpu.md](gpu.md) | 官方 agent，岗位包含 `image.cover` |
-| `get_cover_task(task_id)` | 查询封面任务进度和图片链接 | 只能查自己的任务 |
+| `generate_image(prompt, aspect?, count?)` | 文生图（Z-Image-Turbo） | 官方 agent，岗位包含 `image.generate` |
+| `generate_video(prompt, aspect?, seconds?)` | 文生视频（MiniMax-H3，带声音） | 官方 agent，岗位包含 `video.generate` |
+| `generate_video_from_image(image_url, prompt, seconds?)` | 图生视频，参考图只收中枢签发的链接 | 同上 |
+| `get_task(task_id)`（旧名 `get_cover_task`） | 查询生成任务进度和结果链接 | 只能查自己的任务 |
+
+生成类工具每人最多同时 3 个未完成任务（`HUB_GPU_MAX_PENDING_PER_USER`）。
 
 被拒绝时返回明确原因（例如「岗位包『小红书运营』没有『财务制度与报表』的检索权限」），并记一条「拒绝」审计。
 
@@ -76,5 +81,5 @@ cd ../console/backend && uv run python scripts/mcp_smoke.py   # 模拟运营、�
 ## 取舍与后续
 
 - 开发环境的 agent 应用开启了 password 授权，方便脚本取令牌；生产环境应改为授权码或设备码流程，由员工端 agent 引导员工扫码登录
-- 控制台「知识库」页的文档列表和索引状态仍读本地 vault，还没有读 RAGFlow 的实际解析状态；检索结果的 `section`（所属章节）暂为空，RAGFlow 按分块返回，不带章节标题
+- 控制台「知识库」页的文档列表和索引状态已读 RAGFlow（未同步的库读本地 vault）；检索结果的 `section`（所属章节）暂为空，RAGFlow 按分块返回，不带章节标题
 - 已容器化：与控制台后端共用 `hub-backend` 镜像，见 `hub/docker-compose.yml`

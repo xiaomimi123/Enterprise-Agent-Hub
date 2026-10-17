@@ -44,6 +44,7 @@ cd console/backend && uv run python scripts/gpu_smoke.py   # 两人同时出图�
 |---|---|---|---|
 | `image-gen` | Z-Image-Turbo（int8，8 步） | 文生图，画幅 3:4 / 1:1 / 4:3 / 9:16 / 16:9，一次 1–4 张 | MCP `generate_cover`、`generate_image`；HTTP `POST /api/v1/images` |
 | `video-h3` | MiniMax-H3 + Turbo 4 步 LoRA | 文生视频（带声音，24fps），2–10 秒 | MCP `generate_video`；HTTP `POST /api/v1/videos` |
+| `video-h3-i2v` | 同上，参考图作首帧 | 图生视频，画幅跟随参考图（约 0.4 百万像素） | MCP `generate_video_from_image`（只收中枢签发的图片链接）；HTTP `POST /api/v1/videos/from-image`（上传 PNG/JPEG/WEBP，≤ 10MB） |
 
 权限与审计统一在 `generation.py`：岗位包需包含 `image.cover` / `image.generate` / `video.generate` 之一，且只开放给官方 agent。MCP 工具最多等 90 秒，没完成就返回任务号，用 `get_task` 查询；HTTP 接口只入队，立即返回 202 和任务号。
 
@@ -53,6 +54,10 @@ curl -X POST http://<中枢>:8088/api/v1/videos -H "Authorization: Bearer $TOKEN
 # → {"task_id": "gpu-…", "status": "排队中", "ahead": 0, "trace_id": "api-…"}
 curl http://<中枢>:8088/api/v1/tasks/gpu-… -H "Authorization: Bearer $TOKEN"   # 完成后含 images / videos 下载链接
 ```
+
+**图生视频的参考图**：HTTP 上传的图片先校验格式和大小，存到 `outputs/_inputs/`；调度服务派发时用 ComfyUI 的 `POST /upload/image` 传到该节点，再填进工作流的 LoadImage。MCP 工具只接受中枢自己签发、未过期的下载链接（例如刚生成的封面），**不抓取任意网址**，避免被用来探测内网（SSRF）。
+
+**按人限流**：每人最多同时 `HUB_GPU_MAX_PENDING_PER_USER`（默认 3）个未完成任务，超出时 MCP 返回提示、HTTP 返回 429，并记一条拦截审计。「前面排队 N 个」包含正在生成的任务。
 
 旧的 `xhs-cover` 工作流（SDXL）已并入 `image-gen`：`generate_cover` 现在是它的 3:4 × 3 张预设。已有数据库里的岗位包不会自动获得新工具（岗位包只在库为空时写入演示数据），需在控制台的岗位包里勾选 `image.generate`、`video.generate`。
 
@@ -78,7 +83,7 @@ ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器�
 - 已验证（模拟节点）：MCP 出图、两人同时出图时第二个排队、财务岗位被拒、Hermes 一句话出图、审计两步记录、控制台节点状态、签名链接（正常 / 篡改 / 过期 / 路径穿越）
 - 已验证（真实 ComfyUI，本机）：两套工作流直接提交并出图 / 出片；调度服务收取结果的逻辑（保留 .mp4 扩展名、审计、下载链接）
 - 已验证（Docker Desktop 全链路，同机部署）：员工令牌登录 → `POST /api/v1/images`、`/videos` → PostgreSQL 队列 → 本机 ComfyUI → 签名链接下载（图 `image/png`、视频 `video/mp4`）；无令牌 401、财务岗位 403 且留下拦截审计；视频运行时新提交的图片排队等待；同一追踪 ID 贯穿提交与完成两条审计。图 2 张 19 秒，4 秒 9:16 视频 43 秒
-- 已知小问题：「前面排队 N 个」只统计排队中的任务，不含正在运行的，单节点忙碌时显示 0
+- 已验证（图生视频）：HTTP 上传参考图 38 秒出片、非图片 400；MCP 先出图再用其链接生成视频 41 秒；内网元数据地址被拒；限流第 4 个任务返回 429
 - 未验证：员工端 agent（Hermes）经 MCP 调用新工具（本机没有安装 Hermes）；节点执行中途掉线的恢复（当前任务会一直停在「生成中」，需要后续加超时）
 
 ## 后续

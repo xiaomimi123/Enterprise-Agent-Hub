@@ -29,7 +29,7 @@ INSTRUCTIONS = """这是企业智能体中枢。你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
-- generate_cover / generate_image / generate_video：派发到公司 GPU 节点生成封面图、图片、带声音的短视频（排队执行）
+- generate_cover / generate_image / generate_video / generate_video_from_image：派发到公司 GPU 节点生成封面图、图片、带声音的短视频、图生视频（排队执行）
 - get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
@@ -191,6 +191,17 @@ def generate_image(prompt: str, ctx: Context, aspect: str = "1:1", count: int = 
                       "90 秒内完成则直接返回视频链接，否则返回任务号，请稍后用 get_task 查询，不要重复提交")
 def generate_video(prompt: str, ctx: Context, aspect: str = "9:16", seconds: float = 4) -> str:
     return _generate(ctx, generation.submit_video, prompt=prompt, aspect=aspect, seconds=seconds)
+
+
+@mcp.tool(description="图生视频：把一张中枢生成的图片（如 generate_image / generate_cover 返回的链接）作为首帧，生成带声音的短视频。"
+                      "image_url 必须是中枢返回的图片链接；prompt 描述画面怎么动；seconds 时长 2–10 秒（默认 4）。"
+                      "90 秒内完成则直接返回视频链接，否则返回任务号，请稍后用 get_task 查询，不要重复提交")
+def generate_video_from_image(image_url: str, prompt: str, ctx: Context, seconds: float = 4) -> str:
+    try:
+        image = generation.image_from_hub_url(image_url)
+    except generation.Denied as e:
+        return str(e)
+    return _generate(ctx, generation.submit_video_from_image, image=image, prompt=prompt, seconds=seconds)
 
 
 @mcp.tool(description="查询图片 / 视频生成任务的进度和结果")

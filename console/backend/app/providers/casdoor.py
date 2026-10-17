@@ -134,7 +134,7 @@ class CasdoorProvider(DemoProvider):
         stats = db.gpu_task_stats()
         queued = stats.get("_queued", {}).get("n", 0)
         workflows = [p.stem for p in sorted(Path(settings.workflows_dir).glob("*.json"))]
-        names = {"image-gen": "文生图", "video-h3": "文生视频"}
+        names = {"image-gen": "文生图", "video-h3": "文生视频", "video-h3-i2v": "图生视频"}
         out = []
         for n in nodes:
             st = stats.get(n["id"], {})

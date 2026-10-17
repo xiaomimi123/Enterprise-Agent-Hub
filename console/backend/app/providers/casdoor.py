@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db, metering
+from .. import content, db, metering, presence
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import DEFAULT_ROLE_PACKS, FALLBACK_ROLE_PACK
@@ -82,6 +82,7 @@ class CasdoorProvider(DemoProvider):
         assigned = db.assignments(self.org)
 
         members = []
+        seen, now = db.presence_rows(self.org), datetime.now().astimezone()
         for u in self._users.values():
             group = next((g.split("/", 1)[-1] for g in (u.get("groups") or []) if g.split("/", 1)[-1] in dept_names), UNASSIGNED)
             pack = assigned.get(u["name"])
@@ -92,10 +93,7 @@ class CasdoorProvider(DemoProvider):
                 "dept_name": dept_names[group],
                 "title": u.get("title") or "",
                 "role_pack": pack if pack in pack_ids else DEFAULT_ROLE_PACKS.get(group, FALLBACK_ROLE_PACK),
-                # 员工端 agent 还没有接入中枢，暂时都显示未安装
-                "agent_status": "未安装",
-                "agent_version": "",
-                "os": "",
+                **presence.member_agent(seen.get(u["name"]), now),
                 "dingtalk_bound": bool(u.get("dingtalk")),
                 "last_active": u.get("lastSigninTime") or u.get("createdTime"),
             })
@@ -226,8 +224,9 @@ class CasdoorProvider(DemoProvider):
     def overview(self):
         self._sync()
         data = super().overview()
-        # agent 在线数是真实的（目前为 0），历史趋势也不能沿用演示值
-        data["daily_ops"] = [{**d, "online": 0} for d in data["daily_ops"]]
+        # 今天的在线数是真实的；历史在线趋势还没有记录，只保留今天这一点
+        online = data["stats"]["agents_online"]
+        data["daily_ops"] = [{**d, "online": online if i == len(data["daily_ops"]) - 1 else 0} for i, d in enumerate(data["daily_ops"])]
         return data
 
     def departments(self):

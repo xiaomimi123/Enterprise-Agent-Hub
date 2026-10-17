@@ -103,6 +103,20 @@ def _verify_agent_token(authorization: str | None) -> dict:
     return claims
 
 
+class Heartbeat(BaseModel):
+    client: str = ""
+    version: str = ""
+    os: str = ""
+
+
+@router.post("/heartbeat")
+def heartbeat(body: Heartbeat, authorization: str | None = Header(default=None)):
+    """接入器每分钟报到一次，控制台据此显示员工的 agent 是否在线、用的哪个 agent 和版本。"""
+    c = _verify_agent_token(authorization)
+    db.touch_presence(c["owner"], c["name"], client=body.client[:40], version=body.version[:20], os=body.os[:40])
+    return {"ok": True}
+
+
 @router.post("/enroll")
 def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None),
            x_hub_task: str | None = Header(default=None)):

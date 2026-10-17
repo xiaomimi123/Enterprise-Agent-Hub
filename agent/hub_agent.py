@@ -30,6 +30,7 @@ import hashlib
 import http.server
 import json
 import os
+import platform
 import secrets
 import shutil
 import sys
@@ -44,6 +45,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
+VERSION = "0.4.0"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -342,9 +344,10 @@ def agent_clients() -> list[dict]:
 
 def configure_agents(clients: list[dict], command: str, script: str) -> list[tuple[str, str]]:
     """把中枢写进每个已安装 agent 的 MCP 配置：保留原有内容，改之前备份，已是最新则不动，格式坏了不覆盖。"""
-    entry = {"command": command, "args": ["run", script, "mcp"], "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}}
     out = []
     for c in clients:
+        entry = {"command": command, "args": ["run", script, "mcp", "--client", c["name"]],
+                 "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}}
         if not c["detect"].is_dir():
             out.append((c["name"], "未安装"))
             continue
@@ -422,13 +425,36 @@ def _relay(resp: httpx.Response, out) -> None:
     out.flush()
 
 
-def cmd_mcp(_args=None) -> None:
+HEARTBEAT_SECONDS = 60
+
+
+def heartbeat_payload(client: str) -> dict:
+    system = {"Darwin": "macOS"}.get(platform.system(), platform.system())
+    release = platform.release() if system == "Windows" else ""
+    return {"client": client, "version": VERSION, "os": f"{system} {release}".strip()}
+
+
+def _heartbeat_loop(client: str) -> None:
+    """桥接运行期间每分钟向中枢报到一次，控制台据此显示员工 agent 在线。失败不影响桥接。"""
+    while True:
+        try:
+            creds = fresh_creds()
+            httpx.post(f"{creds['hub']}/api/agent/heartbeat", json=heartbeat_payload(client), timeout=10,
+                       headers={"Authorization": f"Bearer {creds['access_token']}"})
+        except (Exception, SystemExit) as e:  # noqa: BLE001
+            print(f"hub-agent mcp: 报到失败：{e}", file=sys.stderr, flush=True)
+        time.sleep(HEARTBEAT_SECONDS)
+
+
+def cmd_mcp(args=None) -> None:
     """stdio ↔ 中枢 MCP（Streamable HTTP）的桥。stdout 只输出协议消息，日志写 stderr。"""
     log_to_stderr()
     try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
         cmd_sync()
     except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
         print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
+    client = getattr(args, "client", None) or "桌面 agent"
+    threading.Thread(target=_heartbeat_loop, args=(client,), daemon=True).start()
     creds = fresh_creds()
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
     headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
@@ -473,7 +499,8 @@ def main() -> None:
     sub.add_parser("status", help="查看当前登录状态")
     sub.add_parser("logout", help="退出并清除本机凭证")
     sub.add_parser("chat", help="启动 Hermes（其余参数原样传给 hermes）")
-    sub.add_parser("mcp", help="本地 MCP 桥（stdio），给 WorkBuddy 等桌面智能体用")
+    p = sub.add_parser("mcp", help="本地 MCP 桥（stdio），给 WorkBuddy 等桌面智能体用")
+    p.add_argument("--client", default="", help="桌面 agent 的名称（用于控制台显示在线状态）")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))

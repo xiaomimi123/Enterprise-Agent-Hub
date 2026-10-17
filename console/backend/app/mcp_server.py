@@ -80,6 +80,11 @@ def _principal() -> policy.Principal:
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
                          dept=dept, channel=channel)
     p.pack = policy.resolve_pack(p.org, p.user_name, dept)
+    if channel == policy.OFFICIAL:  # 官方 agent 调用工具也算在线（直连的 Hermes 不经过接入器报到）
+        try:
+            db.touch_presence(p.org, p.user_name)
+        except Exception:  # noqa: BLE001 记在线失败不影响工具调用
+            pass
     return p
 
 

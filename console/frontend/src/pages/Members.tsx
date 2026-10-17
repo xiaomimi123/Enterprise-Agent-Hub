@@ -102,7 +102,7 @@ export default function Members() {
                 title: 'Agent', dataIndex: 'agent_status', render: (v, m) => (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Pill>{v}</Pill>
-                    {v !== '未安装' && <span className="muted mono" style={{ fontSize: 11 }}>{m.os} · v{m.agent_version}</span>}
+                    {v !== '未安装' && <span className="muted mono" style={{ fontSize: 11 }}>{[m.os, m.agent_version && `v${m.agent_version}`].filter(Boolean).join(' · ')}</span>}
                   </div>
                 ),
               },

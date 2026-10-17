@@ -104,6 +104,17 @@ ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS model_mode TEXT NOT NULL DEFAULT
 ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS gpu_quota_minutes INTEGER NOT NULL DEFAULT 0;
 -- 容错：任务被改派过几次（节点掉线 / 超时后重新排队）
 ALTER TABLE gpu_tasks ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+
+-- 员工端在线状态：接入器报到或官方 agent 调用工具时刷新
+CREATE TABLE IF NOT EXISTS agent_presence (
+    org       TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    client    TEXT,
+    version   TEXT,
+    os        TEXT,
+    last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org, user_name)
+);
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -342,6 +353,23 @@ def claim_task_for(node_id: str) -> dict | None:
             "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id = ("
             "  SELECT id FROM gpu_tasks WHERE status = 'queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
             ") RETURNING *", (node_id,)).fetchone()
+
+
+def touch_presence(org: str, user_name: str, client: str | None = None, version: str | None = None,
+                   os: str | None = None) -> None:
+    """刷新在线时间；没带的字段保留上次的值（MCP 调用只知道人，不知道用的是哪个 agent）。"""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO agent_presence (org, user_name, client, version, os) VALUES (%s, %s, %s, %s, %s) "
+            "ON CONFLICT (org, user_name) DO UPDATE SET last_seen = now(), "
+            "client = coalesce(EXCLUDED.client, agent_presence.client), "
+            "version = coalesce(EXCLUDED.version, agent_presence.version), os = coalesce(EXCLUDED.os, agent_presence.os)",
+            (org, user_name, client or None, version or None, os or None))
+
+
+def presence_rows(org: str) -> dict[str, dict]:
+    with connect() as conn:
+        return {r["user_name"]: r for r in conn.execute("SELECT * FROM agent_presence WHERE org = %s", (org,)).fetchall()}
 
 
 def requeue_gpu_task(task_id: str) -> None:

@@ -85,7 +85,7 @@ def test_configure_merges_backs_up_and_skips_missing(tmp_path):
     assert res == {"WorkBuddy": "已配置", "Cursor": "已配置", "Claude 桌面版": "未安装"}
     wb = json.loads((tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8"))
     assert wb["mcpServers"]["mine"] == {"command": "x"} and wb["other"] == 1      # 原有内容保留
-    assert wb["mcpServers"]["enterprise-hub"]["args"] == ["run", "C:/a/hub_agent.py", "mcp"]
+    assert wb["mcpServers"]["enterprise-hub"]["args"] == ["run", "C:/a/hub_agent.py", "mcp", "--client", "WorkBuddy"]
     assert wb["mcpServers"]["enterprise-hub"]["command"] == "C:/uv.exe"
     assert len(list((tmp_path / ".workbuddy").glob("mcp.json.bak-hub-*"))) == 1    # 改之前备份
     assert "enterprise-hub" in json.loads((tmp_path / ".cursor" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
@@ -112,3 +112,12 @@ def test_configure_reads_config_with_utf8_bom(tmp_path):
     (tmp_path / ".workbuddy" / "mcp.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"mcpServers": {"mine": {}}}).encode())
     assert dict(hub_agent.configure_agents(clients(tmp_path), "uv", "s.py"))["WorkBuddy"] == "已配置"
     assert "mine" in json.loads((tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+
+
+def test_configure_passes_client_name_and_heartbeat_payload(tmp_path):
+    (tmp_path / ".workbuddy").mkdir()
+    hub_agent.configure_agents(clients(tmp_path), "uv", "s.py")
+    args = json.loads((tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["enterprise-hub"]["args"]
+    assert args == ["run", "s.py", "mcp", "--client", "WorkBuddy"]
+    p = hub_agent.heartbeat_payload("WorkBuddy")
+    assert p["client"] == "WorkBuddy" and p["version"] == hub_agent.VERSION and p["os"]

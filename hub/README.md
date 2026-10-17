@@ -1,5 +1,7 @@
 # 中枢部署（hub）
 
+> **Windows 当前开发入口**：见 [Windows开发交接.md](../docs/Windows开发交接.md)。在 WSL Ubuntu 中使用本页命令；ComfyUI 原生跑在同一台 Windows 上，节点地址填 `http://host.docker.internal:8188`，不启用 frp profile。
+
 中枢的全部服务都在 Docker 里运行，部署在中枢服务器（台式机）上，需要 Docker 和 Docker Compose v2。
 本页是本仓库 `hub/` 的部署细节；**客户现场的完整部署（含员工电脑、GPU 机器的接入）照 [docs/部署清单.md](../docs/部署清单.md) 执行**。
 

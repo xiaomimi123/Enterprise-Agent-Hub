@@ -1,12 +1,14 @@
 # 企业智能体中枢
 
+> **当前开发方案（2026-10-17）**：后续在 Windows 工作站（RTX 5080 16GB / 9950X3D / 64GB DDR5）开发。中枢用 Docker Desktop + WSL2，ComfyUI 复用 Windows 原生安装；容器通过 `host.docker.internal:8188` 访问，不依赖 Tailscale/frp。开始前请读 [Windows 开发交接](docs/Windows开发交接.md)。正式生产部署位置另行决定。
+
 面向约 50 人企业的私有化多智能体平台：一个中枢统一管理身份、权限、知识、技能和审计，每个岗位配一个能在本机干活的 AI 助手。
 
 - 权限在中枢强制执行，不靠提示词
 - 「管 agent，不管人」：管理员下发任务和策略、查看 agent 操作日志，不看屏幕
 - 两级接入：自研 agent（Hermes 改造，可本机操作）+ 第三方智能体（MCP 只读接入）
 
-> 当前阶段：**阶段 0 · 最小链路验证（5 步全部完成）**。控制台已接入 Casdoor 登录；中枢 MCP Server 完成（令牌鉴权、按岗位包过滤、审计落库）；员工端 Hermes 已通过接入器接入（专属模型 key、按人计量）；GPU 调度完成（生图 + 短视频，模拟节点与实机 GPU 均验证）；审计串联完成（模型调用经中枢代理，登录 → 查询 → 出图 → token 消耗一条链路）；RAGFlow 检索接入完成（灌库脚本就绪，本体待台式机验证）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)，给领导演示的脚本见 [docs/demo.md](docs/demo.md)，客户现场部署照 [docs/部署清单.md](docs/部署清单.md) 执行。
+> 当前阶段：**阶段 0 · 最小链路验证（5 步全部完成）**。控制台已接入 Casdoor 登录；中枢 MCP Server 完成（令牌鉴权、按岗位包过滤、审计落库）；员工端 Hermes 已通过接入器接入（专属模型 key、按人计量）；GPU 生图与短视频链路已做模拟验证（Windows 节点单机运行见交接报告，中枢到真机的完整联调待验收）；审计串联完成（模型调用经中枢代理，登录 → 查询 → 出图 → token 消耗一条链路）；RAGFlow 检索接入完成（灌库脚本就绪，本体待台式机验证）。计划见 [docs/00-启动计划.md](docs/00-启动计划.md)，给领导演示的脚本见 [docs/demo.md](docs/demo.md)，客户现场部署照 [docs/部署清单.md](docs/部署清单.md) 执行。
 
 ## 架构
 
@@ -34,7 +36,7 @@ docs/             方案、阶段计划、决策记录（docs/decisions/）
 
 ## 快速开始
 
-全部服务都在 Docker 里运行。在中枢服务器上执行：
+中枢服务在 Docker 里运行；ComfyUI 保留 Windows 原生服务。Windows 开发请按上面的交接文档在 WSL Ubuntu 中执行；下面是通用 Bash/Makefile 入口：
 
 ```bash
 cd hub

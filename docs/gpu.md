@@ -1,5 +1,7 @@
 # GPU 调度
 
+> **当前开发方式（2026-10-17）**：中枢迁往 Windows GPU 工作站，复用已有 ComfyUI；容器使用 `http://host.docker.internal:8188`，不依赖 Tailscale/frp。Windows 侧单机模型测试由交接报告提供，中枢到真机的完整验收尚未完成。步骤和代码边界见 [Windows开发交接.md](Windows开发交接.md)。
+
 ## 目的
 
 公司里只有少数几台带 N 卡的机器。把它们注册成「能力节点」，全公司共享：运营同事的 agent 说一句「帮我出封面」，中枢把任务排进队列，派给空闲的 GPU 节点执行，结果交回给员工。对应启动计划的第 4 步。
@@ -74,7 +76,7 @@ uv run python scripts/video_smoke.py   # 文生视频 + 图生视频（base64 �
 
 ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器开放（防火墙或交换机 ACL）。
 
-**先决定 ComfyUI 放在哪**：两台机器同网就直接用局域网 IP（不要隧道）；想合并成一台机器、或换成云 GPU 实例，见 [gpu-部署方案.md](部署方案.md)。以下是不在同一网络时的接入办法。
+**先决定 ComfyUI 放在哪**：两台机器同网就直接用局域网 IP（不要隧道）；想合并成一台机器、或换成云 GPU 实例，见 [gpu-部署方案.md](gpu-部署方案.md)。以下是不在同一网络时的接入办法。
 
 **Windows 机器与远程节点**：ComfyUI 原生支持 Windows（portable 包即可），中枢只依赖它的 HTTP 接口，操作系统无关。节点不在中枢同网段时，推荐仓库里已配好的 **frp 反向隧道**（`COMPOSE_PROFILES` 加 `frp`，用 `make frpc-config` 生成 Windows 侧配置，中枢填 `http://frps:8189`），步骤见 [frp-隧道接入.md](frp-隧道接入.md)；也可用 WireGuard 等自建组网。8188 绝不直接暴露公网。显存选型见 [部署清单.md](部署清单.md) 第 6 节。
 

@@ -1,5 +1,7 @@
 # GPU 能力节点
 
+> 当前该 Windows 机器也将承担项目开发与中枢容器运行，请先读 [Windows开发交接.md](../docs/Windows开发交接.md)。不要按旧节点搭建任务书重装已有 ComfyUI 或模型。
+
 GPU 机器上运行标准 ComfyUI，中枢通过它自带的 HTTP 接口派发任务，不需要安装插件。
 
 - `workflows/`：工作流模板（ComfyUI API 格式），`{{占位符}}` 在派发时替换；只读挂载进中枢容器

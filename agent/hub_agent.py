@@ -48,11 +48,23 @@ HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
 SKILLS_DIR = HOME / "skills"
+# WorkBuddy 的技能目录：中枢下发的技能放在 hub-<技能 id>/ 下，并带标记文件，只管理这些，不碰员工自己装的技能
+WORKBUDDY_SKILLS = Path(os.environ.get("HUB_WORKBUDDY_SKILLS", Path.home() / ".workbuddy" / "skills"))
+WB_PREFIX = "hub-"
+WB_MARKER = ".hub-managed"
 CALLBACK_PORT = 27891
 
 
+_LOG = {"stream": None}
+
+
+def log_to_stderr(on: bool = True) -> None:
+    """MCP 桥模式下 stdout 只能输出协议消息，提示信息改写到 stderr。"""
+    _LOG["stream"] = sys.stderr if on else None
+
+
 def info(msg: str) -> None:
-    print(f"\033[36m›\033[0m {msg}")
+    print(f"\033[36m›\033[0m {msg}", file=_LOG["stream"] or sys.stdout)
 
 
 def fail(msg: str) -> None:
@@ -214,6 +226,9 @@ def cmd_sync(_args=None, trace_id: str | None = None, task: str = "") -> dict:
                   + yaml.safe_dump(conf, allow_unicode=True, sort_keys=False))
     write_private(HERMES_HOME / ".env", "".join(f"{k}={v}\n" for k, v in env.items()))
 
+    wb = sync_workbuddy_skills(cfg)
+    if wb is not None:
+        info(f"WorkBuddy：已同步岗位包技能 {wb} 个到 {WORKBUDDY_SKILLS}")
     e = cfg["employee"]
     info(f"{e['name']}（{e['role_pack']}）：已同步技能 {len(cfg['skills'])} 个"
          + (f"，模型 {cfg['model']['model']}" if cfg.get("model") else "，中枢未下发模型"))
@@ -250,6 +265,60 @@ def cmd_chat(args) -> None:
     os.execvpe(hermes, [hermes, "chat", *args.hermes_args], {**os.environ, "HERMES_HOME": str(HERMES_HOME)})
 
 
+# ---------------- WorkBuddy 技能同步 ----------------
+
+GUIDE = """---
+name: 企业中枢
+description: 公司的企业智能体中枢（MCP 服务器 enterprise-hub）。凡是和本公司有关的问题——产品卖点与成分、品牌调性与人设、违禁词与广告法、历史爆款笔记、公司制度、售后话术——都先用 enterprise-hub 的 search_knowledge 查公司资料，不要联网搜索代替；写小红书笔记、做选题、出封面、合规自查、复盘等工作，按公司下发的 hub-* 技能步骤执行；要生成图片、封面、视频时用 enterprise-hub 的生成工具（公司 GPU）。
+---
+
+# 企业中枢使用说明
+
+当前员工：{name}（岗位包「{pack}」）。权限由中枢按岗位包执行，被拒绝时如实告诉员工，不要尝试绕过。
+
+| 要做的事 | 调用 enterprise-hub 的工具 |
+|---|---|
+| 查公司资料（产品、品牌、违禁词、制度、售后……） | `search_knowledge`（可指定 knowledge_base） |
+| 看自己能用哪些资料和技能 | `whoami` |
+| 按公司规定的步骤干活 | `list_skills` / `read_skill`（本机 hub-* 技能就是它们的副本） |
+| 出小红书封面（一次 3 版） | `generate_cover` |
+| 文生图 | `generate_image` |
+| 文生视频 / 图生视频 | `generate_video` / `generate_video_from_image`（图片链接必须是中枢返回的） |
+| 生成没在 90 秒内完成 | `get_task` 查进度，不要重复提交 |
+
+技能里写的工具代号对应关系：`kb.search` → `search_knowledge`，`skill.read` → `read_skill`，`image.cover` → `generate_cover`，`image.generate` → `generate_image`，`video.generate` → `generate_video`。
+"""
+
+
+def _with_banner(content: str, pack: str) -> str:
+    """在 frontmatter 之后加一行来源说明（frontmatter 必须留在最前面，WorkBuddy 才能识别技能）。"""
+    banner = (f"> 由企业智能体中枢下发（岗位包「{pack}」），本机修改会在下次同步时被覆盖。"
+              "需要的公司资料和生成能力通过 MCP 服务器 enterprise-hub 调用，见技能「企业中枢」。\n\n")
+    if content.startswith("---\n") and (end := content.find("\n---", 4)) != -1:
+        cut = content.find("\n", end + 4) + 1 or len(content)
+        return content[:cut] + "\n" + banner + content[cut:].lstrip("\n")
+    return banner + content
+
+
+def sync_workbuddy_skills(cfg: dict, root: Path | None = None) -> int | None:
+    """把岗位包技能同步到 WorkBuddy：新增的写入、撤掉的删除。没装 WorkBuddy 时返回 None。"""
+    root = root or WORKBUDDY_SKILLS
+    if not root.parent.exists():
+        return None
+    root.mkdir(exist_ok=True)
+    e = cfg["employee"]
+    wanted = {f"{WB_PREFIX}{s['id']}": _with_banner(s["content"] or "", e["role_pack"]) for s in cfg["skills"]}
+    wanted[f"{WB_PREFIX}guide"] = GUIDE.format(name=e["name"], pack=e["role_pack"])
+    for d in root.iterdir():
+        if d.is_dir() and d.name.startswith(WB_PREFIX) and (d / WB_MARKER).exists() and d.name not in wanted:
+            shutil.rmtree(d)
+    for name, text in wanted.items():
+        (root / name).mkdir(exist_ok=True)
+        (root / name / "SKILL.md").write_text(text, encoding="utf-8")
+        (root / name / WB_MARKER).write_text("由企业智能体中枢接入器管理，会被自动更新或删除\n", encoding="utf-8")
+    return len(cfg["skills"])
+
+
 # ---------------- 本地 MCP 桥 ----------------
 
 def _post_mcp(http: httpx.Client, url: str, msg: dict, headers: dict) -> httpx.Response:
@@ -276,6 +345,11 @@ def _relay(resp: httpx.Response, out) -> None:
 
 def cmd_mcp(_args=None) -> None:
     """stdio ↔ 中枢 MCP（Streamable HTTP）的桥。stdout 只输出协议消息，日志写 stderr。"""
+    log_to_stderr()
+    try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
+        cmd_sync()
+    except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
+        print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
     creds = fresh_creds()
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
     headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",

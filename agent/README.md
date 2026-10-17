@@ -49,6 +49,8 @@ uv run agent/hub_agent.py logout    # 退出，清除本机的令牌、模型 ke
 }
 ```
 
+**技能自动同步**：如果本机装了 WorkBuddy（存在 `~/.workbuddy`），接入器每次 `sync`、以及 WorkBuddy 每次启动桥接时，都会把岗位包技能写到 `~/.workbuddy/skills/hub-<技能 id>/`，另加一个使用说明技能 `hub-guide`（告诉模型什么时候用中枢工具）。岗位包撤掉的技能会被删除；这些目录带 `.hub-managed` 标记，员工自己装的技能不受影响。目录可用环境变量 `HUB_WORKBUDDY_SKILLS` 修改。
+
 权限和审计与 Hermes 完全相同（同一个员工令牌、同一套岗位包）。区别是桌面智能体用它自己的大模型，不走中枢的 New API，所以这部分模型用量不会记到「用量与成本」里。超过 7 天没用、续期令牌也过期时，重新执行一次 `login`。
 
 ## 本机会生成的文件

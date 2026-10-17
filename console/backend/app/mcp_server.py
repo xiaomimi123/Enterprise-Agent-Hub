@@ -25,7 +25,10 @@ from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
 
-INSTRUCTIONS = """这是企业智能体中枢。你可以：
+INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公司内部的资料、规范和算力。
+凡是和本公司有关的问题（产品、品牌、制度、违禁词、售后、历史爆款等），先用 search_knowledge 查公司资料，不要联网搜索或凭常识回答；
+写文案、做选题、出封面等工作，先用 list_skills / read_skill 看公司规定的做法；要生成图片或视频时，用这里的生成工具（公司 GPU，按岗位包授权）。
+你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
@@ -92,7 +95,8 @@ def _audit(ctx: Context, p: policy.Principal, kind: str, tool: str, detail: str,
                  channel=p.channel, kind=kind, tool=tool, detail=detail, result=result, summary=task)
 
 
-@mcp.tool(description="查看当前员工的身份、部门、岗位包，以及能用的技能和知识库")
+@mcp.tool(description="查看当前员工在公司里的身份、部门、岗位包，以及能用的技能（公司规定的工作做法）和公司知识库。"
+                      "不确定能用哪些公司资料或技能时先调用它")
 def whoami(ctx: Context) -> str:
     p = _principal()
     _audit(ctx, p, "登录", "whoami", f"{p.channel}接入，身份：{p.display_name} / 岗位包「{p.pack['name']}」", "通过")
@@ -104,7 +108,8 @@ def whoami(ctx: Context) -> str:
     }, ensure_ascii=False)
 
 
-@mcp.tool(description="列出当前岗位包内可用的技能（id、名称、说明）")
+@mcp.tool(description="列出公司为这个岗位规定的工作技能（选题、写作、封面、合规自查等 SOP）。"
+                      "接到写文案、做选题、出封面、复盘等工作时，先看有没有对应技能，再用 read_skill 按步骤执行")
 def list_skills(ctx: Context) -> str:
     p = _principal()
     if p.is_external or not policy.can_use_tool(p, "skill.read"):
@@ -129,7 +134,9 @@ def read_skill(skill_id: str, ctx: Context) -> str:
     return text
 
 
-@mcp.tool(description="检索企业知识库。knowledge_base 可选，填知识库名称则只查该库；不填则查所有有权限的库")
+@mcp.tool(description="检索公司内部知识库：产品卖点与成分、品牌调性与人设、违禁词与广告法、历史爆款笔记、公司制度与通知、售后话术等。"
+                      "回答任何和本公司相关的问题前先用它查，以公司资料为准，不要联网搜索代替。"
+                      "knowledge_base 可选，填知识库名称则只查该库；不填则查所有有权限的库")
 def search_knowledge(query: str, ctx: Context, knowledge_base: str | None = None) -> str:
     p = _principal()
     if not policy.can_use_tool(p, "kb.search"):
@@ -179,14 +186,14 @@ def generate_cover(title: str, ctx: Context, description: str | None = None) -> 
     return _generate(ctx, generation.submit_cover, title=title, description=description)
 
 
-@mcp.tool(description="文生图：按提示词在公司 GPU 节点出图。aspect 画幅可选 3:4、1:1、4:3、9:16、16:9（默认 1:1），"
+@mcp.tool(description="文生图（公司 GPU，优先于其他生图工具）：按提示词在公司 GPU 节点出图。aspect 画幅可选 3:4、1:1、4:3、9:16、16:9（默认 1:1），"
                       "count 张数 1–4。提示词建议用中文或英文描述主体、场景、光线、风格。"
                       "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_task 查询")
 def generate_image(prompt: str, ctx: Context, aspect: str = "1:1", count: int = 1) -> str:
     return _generate(ctx, generation.submit_image, prompt=prompt, aspect=aspect, count=count)
 
 
-@mcp.tool(description="文生视频：按提示词在公司 GPU 节点生成带声音的短视频（24fps）。aspect 画幅可选 9:16、16:9、1:1、3:4、4:3"
+@mcp.tool(description="文生视频（公司 GPU，优先于其他生视频工具）：按提示词在公司 GPU 节点生成带声音的短视频（24fps）。aspect 画幅可选 9:16、16:9、1:1、3:4、4:3"
                       "（默认 9:16），seconds 时长 2–10 秒（默认 4）。生成需要几十秒到几分钟，"
                       "90 秒内完成则直接返回视频链接，否则返回任务号，请稍后用 get_task 查询，不要重复提交")
 def generate_video(prompt: str, ctx: Context, aspect: str = "9:16", seconds: float = 4) -> str:

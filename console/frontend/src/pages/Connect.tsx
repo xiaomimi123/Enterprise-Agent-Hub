@@ -68,7 +68,7 @@ export default function Connect() {
       <div className="stack-sm">
         <p className="muted">在 <code>{cfgPath(app)}</code> 的 <code>mcpServers</code> 里加入下面这一项（已有其他服务器时只加 <code>enterprise-hub</code> 这一段），然后重启 {app}。</p>
         <Code label="mcp.json" text={bridgeJson(script)} />
-        <p className="muted">接入器在本机把请求转发给中枢，并自动续期登录令牌，配置一次长期可用。{app} 用它自己的大模型和积分，中枢只管知识库、技能和出图出视频的权限、审计与 GPU 用量。</p>
+        <p className="muted">接入器在本机把请求转发给中枢，并自动续期登录令牌，配置一次长期可用。{app === 'WorkBuddy' ? '每次 WorkBuddy 启动时，岗位包里的技能会自动同步到它的技能目录（hub-* 开头），不用手动安装。' : ''}{app} 用它自己的大模型和积分，中枢只管知识库、技能和出图出视频的权限、审计与 GPU 用量。</p>
       </div>
     ),
   })

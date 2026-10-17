@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from . import content, db, policy
 from .auth import _jwks_client
 from .config import settings
-from .newapi import NewApi, NewApiError, token_name
+from .newapi import NewApi, NewApiError, plan_key, token_name
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 LOOPBACK_REDIRECT = "http://127.0.0.1:27891/callback"
@@ -130,10 +130,15 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
     model_mode = p.pack.get("model_mode") or "中枢模型"
     model = None
     na = NewApi() if model_mode == "中枢模型" else None
-    if na and na.configured and settings.default_model:
+    if na and na.configured:
         try:
-            model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": na.ensure_token(token_name(p.org, p.user_name)),
-                     "model": settings.default_model}
+            name = token_name(p.org, p.user_name)
+            # 按岗位包限制 key 能用的模型和本月剩余额度（每次同步重算，跨月自动恢复）
+            plan = plan_key(p.pack.get("models") or [], na.available_models(), settings.default_model,
+                            float(p.pack.get("monthly_quota") or 0), na.month_used_quota(name), settings.usd_cny)
+            if plan["model"]:
+                key = na.ensure_token(name, models=plan["models"], remain_quota=plan["remain_quota"], unlimited=plan["unlimited"])
+                model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": key, "model": plan["model"]}
         except NewApiError as e:
             raise HTTPException(502, str(e))
 

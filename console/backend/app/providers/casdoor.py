@@ -256,7 +256,16 @@ class CasdoorProvider(DemoProvider):
 
     def catalog(self):
         self._sync()
-        return super().catalog()
+        data = super().catalog()
+        # 岗位包可选的模型改为模型网关里真实启用的模型
+        if self.newapi.configured:
+            try:
+                models = self.newapi.available_models()
+            except (NewApiError, httpx.HTTPError):
+                models = []
+            if models:
+                data["models"] = [{"id": m, "name": m, "location": "模型网关"} for m in models]
+        return data
 
     def skills(self):
         self._sync()

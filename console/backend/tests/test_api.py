@@ -32,3 +32,15 @@ def test_assign_and_update_role_pack():
 def test_not_found():
     assert client.get("/api/skills/nope").status_code == 404
     assert client.patch("/api/role-packs/rp-cs", json={"monthly_quota": -1}).status_code == 400
+
+
+def test_agent_script_is_downloadable_without_login():
+    r = client.get("/api/agent/hub_agent.py")
+    assert r.status_code == 200 and "def cmd_mcp" in r.text
+    assert "attachment" in r.headers.get("content-disposition", "")
+
+
+def test_connect_info_lists_endpoints():
+    d = client.get("/api/connect").json()
+    assert d["mcp_url"].endswith("/mcp") and d["api_base"].endswith("/api/v1")
+    assert d["script_url"].endswith("/api/agent/hub_agent.py") and d["hub_url"]

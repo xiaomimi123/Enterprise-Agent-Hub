@@ -22,6 +22,8 @@ x-hub-backend: &hub-backend
     - ../skills:/data/skills:ro
     - ../vault:/data/vault:ro
     - ../gpu-node/workflows:/data/workflows:ro
+    # 员工端接入器脚本，控制台「接入方式」页提供下载
+    - ../agent:/data/agent:ro
     # GPU 生成结果：调度服务写入，控制台后端提供带签名的下载
     - ./data/outputs:/data/outputs
   environment:
@@ -50,6 +52,7 @@ x-hub-backend: &hub-backend
     HUB_GPU_MAX_PENDING_PER_USER: ${HUB_GPU_MAX_PENDING_PER_USER:-3}
     HUB_COMFY_CHECKPOINT: ${HUB_COMFY_CHECKPOINT:-sd_xl_base_1.0.safetensors}
     # 知识库检索：两项都配置才走 RAGFlow，否则回退本地 vault 关键词检索
+    HUB_AGENT_DIR: /data/agent
     RAGFLOW_ENDPOINT: ${RAGFLOW_ENDPOINT:-}
     RAGFLOW_API_KEY: ${RAGFLOW_API_KEY:-}
     RAGFLOW_EMBEDDING_MODEL: ${RAGFLOW_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}

@@ -7,6 +7,7 @@ import { AuthGate, CallbackPage } from './auth'
 import './index.css'
 import ConsoleLayout from './layout/ConsoleLayout'
 import Audit from './pages/Audit'
+import Connect from './pages/Connect'
 import Knowledge from './pages/Knowledge'
 import Members from './pages/Members'
 import Overview from './pages/Overview'
@@ -57,6 +58,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="role-packs" element={<RolePacks />} />
               <Route path="skills" element={<Skills />} />
               <Route path="knowledge" element={<Knowledge />} />
+              <Route path="connect" element={<Connect />} />
               <Route path="audit" element={<Audit />} />
               <Route path="tasks" element={<Tasks />} />
               <Route path="usage" element={<UsagePage />} />

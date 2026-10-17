@@ -35,6 +35,8 @@ class Settings:
     # 技能仓库（SKILL.md）与知识库（Obsidian vault）所在目录
     skills_dir: str = os.getenv("HUB_SKILLS_DIR", str(ROOT / "skills"))
     vault_dir: str = os.getenv("HUB_VAULT_DIR", str(ROOT / "vault"))
+    # 员工端接入器（agent/hub_agent.py）所在目录，控制台「接入方式」页提供下载
+    agent_dir: str = os.getenv("HUB_AGENT_DIR", str(ROOT / "agent"))
 
     # MCP Server：对外地址，以及哪些 Casdoor 应用的令牌算「官方 agent」、哪些算「外部智能体」
     mcp_public_url: str = os.getenv("HUB_MCP_PUBLIC_URL", "http://localhost:8200/mcp")

@@ -2,6 +2,7 @@ import {
   ApartmentOutlined,
   AppstoreOutlined,
   AuditOutlined,
+  ApiOutlined,
   BookOutlined,
   FundOutlined,
   PictureOutlined,
@@ -31,6 +32,7 @@ const NAV = [
     group: '能力', items: [
       { path: '/skills', icon: <ThunderboltOutlined />, label: '技能库' },
       { path: '/knowledge', icon: <BookOutlined />, label: '知识库' },
+      { path: '/connect', icon: <ApiOutlined />, label: '接入方式' },
     ],
   },
   {
@@ -48,6 +50,7 @@ const TITLES: Record<string, [string, string]> = {
   '/role-packs': ['组织与权限', '岗位包'],
   '/skills': ['能力', '技能库'],
   '/knowledge': ['能力', '知识库'],
+  '/connect': ['能力', '接入方式'],
   '/audit': ['监管', '审计日志'],
   '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],

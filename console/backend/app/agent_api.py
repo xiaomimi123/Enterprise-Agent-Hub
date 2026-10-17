@@ -15,7 +15,10 @@ from urllib.parse import unquote
 
 import httpx
 import jwt
+from pathlib import Path
+
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import content, db, policy
@@ -31,6 +34,15 @@ def _agent_client() -> tuple[str, str]:
     if not settings.agent_client_ids or not settings.agent_client_secret:
         raise HTTPException(503, "中枢尚未配置员工端 agent 应用，请先执行 make bootstrap")
     return settings.agent_client_ids[0], settings.agent_client_secret
+
+
+@router.get("/hub_agent.py")
+def agent_script():
+    """员工端接入器脚本：公开下载（不含任何密钥），控制台「接入方式」页里给出下载链接。"""
+    f = Path(settings.agent_dir) / "hub_agent.py"
+    if not f.is_file():
+        raise HTTPException(404, "中枢未挂载接入器脚本")
+    return FileResponse(f, media_type="text/x-python; charset=utf-8", filename="hub_agent.py")
 
 
 @router.get("/config")

@@ -250,6 +250,13 @@ export interface GpuTask {
   files: { type: 'image' | 'video'; url: string }[]
 }
 
+export interface ConnectInfo {
+  hub_url: string
+  mcp_url: string
+  api_base: string
+  script_url: string
+}
+
 export interface GpuTasks {
   summary: { queued: number; running: number; failed: number; done_today: number }
   tasks: GpuTask[]
@@ -278,6 +285,7 @@ export const api = {
   traces: (params: { member_id?: string; outcome?: string; dept?: string; q?: string } = {}) =>
     request<TraceBrief[]>(`/audit/traces${qs(params)}`),
   trace: (id: string) => request<Trace>(`/audit/traces/${id}`),
+  connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),
 }

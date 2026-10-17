@@ -165,6 +165,13 @@ def gpu_tasks(limit: int = 100):
     return gpu.list_tasks(max(1, min(limit, 200)))
 
 
+@api.get("/connect")
+def connect():
+    """控制台「接入方式」页：员工的 agent 怎么连中枢。"""
+    return {"hub_url": settings.public_url, "mcp_url": settings.mcp_public_url,
+            "api_base": f"{settings.public_url}/api/v1", "script_url": f"{settings.public_url}/api/agent/hub_agent.py"}
+
+
 @api.get("/usage")
 def usage(days: int = 30):
     return provider.usage(days=max(1, min(days, 30)))

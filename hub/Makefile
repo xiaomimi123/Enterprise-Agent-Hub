@@ -1,6 +1,6 @@
 RAGFLOW_DIR := ragflow/upstream/docker
 
-.PHONY: env up down ps logs db-hub bootstrap bootstrap-demo ragflow-setup ragflow-up ragflow-down ragflow-ps ragflow-bootstrap all-up all-down
+.PHONY: env up down ps logs db-hub bootstrap bootstrap-demo frp-token frpc-config ragflow-setup ragflow-up ragflow-down ragflow-ps ragflow-bootstrap all-up all-down
 
 env:            ## 生成 .env（随机密码）
 	@bash scripts/gen-env.sh
@@ -46,6 +46,13 @@ ragflow-up: ragflow-setup
 
 ragflow-down:
 	cd $(RAGFLOW_DIR) && docker compose down
+
+frp-token:      ## 打印 GPU 机器上 frpc 要填的隧道令牌
+	@cat frp/token
+
+frpc-config:    ## 按 .env 生成 GPU 机器可用的 frpc 配置（复制过去即可）
+	@printf 'serverAddr = "%s"\nserverPort = %s\nauth.method = "token"\nauth.token = "%s"\ntransport.tls.enable = true\ntransport.heartbeatInterval = 30\ntransport.heartbeatTimeout = 90\n\n[[proxies]]\nname = "comfyui"\ntype = "tcp"\nlocalIP = "127.0.0.1"\nlocalPort = 8188\nremotePort = 8189\n' \
+	  "$$(grep -E '^HUB_HOST=' .env | cut -d= -f2)" "$$(grep -E '^FRP_BIND_PORT=' .env | cut -d= -f2)" "$$(cat frp/token)"
 
 ragflow-bootstrap: ## 把 vault/ 知识库灌进 RAGFlow（建库、传文档、解析；自动创建 API key 写回 .env）
 	docker compose run --rm --no-deps -v ./.env:/hub.env console-api python scripts/ragflow_bootstrap.py --env-file /hub.env

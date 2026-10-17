@@ -12,4 +12,10 @@ while grep -q 'change_me_[a-z]*' "$HUB/.env"; do
 done
 chmod 600 "$HUB/.env"
 
+# frp 隧道令牌：GPU 机器上的 frpc 要用同一个（make frp-token 可随时打印）
+if [ ! -f "$HUB/frp/token" ]; then
+  openssl rand -hex 24 > "$HUB/frp/token"
+  chmod 600 "$HUB/frp/token"
+fi
+
 echo "已生成 hub/.env（随机密码）。请手动改 HUB_HOST 和 CASDOOR_ORIGIN 为中枢服务器的局域网地址。"

@@ -1,6 +1,7 @@
 # 中枢全部服务：
 #   开源组件：Casdoor（身份）、New API（模型网关）、PostgreSQL、Redis
 #   自研服务：console-web（控制台前端）、console-api（控制台后端 + 模型代理 /v1）、hub-mcp（中枢 MCP Server）
+#   可选：frps（GPU 节点隧道服务端，profile "frp"）、RAGFlow（官方 compose 单独部署）
 # RAGFlow 依赖较多（ES、MySQL、MinIO 等），用官方 compose 单独部署，见 ragflow/setup.sh
 #
 # 用法：make env → 编辑 .env → make up → make bootstrap（首次）
@@ -161,6 +162,26 @@ services:
         condition: service_healthy
     ports:
       - "${MCP_PORT}:8200"
+
+  # GPU 节点隧道（frp 服务端）：GPU 机器不在中枢同一网络时用它接入。
+  # 由 profile "frp" 控制（.env 的 COMPOSE_PROFILES 里加上 frp 才启动）。
+  #
+  # 安全要点：代理端口 8189 **不发布到宿主机**，只在 compose 网络内可达，
+  # 所以公网只能碰到 frps 的控制端口，碰不到没有鉴权的 ComfyUI。
+  frps:
+    image: fatedier/frps:${FRP_VERSION}
+    profiles: ["frp"]
+    restart: unless-stopped
+    command: ["-c", "/etc/frp/frps.toml"]
+    volumes:
+      # frpc 侧用同一个令牌；文件由 make env 生成（hub/frp/token，不进 git）
+      - ./frp/frps.toml:/etc/frp/frps.toml:ro
+      - ./frp/token:/etc/frp/token:ro
+    ports:
+      # 唯一对外的端口：GPU 机器上的 frpc 连这里
+      - "${FRP_BIND_PORT:-7000}:7000"
+      # 管理页面只绑回环，方便在中枢服务器本机查看隧道状态
+      - "127.0.0.1:${FRP_DASHBOARD_PORT:-7500}:7500"
 
   # GPU 调度：把排队的生图任务派给空闲的 ComfyUI 节点，取回结果
   hub-worker:

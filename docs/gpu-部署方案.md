@@ -65,7 +65,7 @@ Windows 装 Docker Desktop（WSL2 后端），hub 的全部服务跑在里面；
 | 方式 | 做法 | 依赖 |
 |---|---|---|
 | 自建 WireGuard | 中枢服务器上装，Windows 作为客户端连入 | 无第三方，全自己控制 |
-| frp 反向隧道 | Windows 跑 frpc，把 8188 映射到中枢本机端口；中枢填 `http://host.docker.internal:<映射端口>`（compose 已配 host-gateway） | 无第三方 |
+| **frp 反向隧道** | 中枢 compose 里起 frps，Windows 跑 frpc 主动外连（**仓库已支持，见 [frp-隧道接入.md](frp-隧道接入.md)**）；中枢填 `http://frps:8189` | 无第三方 |
 | Cloudflare Tunnel / ZeroTier | 同类组网工具 | 仍是第三方 |
 
 这三种都是「装一次、之后不用管」，心理负担比 Tailscale 小，但都不如方案 A 干净。
@@ -83,4 +83,4 @@ ComfyUI **没有鉴权**，8188 只能在受控范围内可达：局域网内只
 | 想要一台机器、能搬显卡 | 方案 B2（最干净） |
 | 不想维护自有 GPU 机器、能接受月费 | 方案 C |
 | 不在乎数据出内网、只要效果 | 方案 D（需开发） |
-| 两台机器确实不在一起、又不用 Tailscale | 附表中的 WireGuard 或 frp |
+| 两台机器确实不在一起、又不用 Tailscale | **frp（仓库已配好）** 或自建 WireGuard |

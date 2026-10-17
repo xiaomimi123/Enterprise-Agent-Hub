@@ -26,6 +26,9 @@ outputs/
 # 系统
 .DS_Store
 
+# frp 隧道令牌（由 make env 生成，两边机器共用）
+hub/frp/token
+
 # RAGFlow 官方部署文件（由 hub/ragflow/setup.sh 拉取）
 hub/ragflow/upstream/
 

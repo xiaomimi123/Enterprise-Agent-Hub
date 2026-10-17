@@ -1,0 +1,29 @@
+# frps：中枢侧的公网入口，跑在 docker-compose 里。
+# Windows GPU 机器上的 frpc 主动连过来，把它本机的 ComfyUI（8188）映射成中枢内部端口 8189。
+#
+# 安全设计（重点）：
+# - 代理端口 8189 **不发布到宿主机**，只在 compose 网络内可达——中枢容器用 http://frps:8189 访问它，
+#   公网上根本打不到 ComfyUI（ComfyUI 自己没有鉴权，这是必须的）
+# - 对外只开控制端口（FRP_BIND_PORT，默认 7000），靠 token + TLS 保护
+# - 管理页面绑回环，compose 里也只发布到 127.0.0.1
+
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+# 令牌从文件读（make env 生成 hub/frp/token，不进 git，两边必须一致）
+auth.method = "token"
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/etc/frp/token"
+
+# frpc 必须用 TLS 连接
+transport.tls.force = true
+
+# 本服务只承载 GPU 节点这一个代理，把可用的远程端口锁死
+allowPorts = [{ start = 8189, end = 8189 }]
+
+# 管理页面（在服务器上用 SSH 隧道或本机浏览器访问 http://127.0.0.1:7500）
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
+
+log.to = "console"
+log.level = "info"

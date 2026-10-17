@@ -11,6 +11,7 @@
 | Casdoor 4.20.0 | 身份（钉钉登录、组织架构） | 8000 | 开源镜像 |
 | New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 仅本机回环（管理后台） | 开源镜像 |
 | hub-worker | GPU 调度：把生图任务派给 ComfyUI 节点、取回结果 | 不对外 | 自研，与 console-api 同一镜像 |
+| frps | GPU 节点隧道服务端（profile `frp`）：GPU 机器不在同一网络时用它接入 | **7000**（唯一需对公网放行的端口） | 开源镜像 |
 | mock-llm / mock-comfyui | 开发用模拟大模型 / 模拟 GPU 节点，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
 | RAGFlow v0.27.2 | 知识库检索（尚未接入） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
@@ -68,6 +69,8 @@ make up                   # 重启自研服务生效
 | `make down` | 停止全部服务（数据保留在 `data/`） |
 | `make bootstrap` / `make bootstrap-demo` | 初始化 Casdoor 与 New API（可重复执行） |
 | `make db-hub` | 给早期创建的 PostgreSQL 数据目录补建 `hub` 库 |
+| `make frp-token` | 打印 GPU 机器上 frpc 要填的隧道令牌 |
+| `make frpc-config` | 按 `.env` 生成 GPU 机器的 frpc 配置（复制过去即可），见 [docs/frp-隧道接入.md](../docs/frp-隧道接入.md) |
 | `make ragflow-up` / `make ragflow-down` | 启停 RAGFlow |
 
 ## 注意

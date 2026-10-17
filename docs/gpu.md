@@ -76,7 +76,7 @@ ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器�
 
 **先决定 ComfyUI 放在哪**：两台机器同网就直接用局域网 IP（不要隧道）；想合并成一台机器、或换成云 GPU 实例，见 [gpu-部署方案.md](部署方案.md)。以下是不在同一网络时的接入办法。
 
-**Windows 机器与远程节点**：ComfyUI 原生支持 Windows（portable 包即可），中枢只依赖它的 HTTP 接口，操作系统无关。节点不在中枢同网段时用 Tailscale / WireGuard 组网或 frp 反向隧道接入（`HUB_GPU_NODES` 填隧道地址；隧道映射在宿主机上时容器内用 `host.docker.internal`，compose 已配 host-gateway）。8188 绝不直接暴露公网。详细步骤与显存选型见 [部署清单.md](部署清单.md) 第 6 节。
+**Windows 机器与远程节点**：ComfyUI 原生支持 Windows（portable 包即可），中枢只依赖它的 HTTP 接口，操作系统无关。节点不在中枢同网段时，推荐仓库里已配好的 **frp 反向隧道**（`COMPOSE_PROFILES` 加 `frp`，用 `make frpc-config` 生成 Windows 侧配置，中枢填 `http://frps:8189`），步骤见 [frp-隧道接入.md](frp-隧道接入.md)；也可用 WireGuard 等自建组网。8188 绝不直接暴露公网。显存选型见 [部署清单.md](部署清单.md) 第 6 节。
 
 ## 已验证 / 未验证
 

@@ -1,0 +1,27 @@
+# frpc：跑在 Windows GPU 机器上，主动连到中枢的 frps，把本机 ComfyUI 交给中枢使用。
+#
+# 用法：复制本文件为 frpc.toml，把 <中枢公网IP> 和 <令牌> 换成实际值，然后：
+#     frpc.exe -c frpc.toml
+# 令牌在中枢服务器的仓库目录里执行 `make frp-token` 打印（或看 hub/.env 的 FRP_TOKEN）。
+#
+# 这台机器不需要任何入站端口——是它主动连出去的，所以家用宽带/公司内网都行。
+
+serverAddr = "<中枢公网IP>"
+serverPort = 7000
+
+auth.method = "token"
+auth.token = "<令牌>"
+
+# 必须开启：中枢侧的 frps 强制要求 TLS
+transport.tls.enable = true
+
+# 把这个心跳留久一点，视频任务跑 8-9 分钟，期间隧道不能断
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 90
+
+[[proxies]]
+name = "comfyui"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8188
+remotePort = 8189

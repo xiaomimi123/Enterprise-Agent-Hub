@@ -13,6 +13,8 @@ import logging
 import time
 import uuid
 from datetime import datetime
+
+import httpx
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -140,6 +142,45 @@ def _audit(t: dict, detail: str, result: str) -> None:
                  detail=detail, result=result)
 
 
+# ---- 容错：节点掉线 / 派发中断 / 超时 → 重新排队，最多重试 1 次 ----
+
+TIMEOUT_SECONDS = {"image-gen": 600, "video-h3": 1800, "video-h3-i2v": 1800}
+DEFAULT_TIMEOUT = 1200
+OFFLINE_GRACE = 30        # 刚派发时节点状态可能还没刷新，给一点余量
+DISPATCH_GRACE = 120      # 领取了任务却一直没拿到 ComfyUI 任务号（派发中途调度服务重启等）
+MAX_ATTEMPTS = 2          # 首次 + 重试 1 次
+
+
+def _recover(nodes: dict[str, dict], online: set[str], now: datetime | None = None) -> None:
+    now = now or datetime.now().astimezone()
+    for t in db.running_tasks():
+        if not t["started_at"]:
+            continue
+        elapsed = (now - t["started_at"]).total_seconds()
+        node = nodes.get(t["node_id"]) or {"name": t["node_id"] or "未知节点"}
+        if not t["prompt_id"] and elapsed > DISPATCH_GRACE:
+            reason = "派发中断"
+        elif t["node_id"] not in online and elapsed > OFFLINE_GRACE:
+            reason = f"{node['name']} 掉线"
+        elif elapsed > TIMEOUT_SECONDS.get(t["workflow"], DEFAULT_TIMEOUT):
+            reason = f"{node['name']} 运行超时（{elapsed / 60:.0f} 分钟）"
+            if t["prompt_id"] and node.get("url"):
+                try:
+                    ComfyUI(node["url"]).cancel(t["prompt_id"])
+                except Exception:  # noqa: BLE001 取消失败不影响改派
+                    log.warning("取消 ComfyUI 任务 %s 失败", t["prompt_id"])
+        else:
+            continue
+        if (t.get("attempts") or 0) + 1 < MAX_ATTEMPTS:
+            db.requeue_gpu_task(t["id"])
+            _audit(t, f"{reason}，任务已重新排队（第 {(t.get('attempts') or 0) + 2} 次）", "通过")
+            log.warning("任务 %s：%s，重新排队", t["id"], reason)
+        else:
+            db.update_gpu_task(t["id"], status="failed", error=f"{reason}，重试后仍未完成")
+            _audit(t, f"{reason}，重试后仍未完成，任务失败", "拒绝")
+            log.warning("任务 %s：%s，已失败", t["id"], reason)
+
+
 def _refresh_nodes(nodes: list[dict]) -> set[str]:
     online = set()
     for n in nodes:
@@ -198,6 +239,8 @@ def _collect(nodes: dict[str, dict]) -> None:
             unit = "条视频" if names[0].endswith(tuple(VIDEO_SUFFIXES)) else "张"
             _audit(t, f"{node['name']} 生成 {len(names)} {unit}「{t['params'].get('title', '')}」，耗时 {took:.0f} 秒", "通过")
             log.info("任务 %s 完成，%d 张", t["id"], len(names))
+        except httpx.HTTPError as e:  # 网络抖动或节点暂时连不上：下一轮再查，掉线由 _recover 处理
+            log.warning("任务 %s 暂时取不到结果：%s", t["id"], e)
         except Exception as e:  # noqa: BLE001
             db.update_gpu_task(t["id"], status="failed", error=str(e)[:500])
             _audit(t, f"{node['name']} 生成失败：{e}", "拒绝")
@@ -219,6 +262,7 @@ def run_worker(interval: float = 1.0) -> None:
                 online = _refresh_nodes(nodes)
                 last_refresh = time.time()
             _collect(by_id)
+            _recover(by_id, online)
             _dispatch(nodes, online)
         except Exception:  # noqa: BLE001 数据库短暂不可用等情况，下一轮重试
             log.exception("调度循环出错")

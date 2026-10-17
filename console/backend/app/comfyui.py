@@ -80,5 +80,12 @@ class ComfyUI:
         body = r.json()
         return f"{body['subfolder']}/{body['name']}" if body.get("subfolder") else body["name"]
 
+    def cancel(self, prompt_id: str) -> None:
+        """取消一个任务：还在排队就从队列删掉，正在跑就中断。"""
+        self.http.post("/queue", json={"delete": [prompt_id]})
+        running = (self.http.get("/queue").json().get("queue_running") or [])
+        if any(len(item) > 1 and item[1] == prompt_id for item in running):
+            self.http.post("/interrupt", json={"prompt_id": prompt_id})
+
     def stats(self) -> dict:
         return self.http.get("/system_stats", timeout=5).json()

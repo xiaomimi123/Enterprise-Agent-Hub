@@ -102,6 +102,8 @@ CREATE INDEX IF NOT EXISTS gpu_tasks_status ON gpu_tasks (status, created_at);
 -- 计费：岗位包选模型方式（中枢模型 / 自带模型），以及每人每月 GPU 分钟额度（0 = 不限）
 ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS model_mode TEXT NOT NULL DEFAULT '中枢模型';
 ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS gpu_quota_minutes INTEGER NOT NULL DEFAULT 0;
+-- 容错：任务被改派过几次（节点掉线 / 超时后重新排队）
+ALTER TABLE gpu_tasks ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -340,6 +342,13 @@ def claim_task_for(node_id: str) -> dict | None:
             "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id = ("
             "  SELECT id FROM gpu_tasks WHERE status = 'queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
             ") RETURNING *", (node_id,)).fetchone()
+
+
+def requeue_gpu_task(task_id: str) -> None:
+    """把卡住的任务放回队列（保持原来的排队顺序），记一次重试。"""
+    with connect() as conn:
+        conn.execute("UPDATE gpu_tasks SET status = 'queued', node_id = NULL, prompt_id = NULL, started_at = NULL, "
+                     "attempts = attempts + 1 WHERE id = %s AND status = 'running'", (task_id,))
 
 
 def running_tasks() -> list[dict]:

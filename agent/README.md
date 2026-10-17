@@ -34,7 +34,24 @@ uv run agent/hub_agent.py logout    # 退出，清除本机的令牌、模型 ke
 
 环境变量 `HUB_AGENT_HOME` 可以改数据目录（默认 `~/.hub-agent`），同一台电脑上模拟多个员工时有用。
 
-## 接 WorkBuddy 等桌面智能体
+## 一键接入（推荐）
+
+员工电脑上只需一条命令（控制台「能力 → 接入方式」页可直接复制，地址已填好）：
+
+```powershell
+# Windows（PowerShell）
+powershell -ExecutionPolicy Bypass -c "irm http://<中枢>:8088/api/agent/install.ps1 | iex"
+```
+```bash
+# macOS / Linux
+curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
+```
+
+它会：没有 uv 就安装 → 下载接入器到 `~/.hub-agent/` → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版，把 `enterprise-hub` 写进它们的 MCP 配置（保留原有内容，改之前备份为 `*.bak-hub-<时间>`，格式有误的配置文件不覆盖）。重复运行是安全的。也可以把这条命令发给 WorkBuddy 这类能执行命令的 agent，让它自己接入。
+
+员工电脑不需要改防火墙（只有中枢那台需要放行端口），和中枢在同一个局域网即可。安装脚本通过局域网 HTTP 下发，只应在公司内网使用。
+
+## 接 WorkBuddy 等桌面智能体（手动）
 
 不用 Hermes 也可以：WorkBuddy、Cursor 这类支持本地（stdio）MCP 的桌面智能体，通过接入器的 `mcp` 子命令连中枢。它在本机把 MCP 请求转发给中枢，并自动续期令牌（员工令牌 24 小时过期、续期令牌 7 天），配置一次长期可用。
 

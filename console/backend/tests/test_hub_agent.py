@@ -61,3 +61,54 @@ def test_bridge_mode_keeps_stdout_clean(capsys):
         hub_agent.log_to_stderr(False)
     out = capsys.readouterr()
     assert out.out == "" and "同步完成" in out.err
+
+
+# ---- 一键接入：自动把中枢写进已安装 agent 的 MCP 配置 ----
+
+import json  # noqa: E402
+
+
+def clients(tmp_path):
+    return [
+        {"name": "WorkBuddy", "detect": tmp_path / ".workbuddy", "config": tmp_path / ".workbuddy" / "mcp.json"},
+        {"name": "Cursor", "detect": tmp_path / ".cursor", "config": tmp_path / ".cursor" / "mcp.json"},
+        {"name": "Claude 桌面版", "detect": tmp_path / "Claude", "config": tmp_path / "Claude" / "claude_desktop_config.json"},
+    ]
+
+
+def test_configure_merges_backs_up_and_skips_missing(tmp_path):
+    (tmp_path / ".workbuddy").mkdir()
+    (tmp_path / ".workbuddy" / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"mine": {"command": "x"}}, "other": 1}), encoding="utf-8")
+    (tmp_path / ".cursor").mkdir()                              # 装了 Cursor 但还没有配置文件
+    res = dict(hub_agent.configure_agents(clients(tmp_path), "C:/uv.exe", "C:/a/hub_agent.py"))
+    assert res == {"WorkBuddy": "已配置", "Cursor": "已配置", "Claude 桌面版": "未安装"}
+    wb = json.loads((tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8"))
+    assert wb["mcpServers"]["mine"] == {"command": "x"} and wb["other"] == 1      # 原有内容保留
+    assert wb["mcpServers"]["enterprise-hub"]["args"] == ["run", "C:/a/hub_agent.py", "mcp"]
+    assert wb["mcpServers"]["enterprise-hub"]["command"] == "C:/uv.exe"
+    assert len(list((tmp_path / ".workbuddy").glob("mcp.json.bak-hub-*"))) == 1    # 改之前备份
+    assert "enterprise-hub" in json.loads((tmp_path / ".cursor" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert not (tmp_path / "Claude").exists()
+
+
+def test_configure_is_idempotent(tmp_path):
+    (tmp_path / ".workbuddy").mkdir()
+    hub_agent.configure_agents(clients(tmp_path), "uv", "s.py")
+    assert dict(hub_agent.configure_agents(clients(tmp_path), "uv", "s.py"))["WorkBuddy"] == "已是最新"
+    assert list((tmp_path / ".workbuddy").glob("*.bak-hub-*")) == []          # 第一次没有原文件，第二次没改动
+
+
+def test_configure_never_overwrites_broken_config(tmp_path):
+    (tmp_path / ".workbuddy").mkdir()
+    (tmp_path / ".workbuddy" / "mcp.json").write_text("{not json", encoding="utf-8")
+    status = dict(hub_agent.configure_agents(clients(tmp_path), "uv", "s.py"))["WorkBuddy"]
+    assert "格式" in status
+    assert (tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8") == "{not json"
+
+
+def test_configure_reads_config_with_utf8_bom(tmp_path):
+    (tmp_path / ".workbuddy").mkdir()
+    (tmp_path / ".workbuddy" / "mcp.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"mcpServers": {"mine": {}}}).encode())
+    assert dict(hub_agent.configure_agents(clients(tmp_path), "uv", "s.py"))["WorkBuddy"] == "已配置"
+    assert "mine" in json.loads((tmp_path / ".workbuddy" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]

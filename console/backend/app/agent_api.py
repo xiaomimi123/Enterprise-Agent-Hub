@@ -18,7 +18,7 @@ import jwt
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from . import content, db, policy
@@ -43,6 +43,18 @@ def agent_script():
     if not f.is_file():
         raise HTTPException(404, "中枢未挂载接入器脚本")
     return FileResponse(f, media_type="text/x-python; charset=utf-8", filename="hub_agent.py")
+
+
+@router.get("/install.{kind}")
+def install_script(kind: str):
+    """一键接入脚本（Windows: install.ps1，macOS / Linux: install.sh），自动填好中枢地址，公开下载。"""
+    if kind not in ("ps1", "sh"):
+        raise HTTPException(404, "没有这个安装脚本")
+    f = Path(settings.agent_dir) / f"install.{kind}"
+    if not f.is_file():
+        raise HTTPException(404, "中枢未挂载安装脚本")
+    text = f.read_text(encoding="utf-8").replace("__HUB_URL__", settings.public_url.rstrip("/"))
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
 
 
 @router.get("/config")

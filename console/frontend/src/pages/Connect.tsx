@@ -44,8 +44,16 @@ export default function Connect() {
   const info = useRequest(api.connect)
   const [os, setOs] = useState<OS>('Windows')
   const [user, setUser] = useState('')
+  const [quickOs, setQuickOs] = useState<OS>(navigator.userAgent.includes('Mac') ? 'macOS' : 'Windows')
+  const [manual, setManual] = useState(false)
   const d: ConnectInfo | undefined = info.data
   if (!d) return <PageHeader title="接入方式" sub="加载中…" />
+
+  const quickCmd = quickOs === 'Windows'
+    ? `powershell -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
+    : `curl -fsSL ${d.hub_url}/api/agent/install.sh | sh`
+  const agentPrompt = `请帮我把这台电脑接入公司的企业智能体中枢：在${quickOs === 'Windows' ? ' PowerShell ' : '终端'}里执行下面这条命令。` +
+    `它会打开浏览器让我用公司账号登录，请等我登录完成，然后把命令最后几行输出告诉我，并提醒我完全退出、重新打开你自己。\n\n${quickCmd}`
 
   const name = user.trim() || '<用户名>'
   const home = os === 'Windows' ? `C:\\Users\\${name}` : `/Users/${name}`
@@ -80,6 +88,23 @@ export default function Connect() {
         sub="员工的 agent 通过 MCP 连到中枢，使用知识库、技能和 GPU 出图出视频。权限按员工本人的岗位包执行，每次调用都记入审计。"
       />
       <div className="stack">
+        <Panel
+          title="一键接入"
+          sub="同事电脑不用改防火墙，和中枢在同一个局域网即可"
+          extra={<Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />}
+        >
+          <div className="stack-sm">
+            <div><Pill tone="accent" dot={false}>方式一</Pill> 复制这条命令，粘贴到{quickOs === 'Windows' ? ' PowerShell ' : '终端'}里回车</div>
+            <Code label={quickOs === 'Windows' ? 'PowerShell' : '终端'} text={quickCmd} />
+            <div><Pill tone="accent" dot={false}>方式二</Pill> 把这段话发给你的 agent（WorkBuddy 等能执行命令的），让它自己接入</div>
+            <Code label="发给 agent" text={agentPrompt} />
+            <p className="muted">
+              命令会自动完成：安装运行环境 → 下载接入器 → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版并写好配置（原配置先备份）。
+              完成后完全退出并重新打开 agent 即可使用。之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次这条命令。
+            </p>
+          </div>
+        </Panel>
+
         <Panel title="中枢地址">
           <div className="connect-grid">
             <Field k="MCP 地址（Streamable HTTP）" v={d.mcp_url} />
@@ -89,6 +114,10 @@ export default function Connect() {
           </div>
         </Panel>
 
+        <a onClick={() => setManual(!manual)} style={{ alignSelf: 'flex-start' }}>
+          {manual ? '收起手动配置' : '手动配置（一键命令用不了时，或要接 Hermes、HTTP 接口）'}
+        </a>
+        {manual && (<>
         <Panel
           title="员工电脑上的准备（一次）"
           extra={
@@ -145,6 +174,7 @@ export default function Connect() {
             ]}
           />
         </Panel>
+        </>)}
       </div>
     </>
   )

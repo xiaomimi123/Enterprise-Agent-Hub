@@ -44,3 +44,13 @@ def test_connect_info_lists_endpoints():
     d = client.get("/api/connect").json()
     assert d["mcp_url"].endswith("/mcp") and d["api_base"].endswith("/api/v1")
     assert d["script_url"].endswith("/api/agent/hub_agent.py") and d["hub_url"]
+
+
+def test_install_scripts_carry_hub_url():
+    from app.config import settings
+    for name, marker in (("install.ps1", "setup --hub"), ("install.sh", "setup --hub")):
+        r = client.get(f"/api/agent/{name}")
+        assert r.status_code == 200 and marker in r.text
+        assert "__HUB_URL__" not in r.text and settings.public_url in r.text
+        assert "charset=utf-8" in r.headers["content-type"]
+    assert client.get("/api/agent/install.bat").status_code == 404

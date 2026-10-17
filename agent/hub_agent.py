@@ -319,6 +319,85 @@ def sync_workbuddy_skills(cfg: dict, root: Path | None = None) -> int | None:
     return len(cfg["skills"])
 
 
+# ---------------- 一键接入：自动配置桌面 agent ----------------
+
+MCP_SERVER_NAME = "enterprise-hub"
+
+
+def agent_clients() -> list[dict]:
+    """支持自动配置的桌面 agent：detect 目录存在才算装了，config 是它的 MCP 配置文件。"""
+    home = Path.home()
+    if sys.platform == "win32":
+        claude = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming")) / "Claude"
+    elif sys.platform == "darwin":
+        claude = home / "Library" / "Application Support" / "Claude"
+    else:
+        claude = home / ".config" / "Claude"
+    return [
+        {"name": "WorkBuddy", "detect": home / ".workbuddy", "config": home / ".workbuddy" / "mcp.json"},
+        {"name": "Cursor", "detect": home / ".cursor", "config": home / ".cursor" / "mcp.json"},
+        {"name": "Claude 桌面版", "detect": claude, "config": claude / "claude_desktop_config.json"},
+    ]
+
+
+def configure_agents(clients: list[dict], command: str, script: str) -> list[tuple[str, str]]:
+    """把中枢写进每个已安装 agent 的 MCP 配置：保留原有内容，改之前备份，已是最新则不动，格式坏了不覆盖。"""
+    entry = {"command": command, "args": ["run", script, "mcp"], "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}}
+    out = []
+    for c in clients:
+        if not c["detect"].is_dir():
+            out.append((c["name"], "未安装"))
+            continue
+        f: Path = c["config"]
+        try:
+            raw = f.read_text(encoding="utf-8-sig") if f.exists() else ""  # Windows 工具常带 BOM
+            data = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            out.append((c["name"], f"配置文件格式有误，已跳过，请手动检查 {f}"))
+            continue
+        servers = data.setdefault("mcpServers", {})
+        if servers.get(MCP_SERVER_NAME) == entry:
+            out.append((c["name"], "已是最新"))
+            continue
+        if f.exists():
+            shutil.copy2(f, f.with_name(f"{f.name}.bak-hub-{time.strftime('%Y%m%d-%H%M%S')}"))
+        servers[MCP_SERVER_NAME] = entry
+        f.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        out.append((c["name"], "已配置"))
+    return out
+
+
+def find_uv() -> str:
+    """配置里写 uv 的完整路径：桌面 agent 启动子进程时不一定带着用户的 PATH。"""
+    found = shutil.which("uv")
+    if found:
+        return found
+    exe = Path.home() / ".local" / "bin" / ("uv.exe" if sys.platform == "win32" else "uv")
+    return str(exe) if exe.exists() else "uv"
+
+
+def cmd_setup(args) -> None:
+    """一键接入：没登录（或换了中枢）就浏览器登录，然后同步，再自动配置本机装的桌面 agent。"""
+    hub = args.hub.rstrip("/")
+    creds = json.loads(CREDS.read_text(encoding="utf-8")) if CREDS.exists() else {}
+    if creds.get("hub") != hub or not creds.get("refresh_token"):
+        cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
+    else:
+        try:
+            cmd_sync()
+        except SystemExit:  # 续期令牌过期：重新登录
+            cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
+    results = configure_agents(agent_clients(), find_uv(), str(Path(__file__).resolve()))
+    print()
+    for name, status in results:
+        info(f"{name}：{status}")
+    done = [n for n, s in results if s in ("已配置", "已是最新")]
+    if done:
+        info(f"接入完成。请完全退出并重新打开 {'、'.join(done)}，在里面就能直接使用公司知识库、技能和出图出视频。")
+    else:
+        info("没有检测到 WorkBuddy、Cursor 或 Claude 桌面版。装好后重新运行这条命令即可；也可以用 chat 子命令启动 Hermes。")
+
+
 # ---------------- 本地 MCP 桥 ----------------
 
 def _post_mcp(http: httpx.Client, url: str, msg: dict, headers: dict) -> httpx.Response:
@@ -388,6 +467,8 @@ def main() -> None:
     p.add_argument("--hub", required=True, help="中枢控制台地址，如 http://192.168.1.10:8088")
     p.add_argument("--username", help="开发环境：账号密码登录")
     p.add_argument("--password")
+    p = sub.add_parser("setup", help="一键接入：登录并自动配置本机的 WorkBuddy / Cursor / Claude 桌面版")
+    p.add_argument("--hub", required=True, help="中枢控制台地址，如 http://192.168.1.10:8088")
     sub.add_parser("sync", help="重新领取配置和技能")
     sub.add_parser("status", help="查看当前登录状态")
     sub.add_parser("logout", help="退出并清除本机凭证")
@@ -397,7 +478,7 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
-    {"login": cmd_login, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
+    {"login": cmd_login, "setup": cmd_setup, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
      "mcp": cmd_mcp}[args.cmd](args)
 
 

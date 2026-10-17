@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import unquote
 
 import httpx
 import jwt
@@ -79,7 +80,8 @@ def _verify_agent_token(authorization: str | None) -> dict:
 
 
 @router.post("/enroll")
-def enroll(authorization: str | None = Header(default=None)):
+def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None),
+           x_hub_task: str | None = Header(default=None)):
     c = _verify_agent_token(authorization)
     dept = policy.dept_from_groups(c.get("groups"))
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
@@ -99,11 +101,13 @@ def enroll(authorization: str | None = Header(default=None)):
     skills = [{"id": s["id"], "name": s["name"], "description": s["description"], "content": content.read_skill(s["id"])}
               for s in content.list_skills() if s["id"] in allowed]
 
-    db.add_audit(trace_id=f"enroll-{uuid.uuid4().hex[:10]}", org=p.org, user_name=p.user_name,
+    # 接入器传来本次工作会话的追踪 ID，后面的 MCP 调用、出图、模型调用都挂在同一条链路上
+    trace_id = (x_hub_trace_id or "").strip()[:64] or f"enroll-{uuid.uuid4().hex[:10]}"
+    db.add_audit(trace_id=trace_id, org=p.org, user_name=p.user_name,
                  display_name=p.display_name, dept=dept, channel=p.channel, kind="登录", tool="agent.enroll",
                  detail=f"员工端领取配置：岗位包「{p.pack['name']}」，同步技能 {len(skills)} 个"
                         + ("，下发模型 key" if model else ""),
-                 result="通过", summary="员工端 agent 登录并同步配置")
+                 result="通过", summary=unquote(x_hub_task or "") or "员工端 agent 登录并同步配置")
     return {
         "employee": {"name": p.display_name, "user": p.user_name, "dept": dept, "role_pack": p.pack["name"]},
         "mcp_url": settings.mcp_public_url,

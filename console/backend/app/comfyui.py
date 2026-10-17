@@ -21,7 +21,7 @@ NEGATIVE = "lowres, blurry, watermark, text artifacts, extra fingers, deformed"
 
 def load_workflow(name: str, **values: object) -> tuple[dict, list[str]]:
     """读取工作流模板并替换占位符，返回（工作流, 输出节点 id 列表）。"""
-    raw = (Path(settings.workflows_dir) / f"{name}.json").read_text()
+    raw = (Path(settings.workflows_dir) / f"{name}.json").read_text(encoding="utf-8")
     data = json.loads(raw)
     meta = data.pop("_meta", {})
     values = {"negative": NEGATIVE, "seed": random.randint(1, 2**31 - 1), "checkpoint": settings.comfy_checkpoint, **values}

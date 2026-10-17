@@ -182,7 +182,7 @@ class DemoProvider:
                 continue
             if dept and t["dept"] != dept:
                 continue
-            if q and q not in t["member"] and q not in t["summary"]:
+            if q and q not in t["member"] and q not in t["summary"] and q not in t["id"]:
                 continue
             out.append({k: v for k, v in t.items() if k != "steps"} | {"step_count": len(t["steps"])})
         return out

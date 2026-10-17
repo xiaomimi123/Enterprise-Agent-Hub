@@ -32,8 +32,10 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import yaml
@@ -159,10 +161,24 @@ def fresh_creds() -> dict:
 
 # ---------------- 同步配置 ----------------
 
-def cmd_sync(_args=None) -> dict:
+def new_trace_id() -> str:
+    """一次工作会话（登录 → 检索 → 出图 → 模型调用）共用一个追踪 ID，中枢据此串起完整链路。"""
+    return "tr-" + uuid.uuid4().hex[:12]
+
+
+def task_from_args(hermes_args: list[str]) -> str:
+    """从 chat 参数里取出员工的提问（-q / --query），作为任务描述显示在审计日志里。"""
+    for i, a in enumerate(hermes_args):
+        if a in ("-q", "--query") and i + 1 < len(hermes_args):
+            return hermes_args[i + 1][:80]
+    return ""
+
+
+def cmd_sync(_args=None, trace_id: str | None = None, task: str = "") -> dict:
     creds = fresh_creds()
-    r = httpx.post(f"{creds['hub']}/api/agent/enroll", headers={"Authorization": f"Bearer {creds['access_token']}"},
-                   timeout=30)
+    trace_id = trace_id or new_trace_id()
+    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=30, headers={
+        "Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": trace_id, "X-Hub-Task": quote(task)})
     if r.status_code != 200:
         fail(f"领取配置失败：{r.json().get('detail', r.text)}")
     cfg = r.json()
@@ -178,7 +194,8 @@ def cmd_sync(_args=None) -> dict:
     # Hermes 配置：这个目录由接入器管理，每次同步整体重写
     env = {"HUB_AGENT_TOKEN": creds["access_token"]}
     conf: dict = {
-        "mcp_servers": {"hub": {"url": cfg["mcp_url"], "headers": {"Authorization": "Bearer ${HUB_AGENT_TOKEN}"}}},
+        "mcp_servers": {"hub": {"url": cfg["mcp_url"], "headers": {
+            "Authorization": "Bearer ${HUB_AGENT_TOKEN}", "X-Hub-Trace-Id": trace_id, "X-Hub-Task": quote(task)}}},
         "skills": {"external_dirs": [str(SKILLS_DIR)]},
         # 中枢工具是员工每天都要用的核心能力，直接交给模型，不走 Hermes 的延迟加载（tool_search）
         "tools": {"tool_search": {"enabled": "off"}},
@@ -222,7 +239,7 @@ def cmd_logout(_args) -> None:
 
 
 def cmd_chat(args) -> None:
-    cmd_sync()
+    cmd_sync(trace_id=new_trace_id(), task=task_from_args(args.hermes_args))
     hermes = shutil.which("hermes")
     if not hermes:
         fail("没有找到 hermes 命令，请先安装 Hermes Agent")

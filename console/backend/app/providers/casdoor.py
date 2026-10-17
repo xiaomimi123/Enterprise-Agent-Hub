@@ -48,6 +48,7 @@ class CasdoorProvider(DemoProvider):
         self._org_synced_at = 0.0
         self.newapi = NewApi()
         self._usage_synced_at = 0.0
+        self._model_logs: list[dict] = []
         self._users: dict[str, dict] = {}
         self._groups: list[dict] = []
         db.init_schema()
@@ -123,6 +124,7 @@ class CasdoorProvider(DemoProvider):
             "knowledge_bases": self._knowledge_bases(events),
         })
         self._sync_usage()
+        db.attach_model_calls(traces, self._model_logs, self.org, settings.usd_cny)
         self._sync_gpu()
 
     def _sync_gpu(self) -> None:
@@ -159,6 +161,7 @@ class CasdoorProvider(DemoProvider):
             logs = self.newapi.logs(days=30)
         except (NewApiError, httpx.HTTPError):
             return  # New API 暂时不可用时保留上一次的数据
+        self._model_logs = logs
         by_user = {m["id"]: m for m in self.d["members"]}
         daily: dict[tuple, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
         per_member: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "calls": 0})

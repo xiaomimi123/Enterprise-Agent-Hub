@@ -208,6 +208,52 @@ def traces_from_events(events: list[dict], dept_names: dict[str, str]) -> list[d
     return traces
 
 
+MODEL_TAIL_SECONDS = 600  # 最后一步工具调用之后，模型还要组织回答，留出这段时间归入同一链路
+
+
+def attach_model_calls(traces: list[dict], logs: list[dict], org: str, usd_cny: float,
+                       official_channel: str = "官方 agent") -> None:
+    """把 New API 的模型调用日志按「同一员工 + 链路时间窗」并入链路的步骤。
+
+    模型网关只认员工的 key，看不到追踪 ID，所以用时间窗归属：从链路第一步开始，到该员工下一条链路开始
+    （或最后一步之后 MODEL_TAIL_SECONDS 秒）为止。只处理官方 agent 入口——外部智能体不走员工的模型 key。
+    """
+    from .newapi import user_from_token_name
+
+    by_user: dict[str, list[dict]] = {}
+    for log in logs:
+        user = user_from_token_name(log.get("token_name") or "", org)
+        if user:
+            by_user.setdefault(user, []).append(log)
+    mine: dict[str, list[dict]] = {}
+    for t in traces:
+        if t["channel"] == official_channel and t["member_id"] in by_user:
+            mine.setdefault(t["member_id"], []).append(t)
+    for user, ts in mine.items():
+        ts.sort(key=lambda t: t["steps"][0]["time"])
+        for i, t in enumerate(ts):
+            start = datetime.fromisoformat(t["steps"][0]["time"]).timestamp()
+            end = datetime.fromisoformat(t["steps"][-1]["time"]).timestamp() + MODEL_TAIL_SECONDS
+            if i + 1 < len(ts):
+                end = min(end, datetime.fromisoformat(ts[i + 1]["steps"][0]["time"]).timestamp())
+            for log in by_user[user]:
+                at = log.get("created_at") or 0
+                if not start <= at < end:
+                    continue
+                tokens = int(log.get("prompt_tokens") or 0) + int(log.get("completion_tokens") or 0)
+                model = log.get("model_name") or "unknown"
+                t["steps"].append({
+                    "time": datetime.fromtimestamp(at).astimezone().replace(microsecond=0).isoformat(),
+                    "kind": "模型", "tool": "llm.chat", "result": "通过", "tokens": tokens, "model": model,
+                    "detail": f"调用模型 {model}（输入 {log.get('prompt_tokens') or 0} / 输出 {log.get('completion_tokens') or 0} tokens）",
+                    # New API 的额度单位：500000 = 1 美元
+                    "cost": (log.get("quota") or 0) / 500000 * usd_cny,
+                })
+            t["steps"].sort(key=lambda s: s["time"])
+            t["tokens"] = sum(s["tokens"] for s in t["steps"])
+            t["cost"] = round(sum(s["cost"] for s in t["steps"]), 4)
+
+
 def _iso(ts: datetime) -> str:
     return ts.astimezone().replace(microsecond=0).isoformat()
 

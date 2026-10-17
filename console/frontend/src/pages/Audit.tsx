@@ -13,8 +13,16 @@ export default function Audit() {
   const [outcome, setOutcome] = useState(params.get('outcome') ?? '全部')
   const [dept, setDept] = useState<string>()
   const [q, setQ] = useState<string>()
+  const member = params.get('member') ?? undefined
+  const setMember = (id?: string) => {
+    const next = new URLSearchParams(params)
+    if (id) next.set('member', id)
+    else next.delete('member')
+    setParams(next, { replace: true })
+  }
   const depts = useRequest(api.departments)
-  const all = useRequest(() => api.traces({ dept, q }), [dept, q])
+  const members = useRequest(() => api.members())
+  const all = useRequest(() => api.traces({ dept, q, member_id: member }), [dept, q, member])
   const rows = useMemo(() => all.data?.filter((t) => outcome === '全部' || t.outcome === outcome), [all.data, outcome])
 
   const openId = params.get('trace') ?? undefined
@@ -47,9 +55,11 @@ export default function Audit() {
           title={<Seg value={outcome} onChange={setOutcome} options={['全部', '成功', '被拦截', '待审批'].map((v) => ({ value: v, label: v }))} />}
           extra={
             <div style={{ display: 'flex', gap: 8 }}>
+              <Select allowClear showSearch optionFilterProp="label" placeholder="按成员查看" style={{ width: 140 }} value={member}
+                onChange={setMember} variant="filled" options={members.data?.map((m) => ({ value: m.id, label: m.name }))} />
               <Select allowClear placeholder="全部部门" style={{ width: 130 }} value={dept} onChange={setDept} variant="filled"
                 options={depts.data?.map((d) => ({ value: d.id, label: d.name }))} />
-              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索成员或任务" variant="filled"
+              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索成员、任务或追踪 ID" variant="filled"
                 onChange={(e) => setQ(e.target.value || undefined)} style={{ width: 200 }} />
             </div>
           }

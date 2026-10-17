@@ -69,3 +69,65 @@ def test_from_settings_requires_endpoint_and_key(monkeypatch):
     for endpoint, key, expect in (("", "k", False), ("http://rf", "", False), ("http://rf", "k", True)):
         monkeypatch.setattr(ragflow, "settings", dataclasses.replace(ragflow.settings, ragflow_endpoint=endpoint, ragflow_api_key=key))
         assert (ragflow.from_settings() is not None) is expect
+
+
+# ---- content.search 切换到 RAGFlow ----
+
+from app import content  # noqa: E402
+
+
+class FakeRagflow:
+    def __init__(self, datasets: dict[str, str], chunks=None, error: Exception | None = None):
+        self.datasets, self.chunks, self.error, self.retrieved = datasets, chunks or [], error, []
+
+    def find_dataset(self, name):
+        return self.datasets.get(name)
+
+    def retrieve(self, question, dataset_ids, top_k=5):
+        self.retrieved.append((question, list(dataset_ids), top_k))
+        if self.error:
+            raise self.error
+        return self.chunks
+
+
+def use(monkeypatch, fake):
+    monkeypatch.setattr(content, "from_settings", lambda: fake)
+
+
+def test_search_maps_chunks_and_scopes_datasets(monkeypatch):
+    fake = FakeRagflow({"hub-kb-brand": "ds-brand", "hub-kb-finance": "ds-fin"}, chunks=[
+        {"content": "秋冬主张：温暖", "dataset_id": "ds-brand", "document_keyword": "2026秋冬品牌主张.md", "similarity": 0.8123456},
+    ])
+    use(monkeypatch, fake)
+    hits = content.search("品牌主张", ["kb-brand"])
+    assert fake.retrieved == [("品牌主张", ["ds-brand"], 5)]  # 只查有权限的库，不含财务
+    assert hits == [{"knowledge_base": "品牌调性与人设", "kb_id": "kb-brand", "document": "2026秋冬品牌主张",
+                     "section": "", "text": "秋冬主张：温暖", "score": 0.812}]
+
+
+def test_search_skips_empty_inputs(monkeypatch):
+    fake = FakeRagflow({"hub-kb-brand": "ds-brand"})
+    use(monkeypatch, fake)
+    assert content.search("品牌", []) == []
+    assert content.search("   ", ["kb-brand"]) == []
+    assert fake.retrieved == []
+
+
+def test_search_skips_kb_without_dataset(monkeypatch):
+    fake = FakeRagflow({"hub-kb-brand": "ds-brand"})
+    use(monkeypatch, fake)
+    content.search("x", ["kb-brand", "kb-hr"])  # kb-hr 还没同步：跳过，不扩大范围
+    assert fake.retrieved[0][1] == ["ds-brand"]
+    fake.retrieved.clear()
+    assert content.search("x", ["kb-hr"]) == [] and fake.retrieved == []
+
+
+def test_search_falls_back_to_local_on_error(monkeypatch):
+    use(monkeypatch, FakeRagflow({"hub-kb-product": "ds-p"}, error=RagflowError("down")))
+    hits = content.search("保湿精华", ["kb-product"])
+    assert hits and all(h["kb_id"] == "kb-product" for h in hits)  # 本地 vault 的结果
+
+
+def test_search_uses_local_when_not_configured(monkeypatch):
+    use(monkeypatch, None)
+    assert content.search("保湿精华", ["kb-product"]) == content.local_search("保湿精华", ["kb-product"])

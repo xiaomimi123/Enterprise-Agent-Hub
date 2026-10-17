@@ -62,7 +62,7 @@ def fail(msg: str) -> None:
 
 def write_private(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     path.chmod(0o600)
 
 
@@ -71,7 +71,7 @@ def write_private(path: Path, text: str) -> None:
 def load_creds() -> dict:
     if not CREDS.exists():
         fail("尚未登录，请先运行：hub_agent.py login --hub http://<中枢地址>:8088")
-    return json.loads(CREDS.read_text())
+    return json.loads(CREDS.read_text(encoding="utf-8"))
 
 
 def save_creds(hub: str, cfg: dict, tok: dict) -> dict:
@@ -193,7 +193,7 @@ def cmd_sync(_args=None, trace_id: str | None = None, task: str = "") -> dict:
     for s in cfg["skills"]:
         p = SKILLS_DIR / s["id"] / "SKILL.md"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(s["content"] or "")
+        p.write_text(s["content"] or "", encoding="utf-8")
 
     # Hermes 配置：这个目录由接入器管理，每次同步整体重写
     env = {"HUB_AGENT_TOKEN": creds["access_token"]}
@@ -225,7 +225,7 @@ def cmd_sync(_args=None, trace_id: str | None = None, task: str = "") -> dict:
 def cmd_status(_args) -> None:
     creds = load_creds()
     left = int(creds["expires_at"] - time.time())
-    prof = json.loads((HOME / "profile.json").read_text()) if (HOME / "profile.json").exists() else {}
+    prof = json.loads((HOME / "profile.json").read_text(encoding="utf-8")) if (HOME / "profile.json").exists() else {}
     e = prof.get("employee", {})
     print(f"中枢：{creds['hub']}")
     print(f"员工：{e.get('name', '?')} · 岗位包：{e.get('role_pack', '?')}")
@@ -305,6 +305,9 @@ def cmd_mcp(_args=None) -> None:
 
 
 def main() -> None:
+    # Windows 老控制台是 GBK：打印不了的符号替换掉，不让程序因为一个提示符崩溃
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(errors="replace")
     ap = argparse.ArgumentParser(description="企业智能体中枢 · 员工端接入器")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("login", help="登录中枢")

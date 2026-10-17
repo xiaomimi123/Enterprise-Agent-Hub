@@ -1,4 +1,4 @@
-import { CheckOutlined, CopyOutlined } from '@ant-design/icons'
+import { Check, Copy } from 'lucide-react'
 import { Input, Tabs } from 'antd'
 import { useState } from 'react'
 import { api, type ConnectInfo } from '../api'
@@ -19,7 +19,7 @@ function Code({ text, label }: { text: string; label?: string }) {
     <div className="code-block">
       <div className="code-head">
         <span className="muted">{label}</span>
-        <a onClick={copy}>{done ? <><CheckOutlined /> 已复制</> : <><CopyOutlined /> 复制</>}</a>
+        <a onClick={copy}>{done ? <><Check /> 已复制</> : <><Copy /> 复制</>}</a>
       </div>
       <pre>{text}</pre>
     </div>

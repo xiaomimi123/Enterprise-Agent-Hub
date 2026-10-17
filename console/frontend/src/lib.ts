@@ -41,18 +41,21 @@ export function greeting() {
 }
 
 /** 部门的颜色与简称，全站统一 */
-export const DEPT_META: Record<string, { color: string; soft: string; short: string }> = {
-  ops: { color: '#e5484d', soft: '#feebec', short: '运' },
-  design: { color: '#8e4ec6', soft: '#f5edfb', short: '设' },
-  video: { color: '#0090ff', soft: '#e6f4fe', short: '视' },
-  sales: { color: '#30a46c', soft: '#e9f6ef', short: '销' },
-  cs: { color: '#12a594', soft: '#e3f6f3', short: '客' },
-  finance: { color: '#d6a100', soft: '#fcf6dc', short: '财' },
-  hr: { color: '#d6409f', soft: '#fcebf5', short: '人' },
-  tech: { color: '#5b5bd6', soft: '#efeffd', short: '技' },
-  ceo: { color: '#3a3936', soft: '#efeeea', short: '总' },
-  all: { color: '#6f6e66', soft: '#f0efea', short: '全' },
+export const DEPT_META: Record<string, { color: string; short: string }> = {
+  ops: { color: '#e5603f', short: '运' },
+  design: { color: '#9a6ad0', short: '设' },
+  video: { color: '#4f7ee0', short: '视' },
+  sales: { color: '#3d9a73', short: '销' },
+  cs: { color: '#2a9d8f', short: '客' },
+  finance: { color: '#d9a21b', short: '财' },
+  hr: { color: '#d4609f', short: '人' },
+  tech: { color: '#6b74d6', short: '技' },
+  ceo: { color: '#8a7a5c', short: '总' },
+  all: { color: '#8b8578', short: '全' },
 }
+
+/** 浅色底：同一个颜色按比例混进透明，亮 / 暗主题都不刺眼 */
+export const softOf = (color: string, pct = 16) => `color-mix(in srgb, ${color} ${pct}%, transparent)`
 
 export const DEPT_BY_NAME: Record<string, string> = {
   运营部: 'ops', 设计部: 'design', 视频部: 'video', 销售部: 'sales', 客服部: 'cs',

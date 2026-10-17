@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
-import { DEPT_META, TONE } from '../lib'
+import { DEPT_META, softOf, TONE } from '../lib'
 
 export function PageHeader({ title, sub, extra }: { title: ReactNode; sub?: ReactNode; extra?: ReactNode }) {
   return (
     <div className="page-head">
       <div>
-        <h1 className="page-title">{title}</h1>
+        {/* 字符串标题用荧光笔划一下重点 */}
+        <h1 className="page-title">{typeof title === 'string' ? <span className="hl">{title}</span> : title}</h1>
         {sub && <div className="page-sub">{sub}</div>}
       </div>
       {extra && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>{extra}</div>}
@@ -46,7 +47,7 @@ export function Token({ children }: { children: ReactNode }) {
   return <span className="token">{children}</span>
 }
 
-const AVATAR_COLORS = ['#5b5bd6', '#e5484d', '#30a46c', '#0090ff', '#8e4ec6', '#d6409f', '#12a594', '#f76b15', '#3a3936']
+const AVATAR_COLORS = ['#e5603f', '#3d9a73', '#4f7ee0', '#9a6ad0', '#d4609f', '#2a9d8f', '#d9a21b', '#6b74d6', '#8a7a5c']
 
 export function Avatar({ name, size = 28 }: { name: string; size?: number }) {
   let h = 0
@@ -76,7 +77,7 @@ export function AvatarStack({ names, max = 5, size = 24 }: { names: string[]; ma
 export function DeptTile({ dept, size = 36, children }: { dept: string; size?: number; children?: ReactNode }) {
   const m = DEPT_META[dept] ?? DEPT_META.all
   return (
-    <span className="dept-tile" style={{ width: size, height: size, background: m.soft, color: m.color, fontSize: size * 0.42, fontWeight: 650 }}>
+    <span className="dept-tile" style={{ width: size, height: size, background: softOf(m.color), color: m.color, fontSize: size * 0.42, fontWeight: 650 }}>
       {children ?? m.short}
     </span>
   )
@@ -84,7 +85,7 @@ export function DeptTile({ dept, size = 36, children }: { dept: string; size?: n
 
 export function Meter({ value, color, height = 6 }: { value: number; color?: string; height?: number }) {
   const v = Math.max(0, Math.min(100, value))
-  const c = color ?? (v >= 90 ? 'var(--red)' : v >= 70 ? '#f5a524' : 'var(--accent)')
+  const c = color ?? (v >= 90 ? 'var(--red)' : v >= 70 ? 'var(--amber)' : 'var(--accent)')
   return <div className="meter" style={{ height }}><span style={{ width: `${v}%`, background: c }} /></div>
 }
 
@@ -122,13 +123,13 @@ export function Sparkline({ data, color = 'var(--accent)', width = 96, height = 
     <svg width={width} height={height} style={{ display: 'block', overflow: 'visible' }}>
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={color} stopOpacity="0.18" />
-          <stop offset="1" stopColor={color} stopOpacity="0" />
+          <stop offset="0" style={{ stopColor: color, stopOpacity: 0.18 }} />
+          <stop offset="1" style={{ stopColor: color, stopOpacity: 0 }} />
         </linearGradient>
       </defs>
       {fill && <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${id})`} />}
-      <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={lx} cy={ly} r="2.5" fill={color} />
+      <path d={line} fill="none" style={{ stroke: color }} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lx} cy={ly} r="2.5" style={{ fill: color }} />
     </svg>
   )
 }

@@ -1,45 +1,35 @@
 import {
-  ApartmentOutlined,
-  AppstoreOutlined,
-  AuditOutlined,
-  ApiOutlined,
-  BookOutlined,
-  FundOutlined,
-  PictureOutlined,
-  LogoutOutlined,
-  MenuOutlined,
-  RightOutlined,
-  SafetyCertificateOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons'
+  Backpack, ChartPie, ChevronRight, ClipboardCheck, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+} from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useSession } from '../auth'
 import { useRequest } from '../lib'
+import { useTheme } from '../theme'
 import { Avatar } from '../ui'
 
 const NAV = [
-  { group: '工作台', items: [{ path: '/', icon: <AppstoreOutlined />, label: '总览' }] },
+  { group: '工作台', items: [{ path: '/', icon: <LayoutDashboard />, label: '总览' }] },
   {
     group: '组织与权限', items: [
-      { path: '/members', icon: <ApartmentOutlined />, label: '成员与组织' },
-      { path: '/role-packs', icon: <SafetyCertificateOutlined />, label: '岗位包' },
+      { path: '/members', icon: <Users />, label: '成员与组织' },
+      { path: '/role-packs', icon: <Backpack />, label: '岗位包' },
     ],
   },
   {
     group: '能力', items: [
-      { path: '/skills', icon: <ThunderboltOutlined />, label: '技能库' },
-      { path: '/knowledge', icon: <BookOutlined />, label: '知识库' },
-      { path: '/connect', icon: <ApiOutlined />, label: '接入方式' },
+      { path: '/skills', icon: <NotebookPen />, label: '技能库' },
+      { path: '/knowledge', icon: <Library />, label: '知识库' },
+      { path: '/connect', icon: <Plug />, label: '接入方式' },
     ],
   },
   {
     group: '监管', items: [
-      { path: '/audit', icon: <AuditOutlined />, label: '审计日志', badge: true },
-      { path: '/tasks', icon: <PictureOutlined />, label: '生成任务' },
-      { path: '/usage', icon: <FundOutlined />, label: '用量与成本' },
+      { path: '/audit', icon: <ClipboardCheck />, label: '审计日志', badge: true },
+      { path: '/tasks', icon: <Palette />, label: '生成任务' },
+      { path: '/usage', icon: <ChartPie />, label: '用量与成本' },
     ],
   },
 ]
@@ -65,6 +55,7 @@ export default function ConsoleLayout() {
   const ov = useRequest(api.overview)
   const session = useSession()
   const live = session.mode !== 'demo'
+  const theme = useTheme()
 
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 4)
@@ -86,15 +77,10 @@ export default function ConsoleLayout() {
   const sidebar = (
     <>
       <div className="brand">
-        <div className="brand-mark">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="2.4" fill="#fff" />
-            <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" opacity=".85" />
-          </svg>
-        </div>
+        <div className="brand-mark">3·6</div>
         <div>
-          <div className="brand-name">智能体中枢</div>
-          <div className="brand-sub">{ov.data?.company ?? '…'}</div>
+          <div className="brand-name">三年级六班集团</div>
+          <div className="brand-sub">智能体中枢</div>
         </div>
       </div>
 
@@ -103,7 +89,7 @@ export default function ConsoleLayout() {
           <div className="nav-label">{g.group}</div>
           {g.items.map((it) => (
             <div key={it.path} className={`nav-item ${selected === it.path ? 'active' : ''}`} onClick={() => go(it.path)}>
-              {it.icon}
+              <span className="nav-ic">{it.icon}</span>
               <span>{it.label}</span>
               {'badge' in it && it.badge && !!ov.data?.stats.denied_today && (
                 <Tooltip title="今日越权拦截" placement="right">
@@ -120,7 +106,7 @@ export default function ConsoleLayout() {
           <div className="health-row" style={{ justifyContent: 'space-between' }}>
             <span className="health-row">
               <span className={`dot ${healthy === services.length ? 'green' : 'amber'} pulse`} />
-              <b style={{ fontWeight: 600 }}>中枢运行中</b>
+              <b style={{ fontWeight: 600 }}>全班到齐，运行中</b>
             </span>
             <span className="muted num">{healthy}/{services.length}</span>
           </div>
@@ -132,7 +118,7 @@ export default function ConsoleLayout() {
           trigger={['click']}
           placement="topLeft"
           menu={{
-            items: live ? [{ key: 'logout', icon: <LogoutOutlined />, label: '退出登录' }] : [{ key: 'demo', label: '演示模式无需登录', disabled: true }],
+            items: live ? [{ key: 'logout', icon: <LogOut />, label: '退出登录' }] : [{ key: 'demo', label: '演示模式无需登录', disabled: true }],
             onClick: ({ key }) => key === 'logout' && session.logout(),
           }}
         >
@@ -158,20 +144,23 @@ export default function ConsoleLayout() {
 
       <div className="main">
         <header className={`topbar ${scrolled ? 'scrolled' : ''}`}>
-          <button className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="打开导航"><MenuOutlined /></button>
+          <button className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="打开导航"><Menu /></button>
           <div className="crumb">
             <span>{group}</span>
-            <RightOutlined style={{ fontSize: 9 }} />
+            <ChevronRight style={{ fontSize: 12 }} />
             <b>{title}</b>
           </div>
           <div className="top-right">
+            <Tooltip title="切换亮色（作业本）/ 暗色（黑板）">
+              <span className="chip theme-toggle" role="button" onClick={theme.toggle}>
+                <span className={theme.mode === 'light' ? 'on' : ''}><Sun />亮</span>
+                <span className={theme.mode === 'dark' ? 'on' : ''}><Moon />暗</span>
+              </span>
+            </Tooltip>
             {live ? (
               <>
                 <Tooltip title="成员与组织来自 Casdoor（生产环境由钉钉同步），用量来自模型网关 New API，审计来自中枢 MCP Server">
                   <span className="chip"><span className="dot green" />真实数据</span>
-                </Tooltip>
-                <Tooltip title="成员、岗位包、技能、知识库、审计、用量均为真实数据；GPU 节点与服务状态待接入任务队列后切换">
-                  <span className="chip warn">GPU 节点为演示数据</span>
                 </Tooltip>
               </>
             ) : (

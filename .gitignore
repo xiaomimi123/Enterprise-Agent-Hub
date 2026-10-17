@@ -32,3 +32,6 @@ hub/ragflow/upstream/
 # Node / 前端构建产物
 node_modules/
 dist/
+
+# 设计讨论用的临时稿（superpowers 头脑风暴）
+.superpowers/

@@ -1,4 +1,4 @@
-import { PlayCircleOutlined } from '@ant-design/icons'
+import { CirclePlay } from 'lucide-react'
 import { Drawer, Image, Table } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -90,7 +90,7 @@ export default function Tasks() {
                       f.type === 'image' ? (
                         <Image key={i} src={f.url} width={32} height={32} style={{ objectFit: 'cover', borderRadius: 6 }} />
                       ) : (
-                        <PlayCircleOutlined key={i} style={{ fontSize: 28, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setOpenId(t.id)} />
+                        <CirclePlay key={i} style={{ fontSize: 28, color: 'var(--violet)', cursor: 'pointer' }} onClick={() => setOpenId(t.id)} />
                       ),
                     )}
                   </div>

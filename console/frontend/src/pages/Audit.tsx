@@ -1,4 +1,4 @@
-import { SearchOutlined } from '@ant-design/icons'
+import { Search } from 'lucide-react'
 import { Drawer, Input, Select, Table } from 'antd'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -6,7 +6,7 @@ import { api, type TraceBrief } from '../api'
 import { fmtSec, fmtTime, tokens, useRequest, yuan } from '../lib'
 import { Avatar, PageHeader, Panel, Pill, Seg } from '../ui'
 
-const NODE: Record<string, string> = { 通过: '#30a46c', 拒绝: '#e5484d', 待确认: '#f5a524' }
+const NODE: Record<string, string> = { 通过: 'var(--green)', 拒绝: 'var(--red)', 待确认: 'var(--amber)' }
 
 export default function Audit() {
   const [params, setParams] = useSearchParams()
@@ -59,7 +59,7 @@ export default function Audit() {
                 onChange={setMember} variant="filled" options={members.data?.map((m) => ({ value: m.id, label: m.name }))} />
               <Select allowClear placeholder="全部部门" style={{ width: 130 }} value={dept} onChange={setDept} variant="filled"
                 options={depts.data?.map((d) => ({ value: d.id, label: d.name }))} />
-              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索成员、任务或追踪 ID" variant="filled"
+              <Input allowClear prefix={<Search className="muted" />} placeholder="搜索成员、任务或追踪 ID" variant="filled"
                 onChange={(e) => setQ(e.target.value || undefined)} style={{ width: 200 }} />
             </div>
           }

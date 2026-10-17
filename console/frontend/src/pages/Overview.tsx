@@ -1,4 +1,4 @@
-import { ArrowRightOutlined, ClockCircleOutlined, SafetyOutlined } from '@ant-design/icons'
+import { ArrowRight, Clock, ShieldAlert } from 'lucide-react'
 import { Alert, Skeleton } from 'antd'
 import dayjs from 'dayjs'
 import type { EChartsOption } from 'echarts'
@@ -7,11 +7,15 @@ import { useNavigate } from 'react-router-dom'
 import { api, type Overview as OverviewData } from '../api'
 import EChart, { areaGradient } from '../components/EChart'
 import { deptColor, fromNow, greeting, tokens, useRequest, yuan } from '../lib'
+import { useSession } from '../auth'
+import { useTheme } from '../theme'
 import { Avatar, Empty, Meter, PageHeader, Panel, Pill, Sparkline } from '../ui'
 
 export default function Overview() {
   const { data, loading, error } = useRequest(api.overview)
   const nav = useNavigate()
+  const { p } = useTheme()
+  const session = useSession()
 
   const trendOption = useMemo<EChartsOption>(() => ({
     tooltip: {
@@ -27,11 +31,11 @@ export default function Overview() {
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => (v ? `${v / 1e4}万` : '0') }, splitNumber: 3 },
     series: [{
       type: 'line', smooth: 0.35, symbol: 'circle', symbolSize: 5, showSymbol: false,
-      lineStyle: { width: 2, color: '#5b5bd6' }, itemStyle: { color: '#5b5bd6' },
-      areaStyle: { color: areaGradient('#5b5bd6') },
+      lineStyle: { width: 2, color: p.accent }, itemStyle: { color: p.accent },
+      areaStyle: { color: areaGradient(p.accent) },
       data: data?.trend.map((t) => t.tokens) ?? [],
     }],
-  }), [data])
+  }), [data, p])
 
   if (error) return <Alert type="error" title="加载失败" description={error} showIcon />
   if (loading || !data) return <Skeleton active paragraph={{ rows: 14 }} style={{ marginTop: 24 }} />
@@ -43,7 +47,7 @@ export default function Overview() {
   return (
     <>
       <PageHeader
-        title={`${greeting()}，管理员`}
+        title={`${greeting()}，${session.user.display_name || '管理员'} 👋`}
         sub={<>今天有 <b className="num" style={{ color: 'var(--ink)' }}>{s.agents_online}</b> 个 agent 在线工作，
           中枢拦截了 <b className="num" style={{ color: 'var(--red)' }}>{s.denied_today}</b> 次越权访问，
           <b className="num" style={{ color: 'var(--ink)' }}>{s.pending_approvals}</b> 个动作等待员工确认。</>}
@@ -55,7 +59,7 @@ export default function Overview() {
           <Kpi label="在线 agent" value={s.agents_online} unit={`/ ${s.members}`}
             note={`已安装 ${s.agents_installed} 台`} spark={ops.map((d) => d.online)} />
           <Kpi label="今日任务" value={s.tasks_today.toLocaleString()} unit="次"
-            note={`Token ${tokens(s.tokens_today)}`} spark={data.trend.map((t) => t.tokens)} color="#30a46c" />
+            note={`Token ${tokens(s.tokens_today)}`} spark={data.trend.map((t) => t.tokens)} color={p.green} />
           <div className="kpi">
             <div className="kpi-label">本月模型花费</div>
             <div className="kpi-value num">{yuan(s.cost_month, 0)}</div>
@@ -67,15 +71,15 @@ export default function Overview() {
               </div>
             </div>
           </div>
-          <Kpi label={<><SafetyOutlined />今日越权拦截</>} value={s.denied_today} unit="次" valueColor="var(--red)"
-            note="权限在中枢强制执行" spark={ops.map((d) => d.denied)} color="#e5484d" />
+          <Kpi label={<><ShieldAlert />今日越权拦截</>} value={s.denied_today} unit="次" valueColor="var(--red)"
+            note="权限在中枢强制执行" spark={ops.map((d) => d.denied)} color={p.red} />
         </section>
 
         <div className="grid g-main">
           <Panel title="中枢运行拓扑" sub="实时" extra={<span className="muted">所有调用都经过中枢鉴权与留痕</span>}>
             <Topology data={data} />
           </Panel>
-          <Panel title="实时活动" tight extra={<a onClick={() => nav('/audit')} className="muted">全部 <ArrowRightOutlined /></a>}>
+          <Panel title="实时活动" tight extra={<a onClick={() => nav('/audit')} className="muted">全部 <ArrowRight /></a>}>
             <div className="rows" style={{ maxHeight: 352, overflow: 'auto' }}>
               {data.recent.slice(0, 7).map((t) => (
                 <div key={t.id} className="row-item clickable" onClick={() => nav(`/audit?trace=${t.id}`)}>
@@ -136,7 +140,7 @@ export default function Overview() {
               ))}
             </div>
           </Panel>
-          <Panel title={<><ClockCircleOutlined style={{ color: 'var(--amber)' }} />待员工确认</>} tight>
+          <Panel title={<><Clock style={{ color: 'var(--amber)' }} />待员工确认</>} tight>
             {data.pending.length === 0 ? <Empty>没有待确认的动作</Empty> : (
               <div className="rows">
                 {data.pending.slice(0, 4).map((p) => (
@@ -151,8 +155,8 @@ export default function Overview() {
               </div>
             )}
           </Panel>
-          <Panel title={<><SafetyOutlined style={{ color: 'var(--red)' }} />越权拦截</>} tight
-            extra={<a className="muted" onClick={() => nav('/audit?outcome=被拦截')}>全部 <ArrowRightOutlined /></a>}>
+          <Panel title={<><ShieldAlert style={{ color: 'var(--red)' }} />越权拦截</>} tight
+            extra={<a className="muted" onClick={() => nav('/audit?outcome=被拦截')}>全部 <ArrowRight /></a>}>
             <div className="rows">
               {data.recent_denied.slice(0, 4).map((t) => (
                 <div key={t.id} className="row-item clickable" onClick={() => nav(`/audit?trace=${t.id}`)}>
@@ -197,14 +201,15 @@ function Kpi({ label, value, unit, note, spark, color, valueColor }: {
 
 /** 中枢拓扑：左侧接入方 → 中枢 → 右侧能力 */
 function Topology({ data }: { data: OverviewData }) {
+  const { p } = useTheme()
   const s = data.stats
   const gpuQueue = data.gpu_nodes.reduce((n, g) => n + g.queue, 0)
   const svc = (name: string) => data.services.find((x) => x.name === name)
   const right = [
-    { y: 34, title: '知识检索', sub: `RAGFlow · ${s.knowledge_docs} 份文档`, ms: svc('知识检索')?.latency_ms, color: '#0090ff' },
-    { y: 106, title: '模型网关', sub: `New API · 云端 + 本地`, ms: svc('模型网关')?.latency_ms, color: '#30a46c' },
-    { y: 178, title: 'GPU 能力节点', sub: `${data.gpu_nodes.length} 台 · 排队 ${gpuQueue}`, ms: undefined, color: '#f5a524' },
-    { y: 250, title: '技能仓库', sub: `${s.skills} 个技能 · git 下发`, ms: undefined, color: '#8e4ec6' },
+    { y: 34, title: '知识检索', sub: `RAGFlow · ${s.knowledge_docs} 份文档`, ms: svc('知识检索')?.latency_ms, color: p.blue },
+    { y: 106, title: '模型网关', sub: `New API · 云端 + 本地`, ms: svc('模型网关')?.latency_ms, color: p.green },
+    { y: 178, title: 'GPU 能力节点', sub: `${data.gpu_nodes.length} 台 · 排队 ${gpuQueue}`, ms: undefined, color: p.amber },
+    { y: 250, title: '技能仓库', sub: `${s.skills} 个技能 · git 下发`, ms: undefined, color: p.violet },
   ]
   const hub = { x: 262, y: 92, w: 176, h: 160 }
   const cy = hub.y + hub.h / 2
@@ -212,10 +217,10 @@ function Topology({ data }: { data: OverviewData }) {
   return (
     <svg className="topo" viewBox="0 0 680 300" width="100%" style={{ display: 'block', maxHeight: 340 }}>
       {/* 左侧 → 中枢 */}
-      <path d={`M176,96 C222,96 222,${cy - 22} ${hub.x},${cy - 22}`} fill="none" stroke="#5b5bd6" strokeOpacity=".22" strokeWidth="2" />
-      <path className="flow" d={`M176,96 C222,96 222,${cy - 22} ${hub.x},${cy - 22}`} fill="none" stroke="#5b5bd6" strokeWidth="2" />
-      <path d={`M176,214 C222,214 222,${cy + 22} ${hub.x},${cy + 22}`} fill="none" stroke="#8e4ec6" strokeOpacity=".18" strokeWidth="2" strokeDasharray="4 4" />
-      <path className="flow slow" d={`M176,214 C222,214 222,${cy + 22} ${hub.x},${cy + 22}`} fill="none" stroke="#8e4ec6" strokeWidth="2" />
+      <path d={`M176,96 C222,96 222,${cy - 22} ${hub.x},${cy - 22}`} fill="none" stroke={p.accent} strokeOpacity=".22" strokeWidth="2" />
+      <path className="flow" d={`M176,96 C222,96 222,${cy - 22} ${hub.x},${cy - 22}`} fill="none" stroke={p.accent} strokeWidth="2" />
+      <path d={`M176,214 C222,214 222,${cy + 22} ${hub.x},${cy + 22}`} fill="none" stroke={p.violet} strokeOpacity=".18" strokeWidth="2" strokeDasharray="4 4" />
+      <path className="flow slow" d={`M176,214 C222,214 222,${cy + 22} ${hub.x},${cy + 22}`} fill="none" stroke={p.violet} strokeWidth="2" />
       <g transform="translate(206,198)">
         <rect x="-16" y="-9" width="32" height="18" rx="5" fill="var(--violet-soft)" />
         <text x="0" y="4" textAnchor="middle" className="t3" fill="var(--violet)">只读</text>
@@ -251,7 +256,7 @@ function Topology({ data }: { data: OverviewData }) {
       {/* 中枢 */}
       <g transform={`translate(${hub.x},${hub.y})`}>
         <rect width={hub.w} height={hub.h} rx="16" fill="url(#hubg)" />
-        <rect width={hub.w} height={hub.h} rx="16" fill="none" stroke="#fff" strokeOpacity=".18" />
+        <rect width={hub.w} height={hub.h} rx="16" fill="none" stroke="#fff" strokeOpacity=".22" />
         <text x={hub.w / 2} y="34" textAnchor="middle" style={{ fontSize: 15, fontWeight: 650, fill: '#fff' }}>智能体中枢</text>
         <text x={hub.w / 2} y="52" textAnchor="middle" style={{ fontSize: 11, fill: '#fff', opacity: 0.7 }}>MCP Server · 私有化</text>
         {['身份', '权限', '审计', '路由'].map((t, i) => (
@@ -261,14 +266,14 @@ function Topology({ data }: { data: OverviewData }) {
           </g>
         ))}
         <g transform={`translate(${hub.w - 14},-8)`}>
-          <rect x="-50" width="64" height="22" rx="11" fill="#fff" stroke="#f6cfcd" />
+          <rect x="-50" width="64" height="22" rx="11" style={{ fill: 'var(--surface)', stroke: 'var(--red-line)' }} />
           <text x="-18" y="15" textAnchor="middle" className="t3" fill="var(--red)">拦截 {s.denied_today}</text>
         </g>
       </g>
       <defs>
         <linearGradient id="hubg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#6e6ee6" />
-          <stop offset="1" stopColor="#3e3eb8" />
+          <stop offset="0" stopColor={p.accent} />
+          <stop offset="1" stopColor={p.accentDeep} />
         </linearGradient>
       </defs>
 

@@ -1,5 +1,4 @@
-import { App as AntApp, ConfigProvider } from 'antd'
-import zhCN from 'antd/locale/zh_CN'
+import { App as AntApp } from 'antd'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
@@ -15,39 +14,11 @@ import RolePacks from './pages/RolePacks'
 import Skills from './pages/Skills'
 import Tasks from './pages/Tasks'
 import UsagePage from './pages/Usage'
-
-// 与 index.css 中的设计令牌保持一致
-const theme = {
-  token: {
-    colorPrimary: '#5b5bd6',
-    colorText: '#1b1a17',
-    colorTextSecondary: '#57564f',
-    colorTextTertiary: '#8e8d85',
-    colorBorder: '#e6e5df',
-    colorBorderSecondary: '#efeee9',
-    colorBgLayout: '#f6f6f3',
-    colorFillTertiary: '#f2f1ed',
-    colorSuccess: '#30a46c',
-    colorWarning: '#f5a524',
-    colorError: '#e5484d',
-    borderRadius: 8,
-    borderRadiusLG: 12,
-    fontSize: 13,
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
-    controlHeight: 32,
-    boxShadowSecondary: '0 12px 32px -8px rgba(27,26,23,.18), 0 0 0 1px rgba(27,26,23,.06)',
-  },
-  components: {
-    Table: { headerBg: '#fafaf8', rowHoverBg: '#fafaf8', cellPaddingBlock: 12, cellPaddingInline: 16 },
-    Drawer: { paddingLG: 24 },
-    Segmented: { itemSelectedColor: '#1b1a17' },
-    Button: { primaryShadow: 'none', defaultShadow: 'none', fontWeight: 500 },
-  },
-}
+import { ThemeProvider } from './theme'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ConfigProvider locale={zhCN} theme={theme}>
+    <ThemeProvider>
       <AntApp>
         <BrowserRouter>
           <Routes>
@@ -66,6 +37,6 @@ createRoot(document.getElementById('root')!).render(
           </Routes>
         </BrowserRouter>
       </AntApp>
-    </ConfigProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

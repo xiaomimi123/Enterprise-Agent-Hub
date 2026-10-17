@@ -1,4 +1,4 @@
-import { BranchesOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
+import { FileText, GitBranch, Search } from 'lucide-react'
 import { Input, Select, Skeleton } from 'antd'
 import { useMemo, useState } from 'react'
 import Markdown from 'react-markdown'
@@ -23,7 +23,7 @@ export default function Skills() {
       <PageHeader
         title="技能库"
         sub="写 SOP 就是写技能。技能是 Markdown 文件（SKILL.md），业务人员在 Obsidian 里编辑，提交到 git 后由中枢统一下发到每个员工的 agent。"
-        extra={<span className="chip"><BranchesOutlined />skills · main</span>}
+        extra={<span className="chip"><GitBranch />skills · main</span>}
       />
       <div className="split wide">
         <Panel
@@ -31,7 +31,7 @@ export default function Skills() {
           title={
             <div style={{ display: 'flex', gap: 8, width: '100%' }}>
               <Select value={dept} onChange={setDept} variant="filled" style={{ width: 120 }} options={depts.map((d) => ({ value: d, label: d }))} />
-              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索技能" variant="filled" onChange={(e) => setQ(e.target.value)} />
+              <Input allowClear prefix={<Search className="muted" />} placeholder="搜索技能" variant="filled" onChange={(e) => setQ(e.target.value)} />
             </div>
           }
         >
@@ -70,7 +70,7 @@ function SkillDetail({ id }: { id: string }) {
 
   return (
     <Panel
-      title={<><FileTextOutlined className="muted" /><span className="mono" style={{ fontWeight: 500 }}>{s.source}</span></>}
+      title={<><FileText className="muted" /><span className="mono" style={{ fontWeight: 500 }}>{s.source}</span></>}
       extra={<Pill>{s.status}</Pill>}
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 18 }}>

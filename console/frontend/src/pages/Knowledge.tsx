@@ -1,4 +1,4 @@
-import { FileTextOutlined, GlobalOutlined, LockOutlined } from '@ant-design/icons'
+import { FileText, Globe, Lock } from 'lucide-react'
 import { Drawer, Table } from 'antd'
 import { useState } from 'react'
 import { api, type KbDocument, type KnowledgeBase } from '../api'
@@ -43,7 +43,7 @@ export default function Knowledge() {
               {
                 title: '知识库', dataIndex: 'name', width: 260, render: (v, k) => (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <DeptTile dept={k.dept} size={30}>{k.classification === '机密' ? <LockOutlined /> : undefined}</DeptTile>
+                    <DeptTile dept={k.dept} size={30}>{k.classification === '机密' ? <Lock /> : undefined}</DeptTile>
                     <div style={{ lineHeight: 1.35 }}>
                       <div style={{ fontWeight: 600 }}>{v}</div>
                       <div className="muted" style={{ fontSize: 12 }}>{k.dept_name} · {k.source}</div>
@@ -59,7 +59,7 @@ export default function Knowledge() {
               {
                 title: '外部智能体', dataIndex: 'external_access', width: 110,
                 render: (v) => v
-                  ? <span style={{ color: 'var(--violet)', display: 'inline-flex', gap: 6, alignItems: 'center' }}><GlobalOutlined />只读开放</span>
+                  ? <span style={{ color: 'var(--violet)', display: 'inline-flex', gap: 6, alignItems: 'center' }}><Globe />只读开放</span>
                   : <span className="muted">不开放</span>,
               },
               { title: '授权岗位包', dataIndex: 'role_packs', render: (v: string[]) => <div className="tagset">{v.map((x) => <Token key={x}>{x}</Token>)}</div> },
@@ -100,7 +100,7 @@ function DocsDrawer({ kb, onClose }: { kb: KnowledgeBase; onClose: () => void })
             {
               title: '文档', dataIndex: 'title', render: (v, d) => (
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                  <FileTextOutlined style={{ color: DEPT_META[kb.dept]?.color }} />{v}
+                  <FileText style={{ color: DEPT_META[kb.dept]?.color }} />{v}
                   <span className="muted mono" style={{ fontSize: 11 }}>.{d.type}</span>
                 </span>
               ),

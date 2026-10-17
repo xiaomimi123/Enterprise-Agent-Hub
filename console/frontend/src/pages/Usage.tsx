@@ -8,7 +8,7 @@ import { deptColor, tokens, useRequest, yuan } from '../lib'
 import { Avatar, Meter, PageHeader, Panel, Pill, Seg } from '../ui'
 
 const MODEL_COLOR: Record<string, string> = {
-  'Claude Sonnet': '#d97757', 'GPT-4o': '#1b1a17', 'DeepSeek V3': '#4d6bfe', 'Qwen 本地模型': '#30a46c',
+  'Claude Sonnet': '#d97757', 'GPT-4o': 'var(--ink)', 'DeepSeek V3': '#4f7ee0', 'Qwen 本地模型': '#3d9a73',
 }
 
 export default function UsagePage() {

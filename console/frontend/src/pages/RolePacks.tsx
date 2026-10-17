@@ -1,4 +1,4 @@
-import { BookOutlined, CloudServerOutlined, GlobalOutlined, ThunderboltOutlined, ToolOutlined } from '@ant-design/icons'
+import { Cpu, Globe, Library, NotebookPen, Wrench } from 'lucide-react'
 import { App, Button, Drawer, Form, Input, InputNumber, Segmented, Select, Skeleton } from 'antd'
 import { useState } from 'react'
 import { api, type Catalog, type RolePack } from '../api'
@@ -35,10 +35,10 @@ export default function RolePacks() {
 function PackCard({ p, onClick }: { p: RolePack; onClick: () => void }) {
   const color = (DEPT_META[p.dept] ?? DEPT_META.all).color
   const parts = [
-    { label: '技能', n: p.skills.length, icon: <ThunderboltOutlined /> },
-    { label: '知识库', n: p.knowledge_bases.length, icon: <BookOutlined /> },
-    { label: '工具', n: p.tools.length, icon: <ToolOutlined /> },
-    { label: '模型', n: p.models.length, icon: <CloudServerOutlined /> },
+    { label: '技能', n: p.skills.length, icon: <NotebookPen /> },
+    { label: '知识库', n: p.knowledge_bases.length, icon: <Library /> },
+    { label: '工具', n: p.tools.length, icon: <Wrench /> },
+    { label: '模型', n: p.models.length, icon: <Cpu /> },
   ]
   return (
     <section className="panel" onClick={onClick}
@@ -70,7 +70,7 @@ function PackCard({ p, onClick }: { p: RolePack; onClick: () => void }) {
           {p.model_mode === '自带模型' ? '自带模型' : `¥${p.monthly_quota}/人/月`} · GPU {p.gpu_quota_minutes ? `${p.gpu_quota_minutes} 分钟/人/月` : '不限'}
         </span>
         <span className="muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-          <GlobalOutlined style={{ color: p.external_access === '关闭' ? 'var(--ink-4)' : 'var(--violet)' }} />
+          <Globe style={{ color: p.external_access === '关闭' ? 'var(--ink-4)' : 'var(--violet)' }} />
           外部{p.external_access}
         </span>
       </div>
@@ -135,25 +135,25 @@ function RolePackDrawer({ id, catalog, onClose, onSaved }: {
             <Input.TextArea autoSize={{ minRows: 2 }} variant="filled" />
           </Form.Item>
 
-          <Section icon={<ThunderboltOutlined />} title="技能">
+          <Section icon={<NotebookPen />} title="技能">
             <Form.Item name="skills" noStyle>
               <Select mode="multiple" optionFilterProp="label" style={{ width: '100%' }}
                 options={catalog.skills.map((s) => ({ value: s.id, label: `${s.name} · ${s.dept_name}` }))} />
             </Form.Item>
           </Section>
-          <Section icon={<BookOutlined />} title="可检索的知识库" hint="不在列表里的知识库，这个岗位的员工查不到——提示词怎么写都查不到。">
+          <Section icon={<Library />} title="可检索的知识库" hint="不在列表里的知识库，这个岗位的员工查不到——提示词怎么写都查不到。">
             <Form.Item name="knowledge_bases" noStyle>
               <Select mode="multiple" optionFilterProp="label" style={{ width: '100%' }}
                 options={catalog.knowledge_bases.map((k) => ({ value: k.id, label: `${k.name} · ${k.classification}` }))} />
             </Form.Item>
           </Section>
-          <Section icon={<ToolOutlined />} title="可调用的工具">
+          <Section icon={<Wrench />} title="可调用的工具">
             <Form.Item name="tools" noStyle>
               <Select mode="multiple" optionFilterProp="label" style={{ width: '100%' }}
                 options={catalog.tools.map((t) => ({ value: t.id, label: `${t.name} · ${t.risk}` }))} />
             </Form.Item>
           </Section>
-          <Section icon={<CloudServerOutlined />} title="模型与额度">
+          <Section icon={<Cpu />} title="模型与额度">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 12, marginBottom: 12 }}>
               <Form.Item name="model_mode" label="模型方式" style={{ marginBottom: 0 }}
                 extra="中枢模型：中枢下发员工专属 key，按 token 计费。自带模型：员工用自己 agent（WorkBuddy、Cursor 等）的模型和积分，中枢不发 key、不计 token。">
@@ -173,7 +173,7 @@ function RolePackDrawer({ id, catalog, onClose, onSaved }: {
               </Form.Item>
             </div>
           </Section>
-          <Section icon={<GlobalOutlined />} title="安全策略">
+          <Section icon={<Globe />} title="安全策略">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <Form.Item name="max_action_level" label="本机动作上限" extra="超过上限直接拒绝；需确认的动作会在员工电脑上弹窗。">
                 <Segmented block options={['只读', '需确认', '需二次确认']} />

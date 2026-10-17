@@ -1,4 +1,4 @@
-import { SearchOutlined, SyncOutlined } from '@ant-design/icons'
+import { RefreshCw, Search } from 'lucide-react'
 import { App, Input, Select, Table } from 'antd'
 import { useState } from 'react'
 import { api, type Member } from '../api'
@@ -31,7 +31,7 @@ export default function Members() {
       <PageHeader
         title="成员与组织"
         sub="人员和部门来自钉钉通讯录（经 Casdoor 同步）：入职自动开通，离职自动吊销令牌，不需要单独维护人员表。"
-        extra={<span className="chip"><SyncOutlined />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>}
+        extra={<span className="chip"><RefreshCw />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>}
       />
       <div className="split">
         <Panel title="组织架构" tight style={{ position: 'sticky', top: 72 }}>
@@ -61,7 +61,7 @@ export default function Members() {
           extra={
             <div style={{ display: 'flex', gap: 8 }}>
               <Seg value={status} onChange={setStatus} options={['全部', '在线', '离线', '未安装'].map((v) => ({ value: v, label: v }))} />
-              <Input allowClear prefix={<SearchOutlined className="muted" />} placeholder="搜索姓名或岗位"
+              <Input allowClear prefix={<Search className="muted" />} placeholder="搜索姓名或岗位"
                 onChange={(e) => setQ(e.target.value || undefined)} style={{ width: 200 }} />
             </div>
           }

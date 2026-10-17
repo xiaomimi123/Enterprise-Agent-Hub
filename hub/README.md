@@ -32,6 +32,11 @@ make up           # 构建并启动全部服务
 make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 New API（管理员、访问令牌），凭证写回 .env 并重启
 ```
 
+**Windows（Docker Desktop）注意：**
+- 没有 `make` 时，把 Makefile 里的命令直接用 `docker compose` 执行：`docker compose up -d --build`；初始化为 `docker compose run --rm --no-deps -v <绝对路径>/.env:/hub.env console-api python scripts/casdoor_bootstrap.py --env-file /hub.env --casdoor-url http://casdoor:8000 [--demo]`，再执行 `newapi_bootstrap.py ... --newapi-url http://new-api:3000 [--demo]`，最后 `docker compose up -d`（在 Git Bash 里加 `MSYS_NO_PATHCONV=1`）
+- 挂载进容器的 `.sh` 必须是 LF 换行，仓库的 `.gitattributes` 已固定；如果 PostgreSQL 日志出现 `bad interpreter: /bin/bash^M`，说明是旧的 CRLF 检出，转成 LF 后 `docker compose down -v` 重建
+- 中枢和 ComfyUI 同机时 `HUB_GPU_NODES` 填 `http://host.docker.internal:8188`，见 [docs/gpu.md](../docs/gpu.md)
+
 然后：
 1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），给企业组织配置钉钉登录和组织同步，并把管理员账号设为组织管理员
 2. 打开控制台 `http://<HUB_HOST>:8088`，用组织管理员登录

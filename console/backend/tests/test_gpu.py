@@ -11,12 +11,29 @@ def test_parse_nodes():
 
 
 def test_workflow_placeholders_keep_types():
-    wf, outputs = comfyui.load_workflow("xhs-cover", prompt="小红书封面，主文案「秋冬保湿」", seed=42, checkpoint="a.safetensors")
+    wf, outputs = comfyui.load_workflow("image-gen", prompt="小红书封面，主文案「秋冬保湿」", seed=42, width=768, height=1024, count=3)
     assert outputs == ["9"]
-    assert wf["3"]["inputs"]["seed"] == 42  # 整个值是占位符时保留整数类型
-    assert wf["6"]["inputs"]["text"] == "小红书封面，主文案「秋冬保湿」"
-    assert wf["4"]["inputs"]["ckpt_name"] == "a.safetensors"
+    assert wf["8"]["inputs"]["seed"] == 42  # 整个值是占位符时保留整数类型
+    assert wf["7"]["inputs"] == {"width": 768, "height": 1024, "batch_size": 3}
+    assert wf["5"]["inputs"]["text"] == "小红书封面，主文案「秋冬保湿」"
     assert "_meta" not in wf
+
+
+def test_video_workflow_and_frames():
+    from app import generation
+    wf, outputs = comfyui.load_workflow("video-h3", prompt="p", width=480, height=832, length=generation.video_frames(4))
+    assert outputs == ["15"] and wf["9"]["inputs"]["length"] == 107 and wf["9"]["inputs"]["width"] == 480
+    assert [generation.video_frames(s) for s in (2, 2.33, 5, 10)] == [56, 56, 124, 243]
+    assert all(generation.video_frames(s) % 17 == 5 for s in (2, 3, 4.5, 7, 10))
+
+
+def test_describe_splits_videos(monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(gpu, "file_url", lambda tid, n: f"u/{tid}/{n}")
+    t = {"id": "t", "status": "done", "node_id": "n", "images": ["1.mp4"], "started_at": None, "finished_at": None, "error": ""}
+    out = gpu.describe(t)
+    assert out["videos"] == ["u/t/1.mp4"] and out["images"] == []
+    assert "videos" not in gpu.describe({**t, "images": ["1.png"]})
 
 
 def test_signed_links(monkeypatch, tmp_path):

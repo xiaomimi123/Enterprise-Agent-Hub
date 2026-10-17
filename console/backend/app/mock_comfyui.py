@@ -46,7 +46,7 @@ def _prompt_text(workflow: dict) -> tuple[str, int, int, int]:
         inputs = node.get("inputs", {})
         if node.get("class_type") == "CLIPTextEncode" and text == "封面":
             text = str(inputs.get("text", text))
-        if node.get("class_type") == "EmptyLatentImage":
+        if node.get("class_type") in ("EmptyLatentImage", "EmptySD3LatentImage"):
             w, h, n = int(inputs.get("width", w)), int(inputs.get("height", h)), int(inputs.get("batch_size", n))
     return text, w, h, n
 

@@ -20,7 +20,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import content, db, gpu, policy
+from . import content, db, generation, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -29,7 +29,8 @@ INSTRUCTIONS = """这是企业智能体中枢。你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
-- generate_cover / get_cover_task：派发到公司 GPU 节点生成封面图（排队执行）
+- generate_cover / generate_image / generate_video：派发到公司 GPU 节点生成封面图、图片、带声音的短视频（排队执行）
+- get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
@@ -157,32 +158,50 @@ def search_knowledge(query: str, ctx: Context, knowledge_base: str | None = None
     return json.dumps(hits, ensure_ascii=False)
 
 
-COVER_WAIT_SECONDS = 90
+WAIT_SECONDS = 90
+
+
+def _generate(ctx: Context, submit, **args) -> str:
+    """提交生成任务并最多等 WAIT_SECONDS 秒：完成就直接返回链接，否则返回任务号。"""
+    p = _principal()
+    trace_id, _ = _trace(ctx)
+    try:
+        t = submit(p, trace_id, **args)
+    except generation.Denied as e:
+        return str(e)
+    return json.dumps(gpu.describe(gpu.wait_task(t["id"], WAIT_SECONDS)), ensure_ascii=False)
 
 
 @mcp.tool(description="生成小红书封面图：派发到公司 GPU 节点排队执行，一次出 3 版。"
                       "title 为封面主文案（8–12 字为宜），description 可补充画面风格。"
-                      "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_cover_task 查询")
+                      "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_task 查询")
 def generate_cover(title: str, ctx: Context, description: str | None = None) -> str:
-    p = _principal()
-    if p.is_external or not policy.can_use_tool(p, "image.cover"):
-        _audit(ctx, p, "拦截", "image.cover", f"岗位包「{p.pack['name']}」没有生成封面图的权限", "拒绝")
-        return "无权使用生成封面图。"
-    trace_id, _ = _trace(ctx)
-    prompt = f"小红书封面，主文案「{title}」，{description or '柔和自然光，干净留白，高级质感'}"
-    t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name, dept=p.dept,
-                        channel=p.channel, workflow="xhs-cover", params={"prompt": prompt, "title": title})
-    _audit(ctx, p, "工具", "image.cover", f"派发封面任务「{title}」，前面排队 {t['ahead']} 个", "通过")
-    return json.dumps(gpu.describe(gpu.wait_task(t["id"], COVER_WAIT_SECONDS)), ensure_ascii=False)
+    return _generate(ctx, generation.submit_cover, title=title, description=description)
 
 
-@mcp.tool(description="查询封面图任务的进度和结果")
+@mcp.tool(description="文生图：按提示词在公司 GPU 节点出图。aspect 画幅可选 3:4、1:1、4:3、9:16、16:9（默认 1:1），"
+                      "count 张数 1–4。提示词建议用中文或英文描述主体、场景、光线、风格。"
+                      "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_task 查询")
+def generate_image(prompt: str, ctx: Context, aspect: str = "1:1", count: int = 1) -> str:
+    return _generate(ctx, generation.submit_image, prompt=prompt, aspect=aspect, count=count)
+
+
+@mcp.tool(description="文生视频：按提示词在公司 GPU 节点生成带声音的短视频（24fps）。aspect 画幅可选 9:16、16:9、1:1、3:4、4:3"
+                      "（默认 9:16），seconds 时长 2–10 秒（默认 4）。生成需要几十秒到几分钟，"
+                      "90 秒内完成则直接返回视频链接，否则返回任务号，请稍后用 get_task 查询，不要重复提交")
+def generate_video(prompt: str, ctx: Context, aspect: str = "9:16", seconds: float = 4) -> str:
+    return _generate(ctx, generation.submit_video, prompt=prompt, aspect=aspect, seconds=seconds)
+
+
+@mcp.tool(description="查询图片 / 视频生成任务的进度和结果")
+def get_task(task_id: str, ctx: Context) -> str:
+    r = generation.get_task(_principal(), task_id)
+    return json.dumps(r, ensure_ascii=False) if r else f"没有找到任务 {task_id}。"
+
+
+@mcp.tool(description="（旧名称，同 get_task）查询封面图任务的进度和结果")
 def get_cover_task(task_id: str, ctx: Context) -> str:
-    p = _principal()
-    t = db.gpu_task(task_id)
-    if not t or t["org"] != p.org or t["user_name"] != p.user_name:
-        return f"没有找到任务 {task_id}。"
-    return json.dumps(gpu.describe(t), ensure_ascii=False)
+    return get_task(task_id, ctx)
 
 
 db.init_schema()

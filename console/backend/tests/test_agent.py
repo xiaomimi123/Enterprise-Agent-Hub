@@ -80,3 +80,22 @@ def test_model_calls_attach_to_trace_window():
     assert t1["tokens"] == 17 and t1["cost"] == 7.2
     assert t2["tokens"] == 4 and len(t2["steps"]) == 2
     assert len(ext["steps"]) == 1
+
+
+def test_generation_permissions(monkeypatch):
+    import pytest
+
+    from app import db, generation, policy
+    audits = []
+    monkeypatch.setattr(db, "add_audit", lambda **e: audits.append(e))
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="finance", channel=policy.OFFICIAL,
+                         pack={"name": "财务", "tools": ["kb.search"]})
+    with pytest.raises(generation.Denied):
+        generation.submit_video(p, "tr-1", "x")
+    assert audits[-1]["result"] == "拒绝" and audits[-1]["tool"] == "video.generate" and audits[-1]["trace_id"] == "tr-1"
+    p.pack["tools"] = ["video.generate", "image.generate"]
+    with pytest.raises(generation.Denied, match="画幅"):
+        generation.submit_video(p, "tr-1", "x", aspect="2:1")
+    p.channel = policy.EXTERNAL
+    with pytest.raises(generation.Denied):
+        generation.submit_image(p, "tr-1", "x")

@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import mimetypes
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, auth, gpu
+from . import agent_api, auth, gpu, public_api
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -36,6 +38,7 @@ app.add_middleware(
 provider: Provider = make_provider()
 app.include_router(auth.router)
 app.include_router(agent_api.router)
+app.include_router(public_api.router)
 # 除健康检查和登录接口外，所有接口都要求管理员登录
 api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
 
@@ -77,7 +80,7 @@ def download_file(task_id: str, name: str, exp: int = 0, sig: str = ""):
     f = gpu.verify_file(task_id, name, exp, sig)
     if f is None:
         raise HTTPException(404, "链接无效或已过期")
-    return FileResponse(f, media_type="image/png")
+    return FileResponse(f, media_type=mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
 
 # ---- 以下接口需要登录 ----

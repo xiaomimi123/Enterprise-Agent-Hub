@@ -21,6 +21,7 @@ from .config import settings
 
 log = logging.getLogger("hub.gpu")
 LINK_TTL = 7 * 86400  # 下载链接有效期
+VIDEO_SUFFIXES = {".mp4", ".webm", ".mov", ".mkv", ".gif"}
 
 
 def parse_nodes(spec: str) -> list[dict]:
@@ -82,7 +83,10 @@ def describe(t: dict) -> dict:
     if t["node_id"]:
         out["node"] = t["node_id"]
     if t["status"] == "done":
-        out["images"] = [file_url(t["id"], name) for name in t["images"]]
+        is_video = lambda n: Path(n).suffix.lower() in VIDEO_SUFFIXES  # noqa: E731
+        out["images"] = [file_url(t["id"], n) for n in t["images"] if not is_video(n)]
+        if any(is_video(n) for n in t["images"]):
+            out["videos"] = [file_url(t["id"], n) for n in t["images"] if is_video(n)]
         if t["started_at"] and t["finished_at"]:
             out["seconds"] = round((t["finished_at"] - t["started_at"]).total_seconds(), 1)
     if t["status"] == "failed":
@@ -94,7 +98,8 @@ def describe(t: dict) -> dict:
 
 def _audit(t: dict, detail: str, result: str) -> None:
     db.add_audit(trace_id=t["trace_id"], org=t["org"], user_name=t["user_name"], display_name=t["display_name"],
-                 dept=t["dept"], channel=t["channel"], kind="工具", tool="image.cover", detail=detail, result=result)
+                 dept=t["dept"], channel=t["channel"], kind="工具", tool=(t["params"] or {}).get("tool", "image.cover"),
+                 detail=detail, result=result)
 
 
 def _refresh_nodes(nodes: list[dict]) -> set[str]:
@@ -137,17 +142,18 @@ def _collect(nodes: dict[str, dict]) -> None:
             if status == "running":
                 continue
             if status == "error" or not images:
-                raise RuntimeError("ComfyUI 执行失败或没有输出图片")
+                raise RuntimeError("ComfyUI 执行失败或没有输出")
             folder = Path(settings.outputs_dir) / t["id"]
             folder.mkdir(parents=True, exist_ok=True)
             names = []
             for i, img in enumerate(images, 1):
-                name = f"{i}.png"
+                name = f"{i}{Path(img['filename']).suffix.lower() or '.png'}"
                 (folder / name).write_bytes(client.download(img))
                 names.append(name)
             db.update_gpu_task(t["id"], status="done", images=names)
             took = time.time() - t["started_at"].timestamp()
-            _audit(t, f"{node['name']} 生成 {len(names)} 张「{t['params'].get('title', '')}」，耗时 {took:.0f} 秒", "通过")
+            unit = "条视频" if names[0].endswith(tuple(VIDEO_SUFFIXES)) else "张"
+            _audit(t, f"{node['name']} 生成 {len(names)} {unit}「{t['params'].get('title', '')}」，耗时 {took:.0f} 秒", "通过")
             log.info("任务 %s 完成，%d 张", t["id"], len(names))
         except Exception as e:  # noqa: BLE001
             db.update_gpu_task(t["id"], status="failed", error=str(e)[:500])

@@ -38,6 +38,32 @@
 cd console/backend && uv run python scripts/gpu_smoke.py   # 两人同时出图（第二个排队）+ 财务被拒
 ```
 
+## 工作流与对外接口
+
+| 工作流 | 模型 | 用途 | 入口 |
+|---|---|---|---|
+| `image-gen` | Z-Image-Turbo（int8，8 步） | 文生图，画幅 3:4 / 1:1 / 4:3 / 9:16 / 16:9，一次 1–4 张 | MCP `generate_cover`、`generate_image`；HTTP `POST /api/v1/images` |
+| `video-h3` | MiniMax-H3 + Turbo 4 步 LoRA | 文生视频（带声音，24fps），2–10 秒 | MCP `generate_video`；HTTP `POST /api/v1/videos` |
+
+权限与审计统一在 `generation.py`：岗位包需包含 `image.cover` / `image.generate` / `video.generate` 之一，且只开放给官方 agent。MCP 工具最多等 90 秒，没完成就返回任务号，用 `get_task` 查询；HTTP 接口只入队，立即返回 202 和任务号。
+
+```bash
+# 提交（令牌是员工的 Casdoor 令牌，与 MCP 相同）
+curl -X POST http://<中枢>:8088/api/v1/videos -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"      -d '{"prompt": "一杯热拿铁，蒸汽缓缓升起，镜头缓慢推进", "aspect": "9:16", "seconds": 4}'
+# → {"task_id": "gpu-…", "status": "排队中", "ahead": 0, "trace_id": "api-…"}
+curl http://<中枢>:8088/api/v1/tasks/gpu-… -H "Authorization: Bearer $TOKEN"   # 完成后含 images / videos 下载链接
+```
+
+旧的 `xhs-cover` 工作流（SDXL）已并入 `image-gen`：`generate_cover` 现在是它的 3:4 × 3 张预设。已有数据库里的岗位包不会自动获得新工具（岗位包只在库为空时写入演示数据），需在控制台的岗位包里勾选 `image.generate`、`video.generate`。
+
+## 中枢与 GPU 同机部署（一台 Windows 电脑）
+
+中枢跑在 Docker Desktop 里，ComfyUI Desktop 跑在宿主机上，容器通过 `host.docker.internal` 访问它：
+
+`HUB_GPU_NODES=gpu-01|本机 GPU|http://host.docker.internal:8188|RTX 5080 16GB`
+
+ComfyUI 本身没有鉴权，且默认监听所有网卡，请用 Windows 防火墙限制 8188 端口只允许本机访问（容器访问宿主机走本机回环）。实测（RTX 5080 16GB，ComfyUI Desktop 0.40）：768×1024 两张图约 24 秒；480×832、约 2.3 秒带声音的视频约 25 秒。
+
 ## 接入真实 GPU 机器
 
 1. GPU 机器上安装 ComfyUI，把 `HUB_COMFY_CHECKPOINT` 指定的模型放进 `models/checkpoints/`
@@ -50,10 +76,11 @@ ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器�
 ## 已验证 / 未验证
 
 - 已验证（模拟节点）：MCP 出图、两人同时出图时第二个排队、财务岗位被拒、Hermes 一句话出图、审计两步记录、控制台节点状态、签名链接（正常 / 篡改 / 过期 / 路径穿越）
-- 未验证：真实 ComfyUI 与真实工作流（需要 GPU 机器）；节点执行中途掉线的恢复（当前任务会一直停在「生成中」，需要后续加超时）
+- 已验证（真实 ComfyUI，本机）：两套工作流直接提交并出图 / 出片；调度服务收取结果的逻辑（保留 .mp4 扩展名、审计、下载链接）
+- 未验证：经 PostgreSQL 队列和 Docker 的完整链路、HTTP 接口的令牌鉴权（需要 Docker 环境）；节点执行中途掉线的恢复（当前任务会一直停在「生成中」，需要后续加超时）
 
 ## 后续
 
 - 运行超时与重试：节点掉线或 ComfyUI 报错时自动改派
-- 视频粗剪等更多工作流；按工作流把任务派给装了对应模型的节点
+- 图生视频（需要上传参考图到 ComfyUI）、视频粗剪等更多工作流；按工作流把任务派给装了对应模型的节点
 - 控制台增加「任务」页，查看排队和历史

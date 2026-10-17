@@ -295,12 +295,19 @@ def gpu_task(task_id: str) -> dict | None:
         return conn.execute("SELECT * FROM gpu_tasks WHERE id = %s", (task_id,)).fetchone()
 
 
+def pending_task_count(org: str, user_name: str) -> int:
+    with connect() as conn:
+        return conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE org = %s AND user_name = %s "
+                            "AND status IN ('queued', 'running')", (org, user_name)).fetchone()["n"]
+
+
 def queue_position(task_id: str) -> int:
-    """排在这个任务前面、还没开始的任务数。"""
+    """这个排队任务前面还有几个：先提交的排队任务，加上正在生成的任务（它们占着节点，必须先跑完）。"""
     with connect() as conn:
         return conn.execute(
-            "SELECT count(*) AS n FROM gpu_tasks WHERE status = 'queued' AND created_at < "
-            "(SELECT created_at FROM gpu_tasks WHERE id = %s)", (task_id,)).fetchone()["n"]
+            "SELECT count(*) FILTER (WHERE g.status = 'queued' AND g.created_at < t.created_at) "
+            "     + count(*) FILTER (WHERE g.status = 'running') AS n "
+            "FROM gpu_tasks g, (SELECT created_at FROM gpu_tasks WHERE id = %s) t", (task_id,)).fetchone()["n"]
 
 
 def claim_task_for(node_id: str) -> dict | None:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from . import db, gpu, policy
+from .config import settings
 
 # 画幅 → 宽高（均为 32 的倍数）。图片按约 0.8 百万像素，视频按约 0.4 百万像素，兼顾速度和清晰度
 IMAGE_ASPECTS = {"3:4": (768, 1024), "1:1": (1024, 1024), "4:3": (1024, 768), "9:16": (576, 1024), "16:9": (1024, 576)}
@@ -19,6 +20,10 @@ FPS = 24
 
 class Denied(Exception):
     """没有权限或参数不合法，消息可以直接告诉调用方。"""
+
+
+class Busy(Denied):
+    """这个人未完成的任务太多，稍后再提交。"""
 
 
 def video_frames(seconds: float) -> int:
@@ -40,6 +45,10 @@ def _check(p: policy.Principal, trace_id: str, tool: str, what: str) -> None:
 
 
 def _submit(p: policy.Principal, trace_id: str, tool: str, workflow: str, params: dict, label: str) -> dict:
+    limit = settings.gpu_max_pending_per_user
+    if limit > 0 and db.pending_task_count(p.org, p.user_name) >= limit:
+        _audit(p, trace_id, tool, f"未完成任务已达上限 {limit} 个，{label}未入队", "拒绝")
+        raise Busy(f"你还有 {limit} 个生成任务没完成（每人最多同时 {limit} 个），请等完成后再提交。")
     t = gpu.submit_task(trace_id=trace_id, org=p.org, user_name=p.user_name, display_name=p.display_name, dept=p.dept,
                         channel=p.channel, workflow=workflow, params={**params, "tool": tool})
     _audit(p, trace_id, tool, f"派发{label}，前面排队 {t['ahead']} 个", "通过")

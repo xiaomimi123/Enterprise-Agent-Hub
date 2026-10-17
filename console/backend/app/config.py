@@ -62,6 +62,8 @@ class Settings:
 
     # GPU 能力节点：「id|名称|ComfyUI 地址|显卡说明」，多个用英文逗号分隔
     gpu_nodes: str = os.getenv("HUB_GPU_NODES", "")
+    # 每人最多同时有几个未完成（排队中 + 生成中）的生成任务，防止一个人占满 GPU 队列
+    gpu_max_pending_per_user: int = int(os.getenv("HUB_GPU_MAX_PENDING_PER_USER", "3"))
     workflows_dir: str = os.getenv("HUB_WORKFLOWS_DIR", str(ROOT / "gpu-node" / "workflows"))
     comfy_checkpoint: str = os.getenv("HUB_COMFY_CHECKPOINT", "sd_xl_base_1.0.safetensors")
     # 生成结果存放目录，以及下载链接的签名密钥（链接带签名和有效期，无需登录即可打开）

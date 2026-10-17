@@ -32,6 +32,14 @@ make up           # 构建并启动全部服务
 make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 New API（管理员、访问令牌），凭证写回 .env 并重启
 ```
 
+**局域网开放（Windows 防火墙，需管理员 PowerShell 执行）：**
+```powershell
+# 员工电脑要访问：控制台与接入接口 8088、MCP 8200、Casdoor 登录 8000、New API 模型网关 3000；只对局域网（专用网络）开放
+New-NetFirewallRule -DisplayName "Hub (console, MCP, login, model gateway)" -Direction Inbound -Protocol TCP -LocalPort 8088,8200,8000,3000 -Action Allow -Profile Private
+```
+ComfyUI 没有鉴权，不要对局域网开放：在 ComfyUI Desktop 的设置里把监听地址（Server Config → Listen / Host）改成 `127.0.0.1` 后重启 ComfyUI。中枢容器经 `host.docker.internal` 访问宿主机的 127.0.0.1 不受影响（已实测）。**不要**用防火墙「阻止」规则拦 8188：容器访问宿主机在 Windows 看来也是入站连接，阻止规则会连中枢自己一起拦掉。
+同时确认网卡的网络类型是「专用」。RAGFlow（8080/9380）只有中枢自己和管理员访问，不必放行。
+
 **启用 RAGFlow 知识库：**
 ```bash
 make ragflow-up          # 拉取官方部署文件并启动（镜像约 13GB，首次较慢；嵌入服务 TEI 会再下载一次模型）

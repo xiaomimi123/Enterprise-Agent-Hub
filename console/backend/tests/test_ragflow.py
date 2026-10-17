@@ -243,3 +243,36 @@ def test_from_settings_reuses_one_client(monkeypatch):
     monkeypatch.setattr(ragflow, "settings", dataclasses.replace(ragflow.settings, ragflow_endpoint="http://rf", ragflow_api_key="k"))
     monkeypatch.setattr(ragflow, "_client", None)
     assert ragflow.from_settings() is ragflow.from_settings()
+
+
+# ---- 控制台知识库页读 RAGFlow 的真实状态 ----
+
+class DocsFake(FakeRagflow):
+    def __init__(self, datasets, docs, error=None):
+        super().__init__(datasets, error=error)
+        self.docs = docs
+
+    def list_documents(self, ds):
+        if self.error:
+            raise self.error
+        return self.docs.get(ds, [])
+
+
+def test_kb_documents_reads_ragflow_status(monkeypatch):
+    use(monkeypatch, DocsFake({"hub-kb-brand": "ds-b"}, {"ds-b": [
+        {"id": "d1", "name": "品牌人设定义.md", "run": "DONE", "chunk_count": 3, "update_time": 1792222473000},
+        {"id": "d2", "name": "2026秋冬品牌主张.md", "run": "RUNNING", "chunk_count": 0, "update_time": 1792222473000},
+        {"id": "d3", "name": "坏文件.md", "run": "FAIL", "chunk_count": 0, "update_time": 1792222473000},
+        {"id": "d4", "name": "新文件.md", "run": "UNSTART", "chunk_count": 0, "update_time": 1792222473000},
+    ]}))
+    docs = content.kb_documents("kb-brand")
+    assert [(d["title"], d["status"], d["chunks"]) for d in docs] == [
+        ("品牌人设定义", "已索引", 3), ("2026秋冬品牌主张", "索引中", 0), ("坏文件", "索引失败", 0), ("新文件", "待索引", 0)]
+    assert docs[0]["id"] == "d1" and docs[0]["type"] == "md" and docs[0]["updated_at"].startswith("2026-")
+
+
+def test_kb_documents_falls_back_to_local(monkeypatch):
+    use(monkeypatch, DocsFake({}, {}))                     # 还没同步到 RAGFlow
+    assert content.kb_documents("kb-product") == content.local_kb_documents("kb-product")
+    use(monkeypatch, DocsFake({"hub-kb-product": "ds"}, {}, error=RagflowError("down")))
+    assert content.kb_documents("kb-product") == content.local_kb_documents("kb-product")

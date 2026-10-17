@@ -149,7 +149,29 @@ def local_search(query: str, kb_ids: list[str], top_k: int = 5) -> list[dict]:
     } for s, c in scored[:top_k]]
 
 
+RUN_STATUS = {"DONE": "已索引", "RUNNING": "索引中", "FAIL": "索引失败", "CANCEL": "已取消", "UNSTART": "待索引"}
+
+
 def kb_documents(kb_id: str) -> list[dict]:
+    """知识库的文档和索引状态：同步到 RAGFlow 的库读 RAGFlow 的真实解析状态，否则读本地 vault。"""
+    client = from_settings()
+    if client is None:
+        return local_kb_documents(kb_id)
+    try:
+        ds = client.find_dataset(f"{DATASET_PREFIX}{kb_id}")
+        if not ds:
+            return local_kb_documents(kb_id)
+        return [{
+            "id": d["id"], "title": Path(d["name"]).stem, "type": Path(d["name"]).suffix.lstrip(".") or "md",
+            "chunks": int(d.get("chunk_count") or 0), "status": RUN_STATUS.get(d.get("run"), d.get("run") or "未知"),
+            "updated_at": datetime.fromtimestamp((d.get("update_time") or 0) / 1000).astimezone().replace(microsecond=0).isoformat(),
+        } for d in client.list_documents(ds)]
+    except RagflowError as e:
+        log.warning("读取 RAGFlow 文档失败，改读本地 vault：%s", e)
+        return local_kb_documents(kb_id)
+
+
+def local_kb_documents(kb_id: str) -> list[dict]:
     meta = KB_REGISTRY[kb_id]
     folder = Path(settings.vault_dir) / meta["name"]
     docs = []

@@ -64,7 +64,7 @@ export const deptColor = (key: string) => (DEPT_META[key] ?? DEPT_META[DEPT_BY_N
 /** 状态文字 → 胶囊色调 */
 export const TONE: Record<string, string> = {
   已上线: 'green', 已发布: 'green', 在线: 'green', 成功: 'green', 通过: 'green', 已索引: 'green', 空闲: 'green', 正常: 'green',
-  测试中: 'blue', 索引中: 'blue', 生成中: 'blue', 已完成: 'green', 排队中: 'amber', 失败: 'red',
+  测试中: 'blue', 索引中: 'blue', 生成中: 'blue', 已完成: 'green', 排队中: 'amber', 失败: 'red', 待索引: 'gray', 已取消: 'gray', 索引失败: 'red',
   规划中: 'gray', 草稿: 'gray', 离线: 'gray', 关闭: 'gray',
   忙碌: 'amber', 繁忙: 'amber', 未安装: 'amber', 待审批: 'amber', 待确认: 'amber', 需确认: 'amber',
   被拦截: 'red', 拒绝: 'red', 需二次确认: 'red', 机密: 'red', 异常: 'red',

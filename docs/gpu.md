@@ -62,7 +62,7 @@ curl http://<中枢>:8088/api/v1/tasks/gpu-… -H "Authorization: Bearer $TOKEN"
 
 `HUB_GPU_NODES=gpu-01|本机 GPU|http://host.docker.internal:8188|RTX 5080 16GB`
 
-ComfyUI 本身没有鉴权，且默认监听所有网卡，请用 Windows 防火墙限制 8188 端口只允许本机访问（容器访问宿主机走本机回环）。实测（RTX 5080 16GB，ComfyUI Desktop 0.40）：768×1024 两张图约 24 秒；480×832、约 2.3 秒带声音的视频约 25 秒。
+ComfyUI 本身没有鉴权：同机部署时把 ComfyUI 的监听地址改成 `127.0.0.1`（容器经 `host.docker.internal` 仍能访问，已实测），不要用防火墙阻止规则拦 8188，会把容器的访问一起拦掉。实测（RTX 5080 16GB，ComfyUI Desktop 0.40）：768×1024 两张图约 24 秒；480×832、约 2.3 秒带声音的视频约 25 秒。
 
 ## 接入真实 GPU 机器
 

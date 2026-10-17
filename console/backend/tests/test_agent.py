@@ -99,3 +99,24 @@ def test_generation_permissions(monkeypatch):
     p.channel = policy.EXTERNAL
     with pytest.raises(generation.Denied):
         generation.submit_image(p, "tr-1", "x")
+
+
+def test_generation_limits_pending_tasks_per_user(monkeypatch):
+    import dataclasses
+
+    import pytest
+
+    from app import db, generation, gpu, policy
+    monkeypatch.setattr(db, "add_audit", lambda **e: None)
+    monkeypatch.setattr(generation, "settings", dataclasses.replace(generation.settings, gpu_max_pending_per_user=2))
+    submitted = []
+    monkeypatch.setattr(gpu, "submit_task", lambda **t: submitted.append(t) or {**t, "id": "x", "ahead": 0})
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL,
+                         pack={"name": "运营", "tools": ["image.generate"]})
+    monkeypatch.setattr(db, "pending_task_count", lambda org, user: 1)
+    generation.submit_image(p, "tr", "猫")
+    assert len(submitted) == 1
+    monkeypatch.setattr(db, "pending_task_count", lambda org, user: 2)
+    with pytest.raises(generation.Busy, match="2 个"):
+        generation.submit_image(p, "tr", "猫")
+    assert len(submitted) == 1  # 超限的没有入队

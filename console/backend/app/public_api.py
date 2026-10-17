@@ -58,6 +58,8 @@ def _enqueue(submit, authorization: str | None, trace_id: str | None, **args) ->
     p = _principal(authorization)
     try:
         t = submit(p, (trace_id or "").strip()[:64] or f"api-{uuid.uuid4().hex[:10]}", **args)
+    except generation.Busy as e:
+        raise HTTPException(429, str(e))
     except generation.Denied as e:
         raise HTTPException(403 if "无权" in str(e) else 400, str(e))
     return {"task_id": t["id"], "status": "排队中", "ahead": t["ahead"], "trace_id": t["trace_id"]}

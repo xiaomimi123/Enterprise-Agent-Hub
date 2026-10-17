@@ -47,6 +47,7 @@ x-hub-backend: &hub-backend
     NEWAPI_ADMIN_ID: ${NEWAPI_ADMIN_ID:-}
     HUB_DEFAULT_MODEL: ${HUB_DEFAULT_MODEL:-}
     HUB_GPU_NODES: ${HUB_GPU_NODES:-}
+    HUB_GPU_MAX_PENDING_PER_USER: ${HUB_GPU_MAX_PENDING_PER_USER:-3}
     HUB_COMFY_CHECKPOINT: ${HUB_COMFY_CHECKPOINT:-sd_xl_base_1.0.safetensors}
     # 知识库检索：两项都配置才走 RAGFlow，否则回退本地 vault 关键词检索
     RAGFLOW_ENDPOINT: ${RAGFLOW_ENDPOINT:-}

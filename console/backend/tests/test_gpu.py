@@ -72,3 +72,18 @@ def test_list_tasks_shapes_rows(monkeypatch):
     assert by["t3"]["ahead"] == 0 and by["t4"]["ahead"] == 1          # 先提交的排在前面
     assert by["t1"]["kind"] == "video" and by["t1"]["files"] == [{"type": "video", "url": "u/t1/1.mp4"}]
     assert by["t1"]["run_seconds"] == 60 and by["t1"]["wait_seconds"] == 60 and by["t4"]["size"] == "768×1024"
+
+
+def test_public_api_maps_busy_to_429(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import generation, policy, public_api
+    from app.main import app
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL, pack={})
+    monkeypatch.setattr(public_api, "_principal", lambda auth: p)
+
+    def busy(*a, **k):
+        raise generation.Busy("你还有 3 个任务没完成")
+    monkeypatch.setattr(generation, "submit_image", busy)
+    r = TestClient(app).post("/api/v1/images", json={"prompt": "猫"})
+    assert r.status_code == 429 and "没完成" in r.json()["detail"]

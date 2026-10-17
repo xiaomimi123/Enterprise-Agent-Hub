@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from .config import settings
 from .content import DATASET_PREFIX, KB_BY_NAME, KB_REGISTRY
 from .ragflow import Ragflow
 
@@ -20,7 +21,7 @@ def sync_vault(client: Ragflow, vault_dir: str, wait: bool = False, timeout: flo
         kb_id = KB_BY_NAME.get(folder.name) if folder.is_dir() else None
         if not kb_id:
             continue
-        ds = client.ensure_dataset(f"{DATASET_PREFIX}{kb_id}", KB_REGISTRY[kb_id]["name"])
+        ds = client.ensure_dataset(f"{DATASET_PREFIX}{kb_id}", KB_REGISTRY[kb_id]["name"], settings.ragflow_embedding_model)
         remote = {d["name"]: d for d in client.list_documents(ds)}
         local = {p.name: p for p in sorted(folder.rglob("*.md"))}
 

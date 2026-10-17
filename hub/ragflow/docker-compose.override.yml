@@ -1,0 +1,6 @@
+# 覆盖官方 compose 里的 TEI 启动参数（由 setup.sh 复制到 upstream/docker/）。
+# 官方默认的批量 token 数（16384）会让 CPU 预热时内存峰值冲到 20GB+，在 Docker Desktop 的虚拟机里被 OOM 杀掉；
+# 知识库文档都是短文本，2048 足够，内存峰值降到几 GB。
+services:
+  tei-cpu:
+    command: ["--model-id", "/data/${TEI_MODEL}", "--auto-truncate", "--max-batch-tokens", "2048", "--max-client-batch-size", "16"]

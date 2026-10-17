@@ -1,6 +1,6 @@
 RAGFLOW_DIR := ragflow/upstream/docker
 
-.PHONY: env up down ps logs db-hub bootstrap bootstrap-demo ragflow-setup ragflow-up ragflow-down ragflow-ps all-up all-down
+.PHONY: ragflow-bootstrap kb-sync env up down ps logs db-hub bootstrap bootstrap-demo ragflow-setup ragflow-up ragflow-down ragflow-ps all-up all-down
 
 env:            ## 生成 .env（随机密码）
 	@bash scripts/gen-env.sh
@@ -49,6 +49,12 @@ ragflow-down:
 
 ragflow-ps:
 	cd $(RAGFLOW_DIR) && docker compose ps
+
+ragflow-bootstrap: ## RAGFlow 启动后执行一次：建管理员和 API Key，写回 .env
+	cd ../console/backend && uv run python scripts/ragflow_bootstrap.py --env-file ../../hub/.env
+
+kb-sync:        ## 把 vault 里的知识库同步到 RAGFlow
+	docker compose exec console-api python scripts/ragflow_sync.py --wait
 
 all-up: up ragflow-up
 

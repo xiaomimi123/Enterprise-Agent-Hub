@@ -41,6 +41,19 @@ def test_ensure_dataset_reuses_existing_and_creates_missing():
     assert rf.ensure_dataset("hub-kb-hr", "人事") == "ds-new"
     post = next(r for r in seen if r.method == "POST")
     assert post.url.path == "/api/v1/datasets" and json.loads(post.content)["name"] == "hub-kb-hr"
+    assert "embedding_model" not in json.loads(post.content)  # 不指定时用租户默认
+
+    rf, seen = make(handler)
+    rf.ensure_dataset("hub-kb-hr", embedding_model="Qwen/Qwen3-Embedding-0.6B@Builtin")
+    assert json.loads(next(r for r in seen if r.method == "POST").content)["embedding_model"] == "Qwen/Qwen3-Embedding-0.6B@Builtin"
+
+
+def test_find_dataset_matches_locally_and_pages():
+    pages = {"1": [{"id": f"x{i}", "name": f"n{i}"} for i in range(100)], "2": [{"id": "hit", "name": "hub-kb-hr"}]}
+    rf, seen = make(lambda r: ok(pages[r.url.params["page"]]))
+    assert rf.find_dataset("hub-kb-hr") == "hit"
+    assert all("name" not in r.url.params for r in seen)  # 不传 name 过滤
+    assert make(lambda r: ok([]))[0].find_dataset("nope") is None
 
 
 def test_retrieve_sends_scope_and_page_size():
@@ -146,7 +159,8 @@ class SyncFake:
         self.calls: list[tuple] = []
         self._n = 0
 
-    def ensure_dataset(self, name, description=""):
+    def ensure_dataset(self, name, description="", embedding_model=None):
+        self.models = getattr(self, "models", {}) | {name: embedding_model}
         self.datasets.setdefault(name, {})
         return name
 
@@ -183,6 +197,7 @@ def test_first_sync_uploads_and_parses_everything(vault):
     assert stats == {"uploaded": 2, "updated": 0, "deleted": 0, "skipped": 0}
     assert set(rf.datasets) == {"hub-kb-brand"}  # 不在注册表的文件夹被忽略，没建数据集
     assert [c[0] for c in rf.calls].count("parse") == 1
+    assert rf.models["hub-kb-brand"] == "Qwen/Qwen3-Embedding-0.6B@Builtin"  # 建库时指定内置 TEI 嵌入模型
 
 
 def test_resync_unchanged_is_a_noop(vault):
@@ -204,3 +219,27 @@ def test_changed_file_is_replaced_and_removed_file_is_deleted(vault):
     kinds = [c[0] for c in rf.calls]
     assert kinds.index("delete") < kinds.index("upload")  # 先删旧文档再传新文档
     assert set(rf.datasets["hub-kb-brand"]) == {"a.md"}
+
+
+# ---- 终审发现的问题 ----
+
+def test_non_json_response_is_a_ragflow_error():
+    rf, _ = make(lambda r: httpx.Response(200, text="<html>502 Bad Gateway</html>"))
+    with pytest.raises(RagflowError):
+        rf.retrieve("x", ["ds"])
+
+
+def test_dataset_lookups_are_cached_per_client():
+    rf, seen = make(lambda r: ok([{"id": "ds-1", "name": "hub-kb-brand"}]))
+    assert rf.find_dataset("hub-kb-brand") == "ds-1" and rf.find_dataset("hub-kb-brand") == "ds-1"
+    assert len(seen) == 1                      # 第二次命中缓存
+    assert rf.find_dataset("hub-kb-hr") is None  # 未命中的不缓存：同步完成后立刻可见
+    assert rf.find_dataset("hub-kb-hr") is None
+    assert len(seen) == 3
+
+
+def test_from_settings_reuses_one_client(monkeypatch):
+    import dataclasses
+    monkeypatch.setattr(ragflow, "settings", dataclasses.replace(ragflow.settings, ragflow_endpoint="http://rf", ragflow_api_key="k"))
+    monkeypatch.setattr(ragflow, "_client", None)
+    assert ragflow.from_settings() is ragflow.from_settings()

@@ -48,6 +48,10 @@ x-hub-backend: &hub-backend
     HUB_DEFAULT_MODEL: ${HUB_DEFAULT_MODEL:-}
     HUB_GPU_NODES: ${HUB_GPU_NODES:-}
     HUB_COMFY_CHECKPOINT: ${HUB_COMFY_CHECKPOINT:-sd_xl_base_1.0.safetensors}
+    # 知识库检索：两项都配置才走 RAGFlow，否则回退本地 vault 关键词检索
+    RAGFLOW_ENDPOINT: ${RAGFLOW_ENDPOINT:-}
+    RAGFLOW_API_KEY: ${RAGFLOW_API_KEY:-}
+    RAGFLOW_EMBEDDING_MODEL: ${RAGFLOW_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
     HUB_FILE_SECRET: ${HUB_FILE_SECRET:?}
 
 services:

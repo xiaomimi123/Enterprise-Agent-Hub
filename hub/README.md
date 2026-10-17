@@ -12,7 +12,7 @@
 | hub-worker | GPU 调度：把生图任务派给 ComfyUI 节点、取回结果 | 不对外 | 自研，与 console-api 同一镜像 |
 | mock-llm / mock-comfyui | 开发用模拟大模型 / 模拟 GPU 节点，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
-| RAGFlow v0.27.2 | 知识库检索（尚未接入） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
+| RAGFlow v0.27.2 | 知识库检索（已接入 MCP 的 search_knowledge） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
 
 PostgreSQL 里有三个库：`casdoor`、`newapi`，以及中枢自研服务用的 `hub`（岗位包、成员分配、审计日志）。
 
@@ -31,6 +31,15 @@ vim .env          # 把 HUB_HOST、CASDOOR_ORIGIN 改成服务器局域网 IP；
 make up           # 构建并启动全部服务
 make bootstrap    # 初始化 Casdoor（企业组织、三个登录应用）和 New API（管理员、访问令牌），凭证写回 .env 并重启
 ```
+
+**启用 RAGFlow 知识库：**
+```bash
+make ragflow-up          # 拉取官方部署文件并启动（镜像约 13GB，首次较慢；嵌入服务 TEI 会再下载一次模型）
+make ragflow-bootstrap   # 建管理员和 API Key，写回 .env（RAGFLOW_ENDPOINT、RAGFLOW_API_KEY）
+docker compose up -d     # 让 console-api、hub-mcp 读到新配置
+make kb-sync             # 把 vault 里的知识库同步到 RAGFlow
+```
+内存建议 ≥ 32GB（Docker Desktop 虚拟机分到 ≥ 16GB）。不启用时 `search_knowledge` 自动用本地关键词检索。
 
 **Windows（Docker Desktop）注意：**
 - 没有 `make` 时，把 Makefile 里的命令直接用 `docker compose` 执行：`docker compose up -d --build`；初始化为 `docker compose run --rm --no-deps -v <绝对路径>/.env:/hub.env console-api python scripts/casdoor_bootstrap.py --env-file /hub.env --casdoor-url http://casdoor:8000 [--demo]`，再执行 `newapi_bootstrap.py ... --newapi-url http://new-api:3000 [--demo]`，最后 `docker compose up -d`（在 Git Bash 里加 `MSYS_NO_PATHCONV=1`）

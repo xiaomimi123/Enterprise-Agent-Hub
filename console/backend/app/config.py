@@ -57,6 +57,8 @@ class Settings:
     # RAGFlow（知识库检索）：地址和 API Key 都配置了才启用，否则用本地 vault 关键词检索
     ragflow_endpoint: str = os.getenv("RAGFLOW_ENDPOINT", "").rstrip("/")
     ragflow_api_key: str = os.getenv("RAGFLOW_API_KEY", "")
+    # 数据集用的嵌入模型：RAGFlow 自带的 TEI 服务（部署时由 TEI_MODEL 决定），以 Builtin 厂商引用
+    ragflow_embedding_model: str = os.getenv("RAGFLOW_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B") + "@Builtin"
 
     # GPU 能力节点：「id|名称|ComfyUI 地址|显卡说明」，多个用英文逗号分隔
     gpu_nodes: str = os.getenv("HUB_GPU_NODES", "")

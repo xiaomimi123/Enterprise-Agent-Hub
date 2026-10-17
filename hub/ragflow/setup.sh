@@ -35,6 +35,8 @@ set_kv TZ                      "$TZ"
 set_kv SVR_WEB_HTTP_PORT       "$RAGFLOW_WEB_PORT"
 set_kv SVR_WEB_HTTPS_PORT      "8443"
 set_kv SVR_HTTP_PORT           "$RAGFLOW_API_PORT"
+# 官方默认的 1200 在 Windows 上常落在 Hyper-V 保留端口段里，绑定会失败；改到不常被占用的 19200
+set_kv ES_PORT                 "19200"
 set_kv ELASTIC_PASSWORD        "$RAGFLOW_ELASTIC_PASSWORD"
 set_kv MYSQL_PASSWORD          "$RAGFLOW_MYSQL_PASSWORD"
 set_kv MINIO_PASSWORD          "$RAGFLOW_MINIO_PASSWORD"
@@ -53,5 +55,7 @@ if [ "$(uname)" = "Linux" ]; then
     echo "    echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-ragflow.conf"
   fi
 fi
+
+cp "$HERE/docker-compose.override.yml" "$UPSTREAM/docker/docker-compose.override.yml"
 
 echo "RAGFlow 配置完成：网页 http://${HUB_HOST}:${RAGFLOW_WEB_PORT}  API http://${HUB_HOST}:${RAGFLOW_API_PORT}"

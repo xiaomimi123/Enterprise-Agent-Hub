@@ -42,7 +42,17 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 
 **内容。**
 - 技能：`skills/<部门>/<技能 id>/SKILL.md`
-- 知识库：`vault/<知识库名>/*.md`（Obsidian vault）。当前用字符二元组做关键词检索，接入 RAGFlow 后替换 `content.search()`，目录和接口不变
+- 知识库：`vault/<知识库名>/*.md`（Obsidian vault）是内容来源。配置了 RAGFlow（`RAGFLOW_ENDPOINT` + `RAGFLOW_API_KEY`）时，`content.search()` 走 RAGFlow 向量 + 关键词混合检索；未配置或 RAGFlow 出错时回退到本地字符二元组关键词检索，返回结构相同。详见下文「RAGFlow 知识库」
+
+## RAGFlow 知识库
+
+一个知识库 = RAGFlow 里的一个数据集（`hub-<kb_id>`），嵌入模型是 RAGFlow 自带 TEI 服务的 Qwen3-Embedding-0.6B（CPU 运行，不占显卡）。
+
+- **权限仍在中枢**：先按岗位包算出 `allowed_kbs`，只把这些库的数据集 ID 传给 RAGFlow；没同步到 RAGFlow 的库直接跳过（绝不扩大范围）；返回的命中若不属于本次允许的库会被丢弃
+- **同步**：`make kb-sync`（容器里 `scripts/ragflow_sync.py --wait`）把 vault 推到 RAGFlow，幂等：按「文件名 + 字节数」判断，改了的先删后传，本地删掉的同步删除。改了 vault 记得重新同步
+- **回退**：RAGFlow 不可达、超时、返回错误或非 JSON 时，记 warning 并回退本地检索，MCP 调用不会因此失败
+- **初始化**：RAGFlow 启动后执行一次 `make ragflow-bootstrap`，注册管理员 `admin@hub.local`（密码是 `.env` 的 `RAGFLOW_ADMIN_PASSWORD`）、创建 API Key 并写入 `.env`
+- **Windows / Docker Desktop**：官方 ES 端口 1200 常落在 Hyper-V 保留端口段，已改 19200；TEI 官方默认批量 token 数会让预热内存冲到 20GB+ 被 OOM 杀掉，`hub/ragflow/docker-compose.override.yml` 把它降到 2048（稳定在约 3GB）
 
 ## 数据库
 
@@ -66,5 +76,5 @@ cd ../console/backend && uv run python scripts/mcp_smoke.py   # 模拟运营、�
 ## 取舍与后续
 
 - 开发环境的 agent 应用开启了 password 授权，方便脚本取令牌；生产环境应改为授权码或设备码流程，由员工端 agent 引导员工扫码登录
-- 还没有模型调用、生图、本机动作相关的工具，审计里的 Token 和花费暂时为空；接入 New API 和 GPU 任务队列后补上
+- 控制台「知识库」页的文档列表和索引状态仍读本地 vault，还没有读 RAGFlow 的实际解析状态；检索结果的 `section`（所属章节）暂为空，RAGFlow 按分块返回，不带章节标题
 - 已容器化：与控制台后端共用 `hub-backend` 镜像，见 `hub/docker-compose.yml`

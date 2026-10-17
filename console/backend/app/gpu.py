@@ -12,6 +12,7 @@ import hmac
 import logging
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -92,6 +93,43 @@ def describe(t: dict) -> dict:
     if t["status"] == "failed":
         out["error"] = t["error"]
     return out
+
+
+STATUS_TEXT = {"queued": "排队中", "running": "生成中", "done": "已完成", "failed": "失败"}
+
+
+def list_tasks(limit: int = 100) -> dict:
+    """控制台「生成任务」页：最近的任务（新的在前）和队列概况。"""
+    rows = db.recent_gpu_tasks(limit)
+    ahead = {r["id"]: i for i, r in enumerate(sorted((r for r in rows if r["status"] == "queued"),
+                                                     key=lambda r: r["created_at"]))}
+    today = datetime.now().astimezone().date()
+    tasks = []
+    for t in rows:
+        p = t["params"] or {}
+        files = [{"type": "video" if Path(n).suffix.lower() in VIDEO_SUFFIXES else "image", "url": file_url(t["id"], n)}
+                 for n in t["images"]]
+        started, finished = t["started_at"], t["finished_at"]
+        tasks.append({
+            "id": t["id"], "trace_id": t["trace_id"], "member": t["display_name"] or t["user_name"],
+            "member_id": t["user_name"], "dept": t["dept"], "channel": t["channel"],
+            "kind": "video" if t["workflow"] == "video-h3" else "image", "workflow": t["workflow"],
+            "title": p.get("title", ""), "prompt": p.get("prompt", ""),
+            "size": f"{p['width']}×{p['height']}" if p.get("width") else "", "count": p.get("count", 1),
+            "status": STATUS_TEXT[t["status"]], "node_id": t["node_id"], "ahead": ahead.get(t["id"]),
+            "created_at": t["created_at"].astimezone().replace(microsecond=0).isoformat(),
+            "wait_seconds": round((started - t["created_at"]).total_seconds()) if started else None,
+            "run_seconds": round((finished - started).total_seconds()) if started and finished else None,
+            "error": t["error"], "files": files,
+        })
+    def n(status: str) -> int:
+        return sum(1 for t in rows if t["status"] == status)
+    return {
+        "summary": {"queued": n("queued"), "running": n("running"), "failed": n("failed"),
+                    "done_today": sum(1 for t in rows if t["status"] == "done" and t["finished_at"]
+                                      and t["finished_at"].astimezone().date() == today)},
+        "tasks": tasks,
+    }
 
 
 # ---- 调度服务 ----

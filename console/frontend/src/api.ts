@@ -227,6 +227,34 @@ function qs(params: Record<string, string | undefined>) {
   return s ? `?${s}` : ''
 }
 
+export interface GpuTask {
+  id: string
+  trace_id: string
+  member: string
+  member_id: string
+  dept: string
+  channel: string
+  kind: 'image' | 'video'
+  workflow: string
+  title: string
+  prompt: string
+  size: string
+  count: number
+  status: string
+  node_id: string | null
+  ahead: number | null
+  created_at: string
+  wait_seconds: number | null
+  run_seconds: number | null
+  error: string
+  files: { type: 'image' | 'video'; url: string }[]
+}
+
+export interface GpuTasks {
+  summary: { queued: number; running: number; failed: number; done_today: number }
+  tasks: GpuTask[]
+}
+
 export const api = {
   me: () => request<{ mode: string; user: AuthUser }>('/auth/me'),
   loginUrl: () => request<{ url: string }>('/auth/login'),
@@ -250,5 +278,6 @@ export const api = {
   traces: (params: { member_id?: string; outcome?: string; dept?: string; q?: string } = {}) =>
     request<TraceBrief[]>(`/audit/traces${qs(params)}`),
   trace: (id: string) => request<Trace>(`/audit/traces/${id}`),
+  gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),
 }

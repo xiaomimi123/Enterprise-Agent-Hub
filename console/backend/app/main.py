@@ -158,6 +158,13 @@ def trace(trace_id: str):
     return provider.trace(trace_id)
 
 
+@api.get("/gpu/tasks")
+def gpu_tasks(limit: int = 100):
+    if not settings.database_url:  # 演示模式没有任务队列
+        return {"summary": {"queued": 0, "running": 0, "failed": 0, "done_today": 0}, "tasks": []}
+    return gpu.list_tasks(max(1, min(limit, 200)))
+
+
 @api.get("/usage")
 def usage(days: int = 30):
     return provider.usage(days=max(1, min(days, 30)))

@@ -4,6 +4,7 @@ import {
   AuditOutlined,
   BookOutlined,
   FundOutlined,
+  PictureOutlined,
   LogoutOutlined,
   MenuOutlined,
   RightOutlined,
@@ -35,6 +36,7 @@ const NAV = [
   {
     group: '监管', items: [
       { path: '/audit', icon: <AuditOutlined />, label: '审计日志', badge: true },
+      { path: '/tasks', icon: <PictureOutlined />, label: '生成任务' },
       { path: '/usage', icon: <FundOutlined />, label: '用量与成本' },
     ],
   },
@@ -47,6 +49,7 @@ const TITLES: Record<string, [string, string]> = {
   '/skills': ['能力', '技能库'],
   '/knowledge': ['能力', '知识库'],
   '/audit': ['监管', '审计日志'],
+  '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],
 }
 

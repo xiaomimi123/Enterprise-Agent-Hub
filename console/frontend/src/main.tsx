@@ -12,6 +12,7 @@ import Members from './pages/Members'
 import Overview from './pages/Overview'
 import RolePacks from './pages/RolePacks'
 import Skills from './pages/Skills'
+import Tasks from './pages/Tasks'
 import UsagePage from './pages/Usage'
 
 // 与 index.css 中的设计令牌保持一致
@@ -57,6 +58,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="skills" element={<Skills />} />
               <Route path="knowledge" element={<Knowledge />} />
               <Route path="audit" element={<Audit />} />
+              <Route path="tasks" element={<Tasks />} />
               <Route path="usage" element={<UsagePage />} />
             </Route>
           </Routes>

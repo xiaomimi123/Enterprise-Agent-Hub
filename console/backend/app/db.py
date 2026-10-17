@@ -331,6 +331,11 @@ def update_gpu_task(task_id: str, **fields) -> None:
         conn.execute(f"UPDATE gpu_tasks SET {sets} WHERE id = %(id)s", {**fields, "id": task_id})
 
 
+def recent_gpu_tasks(limit: int = 100) -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_tasks ORDER BY created_at DESC LIMIT %s", (limit,)).fetchall()
+
+
 def gpu_task_stats() -> dict[str, dict]:
     """每个节点今天完成的任务数、正在跑的任务数，以及全局排队数。"""
     with connect() as conn:

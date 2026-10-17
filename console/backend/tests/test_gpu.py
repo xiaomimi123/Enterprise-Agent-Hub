@@ -47,3 +47,28 @@ def test_signed_links(monkeypatch, tmp_path):
     assert gpu.verify_file("t1", "1.png", 1, gpu._sign("t1/1.png", 1)) is None         # 已过期
     assert gpu.verify_file("t1", "../../x", exp, gpu._sign("t1/../../x", exp)) is None  # 跳出输出目录
     assert gpu.file_url("t1", "1.png").startswith("http://hub/api/files/t1/1.png?exp=")
+
+
+def test_list_tasks_shapes_rows(monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import db
+    now = datetime.now().astimezone()
+
+    def row(i, status, workflow="image-gen", images=(), started=None, finished=None):
+        return {"id": f"t{i}", "trace_id": "tr", "user_name": "u", "display_name": "U", "dept": "ops", "channel": "官方 agent",
+                "workflow": workflow, "params": {"title": "标题", "prompt": "p", "width": 768, "height": 1024, "count": 2},
+                "status": status, "node_id": "gpu-01" if started else None, "images": list(images), "error": "",
+                "created_at": now - timedelta(minutes=10 - i), "started_at": started, "finished_at": finished}
+
+    monkeypatch.setattr(db, "recent_gpu_tasks", lambda limit: [
+        row(4, "queued"), row(3, "queued"), row(2, "running", started=now),
+        row(1, "done", "video-h3", ["1.mp4"], now - timedelta(minutes=8), now - timedelta(minutes=7)),
+    ])
+    monkeypatch.setattr(gpu, "file_url", lambda tid, n: f"u/{tid}/{n}")
+    out = gpu.list_tasks()
+    by = {t["id"]: t for t in out["tasks"]}
+    assert out["summary"] == {"queued": 2, "running": 1, "failed": 0, "done_today": 1}
+    assert by["t3"]["ahead"] == 0 and by["t4"]["ahead"] == 1          # 先提交的排在前面
+    assert by["t1"]["kind"] == "video" and by["t1"]["files"] == [{"type": "video", "url": "u/t1/1.mp4"}]
+    assert by["t1"]["run_seconds"] == 60 and by["t1"]["wait_seconds"] == 60 and by["t4"]["size"] == "768×1024"

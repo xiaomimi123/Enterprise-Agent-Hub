@@ -10,7 +10,12 @@ ENV_FILE="$HERE/../.env"
 UPSTREAM="$HERE/upstream"
 
 [ -f "$ENV_FILE" ] || { echo "缺少 hub/.env，先运行 make env"; exit 1; }
-set -a; . "$ENV_FILE"; set +a
+# 逐行读取 KEY=VALUE，不直接 source：.env 里有含空格和 | 的值（如 HUB_GPU_NODES），shell 会当成命令执行
+while IFS='=' read -r key value; do
+  case "$key" in ''|\#*|*[!A-Za-z0-9_]*) continue ;; esac
+  export "$key=${value%$'
+'}"
+done < "$ENV_FILE"
 
 if [ ! -d "$UPSTREAM" ]; then
   echo "拉取 RAGFlow $RAGFLOW_VERSION ..."
@@ -35,6 +40,9 @@ set_kv MYSQL_PASSWORD          "$RAGFLOW_MYSQL_PASSWORD"
 set_kv MINIO_PASSWORD          "$RAGFLOW_MINIO_PASSWORD"
 set_kv REDIS_PASSWORD          "$RAGFLOW_REDIS_PASSWORD"
 set_kv ADMIN_DEFAULT_PASSWORD  "$RAGFLOW_ADMIN_PASSWORD"
+# 嵌入模型：用官方自带的 TEI 服务（CPU 版，不占显卡，显卡留给 ComfyUI），Qwen3-Embedding 多语言、对中文友好
+set_kv COMPOSE_PROFILES        "elasticsearch,cpu,metadata-mysql,tei-cpu"
+set_kv TEI_MODEL               "${RAGFLOW_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}"
 
 # Elasticsearch 在 Linux 上要求 vm.max_map_count >= 262144
 if [ "$(uname)" = "Linux" ]; then

@@ -273,6 +273,7 @@ export interface GpuTask {
   channel: string
   kind: 'image' | 'video'
   workflow: string
+  via: string
   title: string
   prompt: string
   size: string
@@ -292,6 +293,31 @@ export interface ConnectInfo {
   mcp_url: string
   api_base: string
   script_url: string
+}
+
+export interface Upstream {
+  id: number
+  name: string
+  base_url: string
+  models: string[]
+  status: 'enabled' | 'disabled'
+  key_hint: string
+}
+
+export interface ImageProvider {
+  id: string
+  name: string
+  kind: string
+  base_url: string
+  model: string
+  params: Record<string, unknown>
+  enabled: boolean
+  key_hint: string
+}
+
+export interface ImageConfig {
+  route: 'gpu' | 'api'
+  providers: ImageProvider[]
 }
 
 export interface GpuTasks {
@@ -323,6 +349,24 @@ export const api = {
     request<TraceBrief[]>(`/audit/traces${qs(params)}`),
   trace: (id: string) => request<Trace>(`/audit/traces/${id}`),
   apps: () => request<PublishedApp[]>('/apps'),
+  upstreams: () => request<Upstream[]>('/models/upstreams'),
+  probeUpstream: (body: { base_url: string; key: string }) =>
+    request<{ models: string[] }>('/models/upstreams/probe', { method: 'POST', body: JSON.stringify(body) }),
+  addUpstream: (body: { name: string; base_url: string; key: string; models: string[] }) =>
+    request<Upstream>('/models/upstreams', { method: 'POST', body: JSON.stringify(body) }),
+  patchUpstream: (id: number, body: Partial<{ name: string; base_url: string; key: string; models: string[]; enabled: boolean }>) =>
+    request<Upstream>(`/models/upstreams/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteUpstream: (id: number) => request<{ ok: boolean }>(`/models/upstreams/${id}`, { method: 'DELETE' }),
+  imageConfig: () => request<ImageConfig>('/models/image'),
+  addImageProvider: (body: { name: string; base_url: string; model: string; key: string; params?: Record<string, unknown> }) =>
+    request<ImageProvider>('/models/image/providers', { method: 'POST', body: JSON.stringify(body) }),
+  patchImageProvider: (id: string, body: Partial<{ name: string; base_url: string; model: string; key: string; params: Record<string, unknown>; enabled: boolean }>) =>
+    request<ImageProvider>(`/models/image/providers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteImageProvider: (id: string) => request<{ ok: boolean }>(`/models/image/providers/${id}`, { method: 'DELETE' }),
+  setImageRoute: (route: 'gpu' | 'api') =>
+    request<{ route: string }>('/models/image/route', { method: 'PUT', body: JSON.stringify({ route }) }),
+  testImageProvider: (id: string) =>
+    request<{ ok: boolean; seconds: number; error: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),

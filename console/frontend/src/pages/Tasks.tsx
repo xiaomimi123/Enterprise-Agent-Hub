@@ -81,7 +81,7 @@ export default function Tasks() {
                   </span>
                 ),
               },
-              { title: '节点', dataIndex: 'node_id', width: 80, render: (v) => <span className="mono muted">{v ?? '—'}</span> },
+              { title: '通道', dataIndex: 'via', width: 96, render: (v: string, t) => <span className="mono muted">{v === '第三方 API' ? v : (t.node_id ?? v)}</span> },
               { title: '耗时', dataIndex: 'run_seconds', width: 90, align: 'right', render: (v) => <span className="num">{secs(v)}</span> },
               {
                 title: '成品', dataIndex: 'files', width: 120, render: (files: GpuTask['files'], t) => (

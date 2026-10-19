@@ -1,5 +1,5 @@
 import {
-  AppWindow, Backpack, ChartPie, ChevronRight, ClipboardCheck, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
 } from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
@@ -22,6 +22,7 @@ const NAV = [
     group: '能力', items: [
       { path: '/skills', icon: <NotebookPen />, label: '技能库' },
       { path: '/knowledge', icon: <Library />, label: '知识库' },
+      { path: '/models', icon: <Cpu />, label: '模型' },
       { path: '/apps', icon: <AppWindow />, label: '应用' },
       { path: '/connect', icon: <Plug />, label: '接入方式' },
     ],
@@ -41,6 +42,7 @@ const TITLES: Record<string, [string, string]> = {
   '/role-packs': ['组织与权限', '岗位包'],
   '/skills': ['能力', '技能库'],
   '/knowledge': ['能力', '知识库'],
+  '/models': ['能力', '模型'],
   '/apps': ['能力', '应用'],
   '/connect': ['能力', '接入方式'],
   '/audit': ['监管', '审计日志'],

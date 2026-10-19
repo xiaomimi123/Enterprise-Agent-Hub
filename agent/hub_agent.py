@@ -600,8 +600,10 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
                    "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID") or new_trace_id()}
             base = {"cwd": str(target), "env": env, "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
             try:
+                setup_out = ""
                 if ticket.get("setup_args"):
-                    run(["node", str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
+                    done = run(["node", str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
+                    setup_out = (done.stdout or "") + (done.stderr or "")
                 started = run(["node", str(entry), *ticket.get("start_args", [])], timeout=LAUNCH_TIMEOUT, **base)
             except subprocess.TimeoutExpired:
                 return {"ok": False, "reason": f"启动超时（{LAUNCH_TIMEOUT} 秒）。可以稍后再说一次「打开工作台」，仍不行请查看应用自己的日志。"}
@@ -613,7 +615,12 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             old = json.loads(state_file.read_text(encoding="utf-8")).get("version") if state_file.exists() else None
             message = f"已打开「{ticket.get('name', app_id)}」v{version}：{url}"
             skill = target / "xhs-workbench" / "SKILL.md" if (target / "xhs-workbench" / "SKILL.md").exists() else next(iter(target.glob("*/SKILL.md")), None)
-            if skill:
+            if "尚未配置" in setup_out:  # 网页右上角会显示「未连接 agent」，要 agent 先做连接自检
+                message += (f"\n工作台还没有连接 agent（网页会显示「未连接 agent」）。请现在做连接自检：运行 "
+                            f"node \"{entry}\" bridge-test --inbox（你是 claude-code / codex 等有命令行的 agent 时改用 "
+                            f"--prefer <你的 id>），详见 {skill or 'SKILL.md'} 的「连接自检」一节；"
+                            "完成后若是收件箱模式，继续进入值守，网页里的消息才会被处理。")
+            elif skill:
                 message += f"\n如果它的连接模式是「收件箱模式」，请按 {skill} 的「值守模式」一节进入值守。"
             if _ALREADY in out and old and old != version:
                 message += f"\n注意：正在运行的是旧版本 v{old}，新版本 v{version} 已下载；关闭工作台后再打开即可升级（为避免打断定时任务，没有自动重启）。"
@@ -704,7 +711,7 @@ def bridge_intercept(msg: dict, resp_msgs: list[dict], launch, hub: str, creds: 
         result = launch(ticket, hub, creds)
         report(creds, hub, ticket, result)
         text = result["message"] if result.get("ok") else f"没能打开「{ticket.get('name', ticket.get('app_id'))}」：{result.get('reason', '未知原因')}"
-        return [{"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": text}], "isError": not result.get("ok")}}]
+        return [{"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": text}], "structuredContent": {"result": text}, "isError": not result.get("ok")}}]
     return resp_msgs
 
 

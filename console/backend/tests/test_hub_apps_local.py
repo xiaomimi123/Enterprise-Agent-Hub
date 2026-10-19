@@ -174,8 +174,8 @@ def build_ticket(tmp_path, version="0.6.1", payload="x", **extra):
 class Recorder:
     """假的 subprocess.run：记录每次调用，按子命令返回预设输出。"""
 
-    def __init__(self, start_out="工作台已启动。\nURL: http://127.0.0.1:17890/?t=abc\n", node="v24.21.0", hang=False):
-        self.calls, self.start_out, self.node, self.hang = [], start_out, node, hang
+    def __init__(self, start_out="工作台已启动。\nURL: http://127.0.0.1:17890/?t=abc\n", node="v24.21.0", hang=False, setup_out="初始化完成"):
+        self.calls, self.start_out, self.node, self.hang, self.setup_out = [], start_out, node, hang, setup_out
 
     def __call__(self, cmd, **kw):
         self.calls.append((cmd, kw))
@@ -183,7 +183,7 @@ class Recorder:
             return subprocess.CompletedProcess(cmd, 0, stdout=self.node, stderr="")
         if self.hang and "start" in cmd:
             raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
-        return subprocess.CompletedProcess(cmd, 0, stdout=self.start_out if "start" in cmd else "初始化完成", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=self.start_out if "start" in cmd else self.setup_out, stderr="")
 
     def started(self):
         return [c for c, _ in self.calls if "start" in c]
@@ -222,6 +222,15 @@ def test_launch_happy_path(tmp_path, home):
     assert cfg["command"] == "/usr/bin/uv" and "--nested" in cfg["args"] and cfg["args"][:1] == ["run"]
     assert (home / "apps" / "xhs-workbench" / "0.6.1" / ".sha256").read_text() == ticket["sha256"]
     assert "SKILL.md" in r["message"]                                         # 告诉 agent 技能路径，收件箱模式据此进入值守
+
+
+def test_unconfigured_bridge_tells_agent_to_run_connection_selftest(tmp_path, home):
+    """工作台网页显示「未连接 agent」就是因为没做连接自检：setup 报告尚未配置时，打开结果必须让 agent 去做。"""
+    ticket, data = build_ticket(tmp_path)
+    r = launch(ticket, data, Recorder(setup_out="连接配置：尚未配置\n"))
+    assert r["ok"] and "连接自检" in r["message"] and "bridge-test" in r["message"]
+    ok = launch(ticket, data, Recorder(setup_out="连接配置：收件箱模式\n"))
+    assert "连接自检" not in ok["message"]
 
 
 def test_node_missing_stops_before_download(tmp_path, home):
@@ -358,6 +367,8 @@ def test_intercept_replaces_ticket_with_launch_result():
     out, seen = intercept(CALL, [mcp_result(json.dumps(HUB_TICKET))], {"ok": True, "url": "http://127.0.0.1:17890/?t=x", "message": "已打开：http://127.0.0.1:17890/?t=x", "version": "0.6.1"})
     assert len(out) == 1 and out[0]["id"] == 7 and out[0]["result"]["isError"] is False
     assert "http://127.0.0.1:17890/?t=x" in out[0]["result"]["content"][0]["text"]
+    # open_app 在中枢声明了输出 schema：替换后的回复必须同样带 structuredContent，否则客户端报 "has an output schema but did not return structured content"
+    assert out[0]["result"]["structuredContent"] == {"result": out[0]["result"]["content"][0]["text"]}
     assert seen[0]["app_id"] == "xhs-workbench" and seen[-1] == "reported"        # 启动后回报中枢
 
 

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, auth, gpu, public_api
+from . import agent_api, apps, auth, gpu, public_api
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -74,6 +74,17 @@ class RolePackPatch(BaseModel):
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": provider.mode}
+
+
+@app.get("/api/apps/{app_id}/{filename}")
+def download_app(app_id: str, filename: str, exp: int = 0, sig: str = ""):
+    """应用包下载：凭 open_app 签发的短期签名链接，不需要登录；校验失败一律 404。"""
+    if not filename.endswith(".zip"):
+        raise HTTPException(404, "链接无效或已过期")
+    f = apps.verify_zip_request(app_id, filename[:-4], exp, sig)
+    if f is None:
+        raise HTTPException(404, "链接无效或已过期")
+    return FileResponse(f, media_type="application/zip", filename=f"{app_id}-{filename}")
 
 
 @app.get("/api/files/{task_id}/{name}")

@@ -5,9 +5,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 ONLINE_MINUTES = 5
+
+
+def daily_ops(online: dict[str, int], denied: dict[str, int], today: date, days: int = 14) -> list[dict]:
+    """总览的近 N 天历史：每天的在线人数和被拦截次数，没有记录的天补 0，按日期从早到晚。"""
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        out.append({"date": d, "online": online.get(d, 0), "denied": denied.get(d, 0)})
+    return out
 
 
 def member_agent(row: dict | None, now: datetime) -> dict:

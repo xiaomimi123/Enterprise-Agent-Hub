@@ -224,9 +224,10 @@ class CasdoorProvider(DemoProvider):
     def overview(self):
         self._sync()
         data = super().overview()
-        # 今天的在线数是真实的；历史在线趋势还没有记录，只保留今天这一点
-        online = data["stats"]["agents_online"]
-        data["daily_ops"] = [{**d, "online": online if i == len(data["daily_ops"]) - 1 else 0} for i, d in enumerate(data["daily_ops"])]
+        # 近 14 天的在线人数与拦截次数：来自在线记录和审计日志；今天的在线数用实时值（5 分钟窗口内）
+        ops = presence.daily_ops(db.online_by_day(self.org, 14), db.denied_by_day(self.org, 14), datetime.now().astimezone().date())
+        ops[-1]["online"] = max(ops[-1]["online"], data["stats"]["agents_online"])
+        data["daily_ops"] = ops
         return data
 
     def departments(self):

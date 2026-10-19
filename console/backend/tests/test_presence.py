@@ -33,3 +33,41 @@ def test_status_from_presence():
     # 只通过 MCP 调用出现过（没有接入器信息）：仍然算在线，但不显示版本
     bare = presence.member_agent({"last_seen": NOW, "client": None, "version": None, "os": None}, NOW)
     assert bare == {"agent_status": "在线", "agent_version": "", "os": "官方 agent"}
+
+
+# ---- 总览的 14 天历史：在线人数与拦截次数 ----
+
+def test_daily_ops_fills_gaps_and_orders_days():
+    from datetime import date
+    today = date(2026, 10, 19)
+    out = presence.daily_ops({"2026-10-19": 3, "2026-10-17": 2}, {"2026-10-18": 4, "2026-10-19": 1}, today, days=4)
+    assert out == [
+        {"date": "2026-10-16", "online": 0, "denied": 0},
+        {"date": "2026-10-17", "online": 2, "denied": 0},
+        {"date": "2026-10-18", "online": 0, "denied": 4},
+        {"date": "2026-10-19", "online": 3, "denied": 1},
+    ]
+
+
+def test_daily_ops_ignores_days_outside_window():
+    from datetime import date
+    out = presence.daily_ops({"2026-09-01": 9}, {}, date(2026, 10, 19), days=2)
+    assert [d["online"] for d in out] == [0, 0] and len(out) == 2
+
+
+def test_touch_presence_also_marks_the_day(monkeypatch):
+    from app import db
+    calls = []
+
+    class Conn:
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(db, "connect", lambda: Conn())
+    db.touch_presence("o", "u", client="WorkBuddy")
+    assert any("agent_presence_daily" in sql for sql, _ in calls)

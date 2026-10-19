@@ -106,6 +106,13 @@ ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS gpu_quota_minutes INTEGER NOT NU
 ALTER TABLE gpu_tasks ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 
 -- 员工端在线状态：接入器报到或官方 agent 调用工具时刷新
+CREATE TABLE IF NOT EXISTS agent_presence_daily (
+    org       TEXT NOT NULL,
+    day       DATE NOT NULL,
+    user_name TEXT NOT NULL,
+    PRIMARY KEY (org, day, user_name)
+);
+
 CREATE TABLE IF NOT EXISTS agent_presence (
     org       TEXT NOT NULL,
     user_name TEXT NOT NULL,
@@ -365,6 +372,25 @@ def touch_presence(org: str, user_name: str, client: str | None = None, version:
             "client = coalesce(EXCLUDED.client, agent_presence.client), "
             "version = coalesce(EXCLUDED.version, agent_presence.version), os = coalesce(EXCLUDED.os, agent_presence.os)",
             (org, user_name, client or None, version or None, os or None))
+        # 按天记「今天在线过」，总览的在线趋势据此统计（每人每天一行，重复报到不增加）
+        conn.execute("INSERT INTO agent_presence_daily (org, day, user_name) VALUES (%s, CURRENT_DATE, %s) "
+                     "ON CONFLICT DO NOTHING", (org, user_name))
+
+
+def online_by_day(org: str, days: int) -> dict[str, int]:
+    with connect() as conn:
+        rows = conn.execute("SELECT day::text AS d, count(*) AS n FROM agent_presence_daily "
+                            "WHERE org = %s AND day > CURRENT_DATE - %s GROUP BY day", (org, days)).fetchall()
+    return {r["d"]: r["n"] for r in rows}
+
+
+def denied_by_day(org: str, days: int) -> dict[str, int]:
+    """每天被中枢拦截的次数（审计里结果为「拒绝」的事件）。"""
+    with connect() as conn:
+        rows = conn.execute("SELECT (ts AT TIME ZONE 'Asia/Shanghai')::date::text AS d, count(*) AS n FROM audit_events "
+                            "WHERE org = %s AND result = '拒绝' AND ts > now() - make_interval(days => %s) GROUP BY 1",
+                            (org, days + 1)).fetchall()
+    return {r["d"]: r["n"] for r in rows}
 
 
 def presence_rows(org: str) -> dict[str, dict]:

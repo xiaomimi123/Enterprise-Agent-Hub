@@ -138,8 +138,14 @@ def main() -> None:
     print(f"✓ 已登录 {endpoint}")
 
     # ---- 组织 ----
-    if c.get("/api/get-organization", params={"id": f"admin/{org_name}"}).json().get("data"):
-        print(f"· 组织 {org_name} 已存在")
+    existing = c.get("/api/get-organization", params={"id": f"admin/{org_name}"}).json().get("data")
+    if existing:
+        if existing.get("displayName") != org_display:
+            existing["displayName"] = org_display
+            ok(c.post("/api/update-organization", params={"id": f"admin/{org_name}"}, json=existing), "更新组织显示名")
+            print(f"✓ 组织 {org_name} 显示名已更新为「{org_display}」")
+        else:
+            print(f"· 组织 {org_name} 已存在")
     else:
         base = ok(c.get("/api/get-organization", params={"id": "admin/built-in"}), "读取 built-in 组织")["data"]
         org = copy.deepcopy(base)

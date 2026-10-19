@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, db, gpu, public_api
+from . import agent_api, apps, auth, db, gpu, models_api, public_api
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -146,7 +146,15 @@ def update_role_pack(role_pack_id: str, body: RolePackPatch):
 
 @api.get("/catalog")
 def catalog():
-    return provider.catalog()
+    data = provider.catalog()
+    # 模型网关配置了就用真实的：岗位包「可用模型」能勾选的就是管理员接入并启用的模型；网关不可用时保留原清单
+    try:
+        na = models_api.make_newapi()
+        if na.configured:
+            data = {**data, "models": [{"id": m, "name": m, "location": "上游", "rate": ""} for m in na.available_models()]}
+    except Exception:  # noqa: BLE001
+        pass
+    return data
 
 
 @api.get("/skills")
@@ -221,4 +229,5 @@ def usage(days: int = 30):
     return provider.usage(days=max(1, min(days, 30)))
 
 
+api.include_router(models_api.router)
 app.include_router(api)

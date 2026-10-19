@@ -137,6 +137,40 @@ class NewApi:
         key = self._call("POST", f"/api/token/{tok['id']}/key")["key"]
         return key if key.startswith("sk-") else f"sk-{key}"
 
+    # ---- 渠道（上游模型）管理 ----
+    # 以下字段和响应形状均已对真实 New API 实测：列表接口永远不返回 key（key 是空串），所以中枢把「后四位提示」
+    # 存在渠道的 remark 字段里；创建接口只回 success、不回 id，需要再按名字查；更新（PUT）可以只传要改的字段，
+    # 不传 key 就是不改；状态 1 = 启用，2 = 手动停用。
+    def list_channels(self) -> list[dict]:
+        items: list[dict] = []
+        page = 0
+        while True:
+            data = self._call("GET", "/api/channel/", params={"p": page, "page_size": 100})
+            batch = data.get("items", data) if isinstance(data, dict) else (data or [])
+            items += batch
+            if len(batch) < 100:
+                return items
+            page += 1
+
+    def fetch_models(self, base_url: str, key: str) -> list[str]:
+        """让 New API 去上游拉模型清单（OpenAI 兼容的 GET {base_url}/v1/models）。"""
+        return list(self._call("POST", "/api/channel/fetch_models", json={"base_url": base_url, "type": 1, "key": key}) or [])
+
+    def create_channel(self, name: str, base_url: str, key: str, models: list[str], remark: str = "") -> int:
+        self._call("POST", "/api/channel/", json={"mode": "single", "channel": {
+            "name": name, "type": 1, "key": key, "base_url": base_url, "models": ",".join(models),
+            "group": "default", "status": 1, "remark": remark}})
+        found = next((c for c in self.list_channels() if c["name"] == name), None)
+        if found is None:
+            raise NewApiError(f"创建渠道 {name} 后未找到")
+        return found["id"]
+
+    def update_channel(self, channel_id: int, **fields) -> None:
+        self._call("PUT", "/api/channel/", json={"id": channel_id, **fields})
+
+    def delete_channel(self, channel_id: int) -> None:
+        self._call("DELETE", f"/api/channel/{channel_id}")
+
     # ---- 模型与用量 ----
     def available_models(self) -> list[str]:
         """模型网关里启用的渠道提供的全部模型（去重，保持顺序）。"""

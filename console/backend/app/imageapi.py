@@ -133,7 +133,15 @@ def list_providers() -> list[dict]:
 
 
 def get_route() -> str:
-    return settings_store.get(ROUTE_KEY, "gpu") or "gpu"
+    try:
+        return settings_store.get(ROUTE_KEY, "gpu") or "gpu"
+    except RuntimeError:  # 没有数据库（演示模式）或数据库暂时不可用：一律走本机 GPU，不影响出图
+        return "gpu"
+
+
+def default_provider() -> dict | None:
+    """第一个启用的出图 API（不看通道开关）：排队中的 API 任务按它派发，切回本机 GPU 也不影响已经提交的任务。"""
+    return next((_view(p) for p in _raw() if p.get("enabled", True)), None)
 
 
 def active_provider() -> dict | None:

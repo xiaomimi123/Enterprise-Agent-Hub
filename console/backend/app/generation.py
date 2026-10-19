@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image, UnidentifiedImageError
 
-from . import db, gpu, policy
+from . import db, gpu, imageapi, policy
 from .config import settings
 
 # 画幅 → 宽高（均为 32 的倍数）。图片按约 0.8 百万像素，视频按约 0.4 百万像素，兼顾速度和清晰度
@@ -72,11 +72,16 @@ def _submit(p: policy.Principal, trace_id: str, tool: str, workflow: str, params
     return t
 
 
+def _image_workflow() -> str:
+    """出图走哪条线：管理员在「模型」页选的通道。API 通道的任务进同一个队列，由调度服务的 API 分支处理。"""
+    return "api-image" if imageapi.get_route() == "api" else "image-gen"
+
+
 def submit_cover(p: policy.Principal, trace_id: str, title: str, description: str | None) -> dict:
     _check(p, trace_id, "image.cover", "生成封面图")
     w, h = IMAGE_ASPECTS["3:4"]
     prompt = f"小红书封面，主文案「{title}」，{description or '柔和自然光，干净留白，高级质感'}"
-    return _submit(p, trace_id, "image.cover", "image-gen",
+    return _submit(p, trace_id, "image.cover", _image_workflow(),
                    {"prompt": prompt, "title": title, "width": w, "height": h, "count": 3}, f"封面任务「{title}」")
 
 
@@ -88,7 +93,7 @@ def submit_image(p: policy.Principal, trace_id: str, prompt: str, aspect: str = 
         raise Denied("提示词不能为空。")
     count = max(1, min(int(count), MAX_IMAGES))
     w, h = IMAGE_ASPECTS[aspect]
-    return _submit(p, trace_id, "image.generate", "image-gen",
+    return _submit(p, trace_id, "image.generate", _image_workflow(),
                    {"prompt": prompt, "title": prompt[:20], "width": w, "height": h, "count": count},
                    f"文生图任务（{aspect}，{count} 张）")
 

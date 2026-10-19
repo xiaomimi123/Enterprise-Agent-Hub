@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from . import db
+from . import imageapi
 from .comfyui import ComfyUI, load_workflow
 from .config import settings
 
@@ -116,6 +117,7 @@ def list_tasks(limit: int = 100) -> dict:
             "id": t["id"], "trace_id": t["trace_id"], "member": t["display_name"] or t["user_name"],
             "member_id": t["user_name"], "dept": t["dept"], "channel": t["channel"],
             "kind": "video" if t["workflow"].startswith("video-") else "image", "workflow": t["workflow"],
+            "via": "第三方 API" if t["workflow"] == "api-image" else "本机 GPU",
             "title": p.get("title", ""), "prompt": p.get("prompt", ""),
             "size": f"{p['width']}×{p['height']}" if p.get("width") else "", "count": p.get("count", 1),
             "status": STATUS_TEXT[t["status"]], "node_id": t["node_id"], "ahead": ahead.get(t["id"]),
@@ -246,6 +248,80 @@ def _collect(nodes: dict[str, dict]) -> None:
             _audit(t, f"{node['name']} 生成失败：{e}", "拒绝")
 
 
+# ---- 第三方 API 出图（workflow = api-image）----
+
+API_TIMEOUT_SECONDS = 600
+
+
+def _api_fail(t: dict, reason: str) -> None:
+    db.update_gpu_task(t["id"], status="failed", error=reason[:500])
+    _audit(t, f"第三方 API 出图失败：{reason}", "拒绝")
+    log.warning("任务 %s 第三方 API 出图失败：%s", t["id"], reason)
+
+
+def _api_submit(t: dict, client_factory) -> None:
+    provider = imageapi.default_provider()
+    if provider is None:
+        return _api_fail(t, "没有可用的出图 API，请在「模型」页添加并启用")
+    p = t["params"]
+    try:
+        external = client_factory(provider["id"]).submit(p.get("prompt", ""), int(p.get("width", 1024)),
+                                                          int(p.get("height", 1024)), int(p.get("count", 1)))
+    except imageapi.ImageApiError as e:
+        return _api_fail(t, str(e))
+    # 先把第三方任务号落库：调度服务重启后凭它恢复轮询，不会重复提交（重复提交 = 重复付费）
+    db.update_gpu_task(t["id"], prompt_id=external, params={**p, "_provider": provider["id"]})
+    log.info("任务 %s 已提交第三方 API（%s）", t["id"], external)
+
+
+def _api_collect(t: dict, client_factory, now: datetime) -> None:
+    elapsed = (now - t["started_at"]).total_seconds() if t["started_at"] else 0
+    if not t["prompt_id"]:
+        if elapsed > DISPATCH_GRACE:  # 领取了任务却一直没拿到第三方任务号（提交中途调度服务重启等）
+            if (t.get("attempts") or 0) + 1 < MAX_ATTEMPTS:
+                db.requeue_gpu_task(t["id"])
+                _audit(t, "派发中断，任务已重新排队", "通过")
+            else:
+                _api_fail(t, "派发中断，重试后仍未完成")
+        return
+    if elapsed > API_TIMEOUT_SECONDS:
+        return _api_fail(t, f"第三方 API 超时（{elapsed / 60:.0f} 分钟）")
+    try:
+        client = client_factory(t["params"].get("_provider", ""))
+        state, urls = client.poll(t["prompt_id"])
+    except imageapi.ImageApiError as e:  # 网络抖动或第三方暂时出错：下一轮再查，超时由上面处理
+        log.warning("任务 %s 暂时查不到结果：%s", t["id"], e)
+        return
+    if state == "running":
+        return
+    if state == "failed":
+        return _api_fail(t, "第三方返回失败")
+    if not urls:
+        return _api_fail(t, "第三方完成了但没有返回图片")
+    try:
+        folder = Path(settings.outputs_dir) / t["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        names = []
+        for i, url in enumerate(urls, 1):
+            name = f"{i}{Path(url.split('?')[0]).suffix.lower() or '.png'}"
+            (folder / name).write_bytes(client.download(url))
+            names.append(name)
+    except (imageapi.ImageApiError, OSError) as e:
+        return _api_fail(t, f"下载图片失败：{e}")
+    db.update_gpu_task(t["id"], status="done", images=names)
+    _audit(t, f"第三方 API 生成 {len(names)} 张「{t['params'].get('title', '')}」，耗时 {elapsed:.0f} 秒", "通过")
+    log.info("任务 %s 完成（第三方 API），%d 张", t["id"], len(names))
+
+
+def run_api_step(client_factory=imageapi.provider_client, now: datetime | None = None) -> None:
+    """调度服务每轮调用：先收取在跑任务的结果，再领取新任务提交给第三方（同时进行数有上限）。"""
+    now = now or datetime.now().astimezone()
+    for t in db.running_api_tasks():
+        _api_collect(t, client_factory, now)
+    for t in db.claim_api_tasks(settings.image_api_max_concurrency):
+        _api_submit(t, client_factory)
+
+
 def run_worker(interval: float = 1.0) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # 不逐条打印轮询请求
@@ -264,6 +340,7 @@ def run_worker(interval: float = 1.0) -> None:
             _collect(by_id)
             _recover(by_id, online)
             _dispatch(nodes, online)
+            run_api_step()
         except Exception:  # noqa: BLE001 数据库短暂不可用等情况，下一轮重试
             log.exception("调度循环出错")
         time.sleep(interval)

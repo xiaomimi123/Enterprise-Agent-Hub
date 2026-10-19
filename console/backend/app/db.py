@@ -349,7 +349,7 @@ def gpu_seconds_this_month(org: str, user_name: str) -> float:
     with connect() as conn:
         return float(conn.execute(
             "SELECT coalesce(sum(extract(epoch FROM coalesce(finished_at, now()) - started_at)), 0) AS s FROM gpu_tasks "
-            "WHERE org = %s AND user_name = %s AND started_at >= date_trunc('month', now())", (org, user_name)).fetchone()["s"])
+            "WHERE org = %s AND user_name = %s AND workflow <> 'api-image' AND started_at >= date_trunc('month', now())", (org, user_name)).fetchone()["s"])
 
 
 def gpu_tasks_since(org: str, days: int) -> list[dict]:
@@ -370,7 +370,8 @@ def queue_position(task_id: str) -> int:
         return conn.execute(
             "SELECT count(*) FILTER (WHERE g.status = 'queued' AND g.created_at < t.created_at) "
             "     + count(*) FILTER (WHERE g.status = 'running') AS n "
-            "FROM gpu_tasks g, (SELECT created_at FROM gpu_tasks WHERE id = %s) t", (task_id,)).fetchone()["n"]
+            "FROM gpu_tasks g, (SELECT created_at, workflow = 'api-image' AS api FROM gpu_tasks WHERE id = %s) t "
+            "WHERE (g.workflow = 'api-image') = t.api", (task_id,)).fetchone()["n"]  # 本机 GPU 与第三方 API 各排各的队
 
 
 def claim_task_for(node_id: str) -> dict | None:
@@ -381,7 +382,8 @@ def claim_task_for(node_id: str) -> dict | None:
             return None
         return conn.execute(
             "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id = ("
-            "  SELECT id FROM gpu_tasks WHERE status = 'queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow <> 'api-image' "
+            "  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
             ") RETURNING *", (node_id,)).fetchone()
 
 
@@ -429,8 +431,28 @@ def requeue_gpu_task(task_id: str) -> None:
 
 
 def running_tasks() -> list[dict]:
+    """正在本机 GPU 节点上跑的任务（第三方 API 的任务不在其中，见 running_api_tasks）。"""
     with connect() as conn:
-        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' ORDER BY started_at").fetchall()
+        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow <> 'api-image' "
+                            "ORDER BY started_at").fetchall()
+
+
+def running_api_tasks() -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow = 'api-image' "
+                            "ORDER BY started_at").fetchall()
+
+
+def claim_api_tasks(limit: int) -> list[dict]:
+    """把排队中的第三方 API 任务置为运行中，同时进行的总数不超过 limit（多个调度进程并发时用 SKIP LOCKED）。"""
+    with connect() as conn:
+        n = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'running' AND workflow = 'api-image'").fetchone()["n"]
+        if n >= limit:
+            return []
+        return conn.execute(
+            "UPDATE gpu_tasks SET status = 'running', node_id = 'api', started_at = now() WHERE id IN ("
+            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow = 'api-image' "
+            "  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT %s) RETURNING *", (limit - n,)).fetchall()
 
 
 def update_gpu_task(task_id: str, **fields) -> None:

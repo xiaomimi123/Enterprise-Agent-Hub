@@ -1,6 +1,6 @@
 """第三方出图 API：配置（存数据库、密钥加密）与 apimart 风格的异步客户端。
 
-- 出图通道开关 `image.route`：`gpu`（本机 ComfyUI，默认）或 `api`（第三方）；出图 API 列表 `image.providers`
+- 出图通道开关 `image.route`：`gpu`（本机 ComfyUI，默认）、`api`（第三方）或 `h3`（H3 网关，见 h3gateway.py）；出图 API 列表 `image.providers`
 - apimart 的调用方式是「提交 → 任务号 → 轮询」：POST {地址}/v1/images/generations 返回 data[0].task_id，
   再 GET {地址}/v1/tasks/{任务号}，完成时图片地址在 data.result.images[].url[]。字段来自 apimart 公开示例，
   解析刻意宽松（data 可以是对象或数组、url 可以是字符串或数组），并允许每个出图 API 配置额外参数（如 resolution）
@@ -16,7 +16,7 @@ import uuid
 
 import httpx
 
-from . import secretbox, settings_store
+from . import h3gateway, secretbox, settings_store
 
 
 class ImageApiError(Exception):
@@ -219,8 +219,10 @@ def _fallback_route(items: list[dict]) -> None:
 
 
 def set_route(route: str) -> str:
-    if route not in ("gpu", "api"):
-        raise ImageApiError("通道只能是 gpu 或 api")
+    if route not in ("gpu", "api", "h3"):
+        raise ImageApiError("通道只能是 gpu、api 或 h3")
+    if route == "h3" and not h3gateway.usable():
+        raise ImageApiError("没有可用的 H3 网关，请先添加并启用")
     if route == "api" and not any(p.get("enabled", True) for p in _raw()):
         raise ImageApiError("没有可用的出图 API，请先添加并启用一个")
     settings_store.put(ROUTE_KEY, route)

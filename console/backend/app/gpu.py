@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from . import db
-from . import imageapi
+from . import h3gateway, imageapi
 from .comfyui import ComfyUI, load_workflow
 from .config import settings
 
@@ -98,6 +98,7 @@ def describe(t: dict) -> dict:
     return out
 
 
+VIA = {"api-image": "第三方 API", "h3-image": "H3 网关", "h3-video": "H3 网关"}
 STATUS_TEXT = {"queued": "排队中", "running": "生成中", "done": "已完成", "failed": "失败"}
 
 
@@ -116,8 +117,8 @@ def list_tasks(limit: int = 100) -> dict:
         tasks.append({
             "id": t["id"], "trace_id": t["trace_id"], "member": t["display_name"] or t["user_name"],
             "member_id": t["user_name"], "dept": t["dept"], "channel": t["channel"],
-            "kind": "video" if t["workflow"].startswith("video-") else "image", "workflow": t["workflow"],
-            "via": "第三方 API" if t["workflow"] == "api-image" else "本机 GPU",
+            "kind": "video" if t["workflow"].startswith(("video-", "h3-video")) else "image", "workflow": t["workflow"],
+            "via": VIA.get(t["workflow"], "本机 GPU"),
             "title": p.get("title", ""), "prompt": p.get("prompt", ""),
             "size": f"{p['width']}×{p['height']}" if p.get("width") else "", "count": p.get("count", 1),
             "status": STATUS_TEXT[t["status"]], "node_id": t["node_id"], "ahead": ahead.get(t["id"]),
@@ -322,6 +323,89 @@ def run_api_step(client_factory=imageapi.provider_client, now: datetime | None =
         _api_submit(t, client_factory)
 
 
+# ---- H3 网关（workflow = h3-image / h3-video）----
+
+H3_IMAGE_TIMEOUT = 15 * 60
+H3_VIDEO_TIMEOUT = 40 * 60  # 含在网关里排队的时间；网关单卡串行，一条 5 秒视频约 2.5 分钟
+
+
+def _h3_fail(t: dict, reason: str) -> None:
+    db.update_gpu_task(t["id"], status="failed", error=reason[:500])
+    _audit(t, f"H3 网关生成失败：{reason}", "拒绝")
+    log.warning("任务 %s H3 网关生成失败：%s", t["id"], reason)
+
+
+def _h3_submit(t: dict, client_factory) -> None:
+    client = client_factory()
+    if client is None:
+        return _h3_fail(t, "没有可用的 H3 网关，请在「模型」页添加并启用")
+    p = t["params"]
+    try:
+        if t["workflow"] == "h3-video":
+            image = (Path(settings.outputs_dir) / p["_input"]).read_bytes() if p.get("_input") else None
+            jobs = [client.submit("i2v" if image else "t2v", p.get("prompt", ""), width=None if image else p.get("width"),
+                                  height=None if image else p.get("height"), frames=p.get("length"), fps=24, image=image)]
+        else:  # 一个网关任务出一张图，多张就提交多个
+            jobs = [client.submit("t2i", p.get("prompt", ""), width=int(p.get("width", 1024)), height=int(p.get("height", 1024)))
+                    for _ in range(int(p.get("count", 1)))]
+    except (h3gateway.H3Error, OSError) as e:
+        return _h3_fail(t, str(e))
+    # 先把网关任务号落库：调度服务重启后凭它恢复轮询，不会重复提交
+    db.update_gpu_task(t["id"], prompt_id=",".join(jobs))
+    log.info("任务 %s 已提交 H3 网关（%s）", t["id"], ",".join(jobs))
+
+
+def _h3_collect(t: dict, client_factory, now: datetime) -> None:
+    elapsed = (now - t["started_at"]).total_seconds() if t["started_at"] else 0
+    if not t["prompt_id"]:
+        if elapsed > DISPATCH_GRACE:
+            if (t.get("attempts") or 0) + 1 < MAX_ATTEMPTS:
+                db.requeue_gpu_task(t["id"])
+                _audit(t, "派发中断，任务已重新排队", "通过")
+            else:
+                _h3_fail(t, "派发中断，重试后仍未完成")
+        return
+    video = t["workflow"] == "h3-video"
+    if elapsed > (H3_VIDEO_TIMEOUT if video else H3_IMAGE_TIMEOUT):
+        return _h3_fail(t, f"H3 网关超时（{elapsed / 60:.0f} 分钟）")
+    client = client_factory()
+    if client is None:
+        return _h3_fail(t, "H3 网关已被停用或删除")
+    jobs = t["prompt_id"].split(",")
+    try:
+        states = [client.poll(j) for j in jobs]
+    except h3gateway.H3Error as e:  # 网络抖动或网关暂时出错：下一轮再查，超时由上面处理
+        log.warning("任务 %s 暂时查不到结果：%s", t["id"], e)
+        return
+    for state, reason in states:
+        if state == "failed":
+            return _h3_fail(t, reason)
+    if any(state != "done" for state, _ in states):
+        return
+    try:
+        folder = Path(settings.outputs_dir) / t["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        names = []
+        for i, job in enumerate(jobs, 1):
+            name = f"{i}.mp4" if video else f"{i}.png"
+            (folder / name).write_bytes(client.download(job))
+            names.append(name)
+    except (h3gateway.H3Error, OSError) as e:
+        return _h3_fail(t, f"下载结果失败：{e}")
+    db.update_gpu_task(t["id"], status="done", images=names)
+    _audit(t, f"H3 网关生成 {len(names)} {'条视频' if video else '张'}「{t['params'].get('title', '')}」，耗时 {elapsed:.0f} 秒", "通过")
+    log.info("任务 %s 完成（H3 网关），%d 个文件", t["id"], len(names))
+
+
+def run_h3_step(client_factory=h3gateway.client, now: datetime | None = None) -> None:
+    """调度服务每轮调用：先收取在跑任务的结果，再领取新任务提交给 H3 网关（同时进行数有上限，其余在中枢里排队）。"""
+    now = now or datetime.now().astimezone()
+    for t in db.running_api_tasks(db.H3_WORKFLOWS):
+        _h3_collect(t, client_factory, now)
+    for t in db.claim_api_tasks(settings.h3_max_concurrency, db.H3_WORKFLOWS, "h3"):
+        _h3_submit(t, client_factory)
+
+
 def run_worker(interval: float = 1.0) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # 不逐条打印轮询请求
@@ -341,6 +425,7 @@ def run_worker(interval: float = 1.0) -> None:
             _recover(by_id, online)
             _dispatch(nodes, online)
             run_api_step()
+            run_h3_step()
         except Exception:  # noqa: BLE001 数据库短暂不可用等情况，下一轮重试
             log.exception("调度循环出错")
         time.sleep(interval)

@@ -70,6 +70,7 @@ class Settings:
     gpu_max_pending_per_user: int = int(os.getenv("HUB_GPU_MAX_PENDING_PER_USER", "3"))
     # 第三方出图 API 同时进行的任务数上限
     image_api_max_concurrency: int = int(os.getenv("HUB_IMAGE_API_CONCURRENCY", "4"))
+    h3_max_concurrency: int = int(os.getenv("HUB_H3_CONCURRENCY", "2"))  # 网关单卡串行，多放几个只会在网关里排队
     workflows_dir: str = os.getenv("HUB_WORKFLOWS_DIR", str(ROOT / "gpu-node" / "workflows"))
     comfy_checkpoint: str = os.getenv("HUB_COMFY_CHECKPOINT", "sd_xl_base_1.0.safetensors")
     # 生成结果存放目录，以及下载链接的签名密钥（链接带签名和有效期，无需登录即可打开）

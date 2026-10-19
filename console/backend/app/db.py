@@ -332,6 +332,12 @@ def update_node_status(node_id: str, online: bool, vram_total: int = 0, vram_fre
                      (online, vram_total, vram_free, online, node_id))
 
 
+# 不在本机 ComfyUI 节点上跑的任务（由调度服务的远程分支处理）：第三方出图 API 与 H3 网关各排各的队
+API_WORKFLOWS = ("api-image",)
+H3_WORKFLOWS = ("h3-image", "h3-video")
+REMOTE_WORKFLOWS = API_WORKFLOWS + H3_WORKFLOWS
+
+
 def create_gpu_task(task: dict) -> None:
     keys = ("id", "trace_id", "org", "user_name", "display_name", "dept", "channel", "workflow", "params")
     row = {k: task.get(k, "") for k in keys} | {"params": Jsonb(task.get("params") or {})}
@@ -370,8 +376,10 @@ def queue_position(task_id: str) -> int:
         return conn.execute(
             "SELECT count(*) FILTER (WHERE g.status = 'queued' AND g.created_at < t.created_at) "
             "     + count(*) FILTER (WHERE g.status = 'running') AS n "
-            "FROM gpu_tasks g, (SELECT created_at, workflow = 'api-image' AS api FROM gpu_tasks WHERE id = %s) t "
-            "WHERE (g.workflow = 'api-image') = t.api", (task_id,)).fetchone()["n"]  # 本机 GPU 与第三方 API 各排各的队
+            "FROM gpu_tasks g, (SELECT created_at, workflow FROM gpu_tasks WHERE id = %(id)s) t "
+            "WHERE (CASE WHEN g.workflow = ANY(%(api)s) THEN 'api' WHEN g.workflow = ANY(%(h3)s) THEN 'h3' ELSE 'gpu' END) = "
+            "      (CASE WHEN t.workflow = ANY(%(api)s) THEN 'api' WHEN t.workflow = ANY(%(h3)s) THEN 'h3' ELSE 'gpu' END)",
+            {"id": task_id, "api": list(API_WORKFLOWS), "h3": list(H3_WORKFLOWS)}).fetchone()["n"]  # 本机 GPU、第三方 API、H3 网关各排各的队
 
 
 def claim_task_for(node_id: str) -> dict | None:
@@ -382,9 +390,9 @@ def claim_task_for(node_id: str) -> dict | None:
             return None
         return conn.execute(
             "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id = ("
-            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow <> 'api-image' "
+            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow <> ALL(%s) "
             "  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
-            ") RETURNING *", (node_id,)).fetchone()
+            ") RETURNING *", (node_id, list(REMOTE_WORKFLOWS))).fetchone()
 
 
 def touch_presence(org: str, user_name: str, client: str | None = None, version: str | None = None,
@@ -431,28 +439,29 @@ def requeue_gpu_task(task_id: str) -> None:
 
 
 def running_tasks() -> list[dict]:
-    """正在本机 GPU 节点上跑的任务（第三方 API 的任务不在其中，见 running_api_tasks）。"""
+    """正在本机 GPU 节点上跑的任务（第三方 API / H3 网关的任务不在其中，见 running_api_tasks）。"""
     with connect() as conn:
-        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow <> 'api-image' "
-                            "ORDER BY started_at").fetchall()
+        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow <> ALL(%s) "
+                            "ORDER BY started_at", (list(REMOTE_WORKFLOWS),)).fetchall()
 
 
-def running_api_tasks() -> list[dict]:
+def running_api_tasks(workflows: tuple[str, ...] = API_WORKFLOWS) -> list[dict]:
     with connect() as conn:
-        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow = 'api-image' "
-                            "ORDER BY started_at").fetchall()
+        return conn.execute("SELECT * FROM gpu_tasks WHERE status = 'running' AND workflow = ANY(%s) "
+                            "ORDER BY started_at", (list(workflows),)).fetchall()
 
 
-def claim_api_tasks(limit: int) -> list[dict]:
-    """把排队中的第三方 API 任务置为运行中，同时进行的总数不超过 limit（多个调度进程并发时用 SKIP LOCKED）。"""
+def claim_api_tasks(limit: int, workflows: tuple[str, ...] = API_WORKFLOWS, node_id: str = "api") -> list[dict]:
+    """把排队中的远程任务（第三方 API 或 H3 网关）置为运行中，同时进行的总数不超过 limit（多个调度进程并发时用 SKIP LOCKED）。"""
     with connect() as conn:
-        n = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'running' AND workflow = 'api-image'").fetchone()["n"]
+        n = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'running' AND workflow = ANY(%s)",
+                         (list(workflows),)).fetchone()["n"]
         if n >= limit:
             return []
         return conn.execute(
-            "UPDATE gpu_tasks SET status = 'running', node_id = 'api', started_at = now() WHERE id IN ("
-            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow = 'api-image' "
-            "  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT %s) RETURNING *", (limit - n,)).fetchall()
+            "UPDATE gpu_tasks SET status = 'running', node_id = %s, started_at = now() WHERE id IN ("
+            "  SELECT id FROM gpu_tasks WHERE status = 'queued' AND workflow = ANY(%s) "
+            "  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT %s) RETURNING *", (node_id, list(workflows), limit - n)).fetchall()
 
 
 def update_gpu_task(task_id: str, **fields) -> None:

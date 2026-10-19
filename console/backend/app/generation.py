@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image, UnidentifiedImageError
 
-from . import db, gpu, imageapi, policy
+from . import db, gpu, h3gateway, imageapi, policy
 from .config import settings
 
 # 画幅 → 宽高（均为 32 的倍数）。图片按约 0.8 百万像素，视频按约 0.4 百万像素，兼顾速度和清晰度
@@ -74,7 +74,13 @@ def _submit(p: policy.Principal, trace_id: str, tool: str, workflow: str, params
 
 def _image_workflow() -> str:
     """出图走哪条线：管理员在「模型」页选的通道。API 通道的任务进同一个队列，由调度服务的 API 分支处理。"""
-    return "api-image" if imageapi.get_route() == "api" else "image-gen"
+    route = imageapi.get_route()
+    return {"api": "api-image", "h3": "h3-image"}.get(route, "image-gen")
+
+
+def _video_workflow(local: str) -> str:
+    """视频走哪条线：管理员在「模型」页选的通道；H3 网关统一用 h3-video（文生视频与图生视频靠 _input 区分）。"""
+    return "h3-video" if h3gateway.get_video_route() == "h3" else local
 
 
 def submit_cover(p: policy.Principal, trace_id: str, title: str, description: str | None) -> dict:
@@ -107,7 +113,7 @@ def submit_video(p: policy.Principal, trace_id: str, prompt: str, aspect: str = 
     lo, hi = VIDEO_SECONDS
     seconds = max(lo, min(float(seconds), hi))
     w, h = VIDEO_ASPECTS[aspect]
-    return _submit(p, trace_id, "video.generate", "video-h3",
+    return _submit(p, trace_id, "video.generate", _video_workflow("video-h3"),
                    {"prompt": prompt, "title": prompt[:20], "width": w, "height": h, "length": video_frames(seconds)},
                    f"文生视频任务（{aspect}，约 {seconds:g} 秒）")
 
@@ -152,7 +158,7 @@ def submit_video_from_image(p: policy.Principal, trace_id: str, image: bytes, pr
     dest = Path(settings.outputs_dir) / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(image)
-    return _submit(p, trace_id, "video.generate", "video-h3-i2v",
+    return _submit(p, trace_id, "video.generate", _video_workflow("video-h3-i2v"),
                    {"prompt": prompt, "title": prompt[:20], "length": video_frames(seconds), "_input": rel},
                    f"图生视频任务（约 {seconds:g} 秒）")
 

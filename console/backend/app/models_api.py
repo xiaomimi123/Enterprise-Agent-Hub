@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from . import auth, db, imageapi, model_upstreams
+from . import auth, db, h3gateway, imageapi, model_upstreams
 from .config import settings
 from .model_upstreams import UpstreamError
 from .newapi import NewApi, NewApiError
@@ -124,6 +124,25 @@ class RouteBody(BaseModel):
     route: str
 
 
+ROUTE_TEXT = {"api": "第三方 API", "h3": "H3 网关", "gpu": "本机 GPU"}
+
+
+class H3Body(BaseModel):
+    base_url: str
+    key: str | None = None
+    enabled: bool | None = None
+    verify_tls: bool | None = None
+
+
+def _h3(fn):
+    try:
+        return fn()
+    except h3gateway.H3Error as e:
+        raise HTTPException(400, str(e)) from None
+    except ValueError as e:  # 密钥解密失败等
+        raise HTTPException(500, str(e)) from None
+
+
 def _img(fn):
     try:
         return fn()
@@ -135,7 +154,8 @@ def _img(fn):
 
 @router.get("/image")
 def image_config():
-    return {"route": imageapi.get_route(), "providers": imageapi.list_providers()}
+    return {"route": imageapi.get_route(), "providers": imageapi.list_providers(),
+            "video_route": h3gateway.get_video_route(), "h3": h3gateway.get_gateway()}
 
 
 @router.post("/image/providers")
@@ -169,7 +189,7 @@ def delete_image_provider(provider_id: str, user: dict = Depends(auth.current_us
 @router.put("/image/route")
 def set_image_route(body: RouteBody, user: dict = Depends(auth.current_user)):
     route = _img(lambda: imageapi.set_route(body.route))
-    _audit(user, "model.image.route", f"出图通道切换为「{'第三方 API' if route == 'api' else '本机 GPU'}」")
+    _audit(user, "model.image.route", f"出图通道切换为「{ROUTE_TEXT[route]}」")
     return {"route": route}
 
 
@@ -181,5 +201,39 @@ def test_image_provider(provider_id: str, user: dict = Depends(auth.current_user
     res = c.test()
     res["error"] = res["error"].replace(c.key, "••••")
     _audit(user, "model.image.test", f"测试出图 API：{'成功' if res['ok'] else '失败'}，耗时 {res['seconds']} 秒",
+           "通过" if res["ok"] else "拒绝")
+    return res
+
+
+@router.put("/h3")
+def save_h3(body: H3Body, user: dict = Depends(auth.current_user)):
+    out = _h3(lambda: h3gateway.save_gateway(body.base_url, body.key, body.enabled, body.verify_tls))
+    _audit(user, "model.h3.save", f"保存 H3 网关「{out['base_url']}」（{'启用' if out['enabled'] else '停用'}）")
+    return out
+
+
+@router.delete("/h3")
+def delete_h3(user: dict = Depends(auth.current_user)):
+    if not h3gateway.remove_gateway():
+        raise HTTPException(404, "还没有配置 H3 网关")
+    _audit(user, "model.h3.delete", "删除 H3 网关")
+    return {"ok": True}
+
+
+@router.put("/video/route")
+def set_video_route(body: RouteBody, user: dict = Depends(auth.current_user)):
+    route = _h3(lambda: h3gateway.set_video_route(body.route))
+    _audit(user, "model.video.route", f"视频通道切换为「{ROUTE_TEXT[route]}」")
+    return {"route": route}
+
+
+@router.post("/h3/test")
+def test_h3(user: dict = Depends(auth.current_user)):
+    c = _h3(h3gateway.client)
+    if c is None:
+        raise HTTPException(404, "没有可用的 H3 网关")
+    res = c.test()
+    res["error"] = res["error"].replace(c.key, "••••")
+    _audit(user, "model.h3.test", f"测试 H3 网关：{'成功' if res['ok'] else '失败'}，耗时 {res['seconds']} 秒",
            "通过" if res["ok"] else "拒绝")
     return res

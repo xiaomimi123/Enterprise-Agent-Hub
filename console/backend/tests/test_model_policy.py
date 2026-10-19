@@ -53,7 +53,7 @@ def test_enroll_applies_limits_to_employee_key(monkeypatch):
         def month_used_quota(self, name):
             return 500_000
 
-        def ensure_token(self, name, models=None, remain_quota=None, unlimited=True):
+        def ensure_token(self, name, models=None, remain_quota=None, unlimited=True, expires_in=None):
             applied.update(name=name, models=models, remain_quota=remain_quota, unlimited=unlimited)
             return "sk-test"
     monkeypatch.setattr(agent_api, "NewApi", FakeNewApi)

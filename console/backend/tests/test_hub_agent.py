@@ -121,3 +121,25 @@ def test_configure_passes_client_name_and_heartbeat_payload(tmp_path):
     assert args == ["run", "s.py", "mcp", "--client", "WorkBuddy"]
     p = hub_agent.heartbeat_payload("WorkBuddy")
     assert p["client"] == "WorkBuddy" and p["version"] == hub_agent.VERSION and p["os"]
+
+
+def test_chat_syncs_with_session_key_scope_but_plain_sync_does_not(monkeypatch):
+    seen = []
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"employee": {"name": "U", "user": "u", "role_pack": "p"}, "mcp_url": "http://m", "model": None,
+                    "skills": [], "max_action_level": "需确认"}
+    monkeypatch.setattr(hub_agent, "fresh_creds", lambda: {"hub": "http://hub", "access_token": "t"})
+    monkeypatch.setattr(hub_agent.httpx, "post", lambda url, **kw: seen.append(kw["headers"]) or R())
+    monkeypatch.setattr(hub_agent, "sync_workbuddy_skills", lambda cfg, root=None: None)
+    monkeypatch.setattr(hub_agent, "write_private", lambda *a, **k: None)
+    monkeypatch.setattr(hub_agent.shutil, "rmtree", lambda *a, **k: None)
+    monkeypatch.setattr(hub_agent.Path, "mkdir", lambda *a, **k: None)
+    monkeypatch.setattr(hub_agent.Path, "write_text", lambda *a, **k: None)
+    hub_agent.cmd_sync(trace_id="tr-chat", session_key=True)
+    hub_agent.cmd_sync(trace_id="tr-plain")
+    assert seen[0]["X-Hub-Key-Scope"] == "session" and seen[0]["X-Hub-Trace-Id"] == "tr-chat"
+    assert "X-Hub-Key-Scope" not in seen[1]

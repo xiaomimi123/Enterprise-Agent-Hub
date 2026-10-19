@@ -21,6 +21,8 @@ def token_name(org: str, user_name: str) -> str:
     return f"hub-{org}-{user_name}"[:50]
 
 
+_TOKEN_CACHE: dict[str, tuple[float, dict[str, dict]]] = {}
+TOKEN_CACHE_SECONDS = 30
 QUOTA_PER_USD = 500000  # New API 的额度单位：500000 = 1 美元
 
 
@@ -41,9 +43,29 @@ def plan_key(pack_models: list[str], available: list[str], default_model: str, m
     return {"model": model, "models": allowed, "unlimited": True, "remain_quota": 0}
 
 
+SESSION_SEP = "~"
+SESSION_KEY_TTL = 3 * 86400  # 会话 key 3 天后过期，下次领取配置时顺手清理
+
+
+def session_token_name(org: str, user_name: str, trace_id: str) -> str:
+    """会话专属 key 的名字：<基础名>~<追踪 ID>。
+
+    New API 不会记录客户端传来的任何自定义信息（请求头、user、metadata 都实测过），但一定会记 key 的名字，
+    所以把追踪 ID 编进 key 名，调用日志里的 token_name 就直接带着它，归属不再靠时间窗估算。
+    追踪 ID 来自请求头，不可信：只保留字母数字和 - _，并限制长度。
+    """
+    safe = "".join(c for c in trace_id if c.isalnum() or c in "-_")[:20] or "none"
+    suffix = f"{SESSION_SEP}{safe}"
+    return token_name(org, user_name)[: 50 - len(suffix)] + suffix
+
+
+def trace_from_token_name(name: str) -> str | None:
+    return name.split(SESSION_SEP, 1)[1] if SESSION_SEP in name else None
+
+
 def user_from_token_name(name: str, org: str) -> str | None:
     prefix = f"hub-{org}-"
-    return name[len(prefix):] if name.startswith(prefix) else None
+    return name[len(prefix):].split(SESSION_SEP, 1)[0] if name.startswith(prefix) else None
 
 
 class NewApi:
@@ -58,26 +80,53 @@ class NewApi:
         return bool(self.base_url and self.headers["Authorization"] and self.headers["New-Api-User"])
 
     def _call(self, method: str, path: str, **kw) -> object:
-        body = self.http.request(method, path, **kw).json()
+        r = self.http.request(method, path, **kw)
+        try:
+            body = r.json()
+        except ValueError:  # 限流（HTTP 429、空响应）或网关错误页
+            raise NewApiError(f"New API {path} 返回 HTTP {r.status_code}（非 JSON 响应，可能被限流）") from None
         if not body.get("success"):
             raise NewApiError(f"New API {path} 失败：{body.get('message')}")
         return body.get("data")
 
     # ---- 员工 key ----
+    def _token_index(self, refresh: bool = False) -> dict[str, dict]:
+        """全部员工 key 按名字建的索引，缓存 30 秒（跨实例共享，每次领取配置都会新建客户端）。
+
+        不用 /api/token/search：New API 对它做全局限流（约 10 次 / 分钟，而我们所有请求共用一个管理员身份），
+        几个人同时同步就会被限住。列表接口没有这个限制，且带总数可翻页。
+        """
+        hit = _TOKEN_CACHE.get(self.base_url)
+        if hit and not refresh and time.time() - hit[0] < TOKEN_CACHE_SECONDS:
+            return hit[1]
+        index: dict[str, dict] = {}
+        page = 0
+        while True:
+            data = self._call("GET", "/api/token/", params={"p": page, "size": 100})
+            items = data.get("items", data) if isinstance(data, dict) else (data or [])
+            index.update({t["name"]: t for t in items if t.get("name")})
+            if len(items) < 100:
+                break
+            page += 1
+        _TOKEN_CACHE[self.base_url] = (time.time(), index)
+        return index
+
     def find_token(self, name: str) -> dict | None:
-        data = self._call("GET", "/api/token/search", params={"keyword": name, "p": 1, "size": 100})
-        items = data.get("items", data) if isinstance(data, dict) else data
-        return next((t for t in items or [] if t.get("name") == name), None)
+        found = self._token_index().get(name)
+        # 没命中时强制刷新一次再确认，避免别的进程刚创建的 key 被当成不存在而重复创建
+        return found or self._token_index(refresh=True).get(name)
 
     def ensure_token(self, name: str, models: list[str] | None = None, remain_quota: int | None = None,
-                     unlimited: bool = True) -> str:
-        """返回该员工的 key（没有则创建）。传了 models / 额度时，按岗位包更新 key 的模型限制和剩余额度。"""
+                     unlimited: bool = True, expires_in: int | None = None) -> str:
+        """返回该员工的 key（没有则创建）。传了 models / 额度时，按岗位包更新 key 的模型限制和剩余额度；
+        expires_in 是新建时的有效期（秒），已存在的 key 不改有效期。"""
         tok = self.find_token(name)
         if tok is None:
             self._call("POST", "/api/token/", json={
-                "name": name, "unlimited_quota": True, "remain_quota": 0, "expired_time": -1,
+                "name": name, "unlimited_quota": True, "remain_quota": 0,
+                "expired_time": int(time.time()) + expires_in if expires_in else -1,
             })
-            tok = self.find_token(name)
+            tok = self._token_index(refresh=True).get(name)
             if tok is None:
                 raise NewApiError(f"创建 key {name} 后未找到")
         if models is not None or not unlimited:
@@ -103,11 +152,27 @@ class NewApi:
         return out
 
     def month_used_quota(self, name: str) -> int:
-        """这个 key 本月已用的额度（New API 的累计用量不分月，按调用日志算）。"""
+        """这个人本月已用的额度：基础 key 加上他所有会话 key 的合计（New API 的累计用量不分月，按调用日志算）。"""
         start = time.localtime()
         month_start = time.mktime((start.tm_year, start.tm_mon, 1, 0, 0, 0, 0, 0, -1))
+        mine = (name, )
         return sum(int(log.get("quota") or 0) for log in self.logs(days=31)
-                   if log.get("token_name") == name and (log.get("created_at") or 0) >= month_start)
+                   if (log.get("token_name") or "").split(SESSION_SEP, 1)[0] in mine
+                   and (log.get("created_at") or 0) >= month_start)
+
+    def purge_expired_sessions(self, base_name: str) -> int:
+        """删除这个人已过期的会话 key，返回删除个数。基础 key 永不动。
+        删除不影响历史归属：调用日志里记的是 key 的名字，不是 key 的 ID。"""
+        index = self._token_index()
+        now = int(time.time())
+        n = 0
+        for name, t in list(index.items()):
+            exp = t.get("expired_time") or -1
+            if name.startswith(base_name + SESSION_SEP) and exp != -1 and exp < now:
+                self.http.delete(f"/api/token/{t['id']}")
+                index.pop(name, None)
+                n += 1
+        return n
 
     def logs(self, days: int = 30, page_size: int = 100, max_pages: int = 50) -> list[dict]:
         """近 N 天的模型调用日志（type=2 为消费记录）。"""

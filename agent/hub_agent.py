@@ -192,11 +192,13 @@ def task_from_args(hermes_args: list[str]) -> str:
     return ""
 
 
-def cmd_sync(_args=None, trace_id: str | None = None, task: str = "") -> dict:
+def cmd_sync(_args=None, trace_id: str | None = None, task: str = "", session_key: bool = False) -> dict:
     creds = fresh_creds()
     trace_id = trace_id or new_trace_id()
-    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=30, headers={
-        "Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": trace_id, "X-Hub-Task": quote(task)})
+    headers = {"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": trace_id, "X-Hub-Task": quote(task)}
+    if session_key:  # Hermes 会话：向中枢要一把名字带追踪 ID 的会话专属 key，模型调用精确归属到这次会话
+        headers["X-Hub-Key-Scope"] = "session"
+    r = httpx.post(f"{creds['hub']}/api/agent/enroll", timeout=30, headers=headers)
     if r.status_code != 200:
         fail(f"领取配置失败：{r.json().get('detail', r.text)}")
     cfg = r.json()
@@ -260,7 +262,7 @@ def cmd_logout(_args) -> None:
 
 
 def cmd_chat(args) -> None:
-    cmd_sync(trace_id=new_trace_id(), task=task_from_args(args.hermes_args))
+    cmd_sync(trace_id=new_trace_id(), task=task_from_args(args.hermes_args), session_key=True)
     hermes = shutil.which("hermes")
     if not hermes:
         fail("没有找到 hermes 命令，请先安装 Hermes Agent")

@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from . import content, db, policy
 from .auth import _jwks_client
 from .config import settings
-from .newapi import NewApi, NewApiError, plan_key, token_name
+from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 LOOPBACK_REDIRECT = "http://127.0.0.1:27891/callback"
@@ -119,7 +119,7 @@ def heartbeat(body: Heartbeat, authorization: str | None = Header(default=None))
 
 @router.post("/enroll")
 def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None),
-           x_hub_task: str | None = Header(default=None)):
+           x_hub_task: str | None = Header(default=None), x_hub_key_scope: str | None = Header(default=None)):
     c = _verify_agent_token(authorization)
     dept = policy.dept_from_groups(c.get("groups"))
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
@@ -132,12 +132,18 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
     na = NewApi() if model_mode == "中枢模型" else None
     if na and na.configured:
         try:
-            name = token_name(p.org, p.user_name)
-            # 按岗位包限制 key 能用的模型和本月剩余额度（每次同步重算，跨月自动恢复）
+            base = token_name(p.org, p.user_name)
+            # Hermes 会话（chat）用会话专属 key，key 名带追踪 ID，模型调用精确归属到这条链路；其余情况用基础 key
+            session = x_hub_key_scope == "session" and bool((x_hub_trace_id or "").strip())
+            name = session_token_name(p.org, p.user_name, x_hub_trace_id.strip()) if session else base
+            if session:
+                na.purge_expired_sessions(base)
+            # 按岗位包限制 key 能用的模型和本月剩余额度（每次同步重算，跨月自动恢复；额度按基础 key + 全部会话 key 合计）
             plan = plan_key(p.pack.get("models") or [], na.available_models(), settings.default_model,
-                            float(p.pack.get("monthly_quota") or 0), na.month_used_quota(name), settings.usd_cny)
+                            float(p.pack.get("monthly_quota") or 0), na.month_used_quota(base), settings.usd_cny)
             if plan["model"]:
-                key = na.ensure_token(name, models=plan["models"], remain_quota=plan["remain_quota"], unlimited=plan["unlimited"])
+                key = na.ensure_token(name, models=plan["models"], remain_quota=plan["remain_quota"], unlimited=plan["unlimited"],
+                                      expires_in=SESSION_KEY_TTL if session else None)
                 model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": key, "model": plan["model"]}
         except NewApiError as e:
             raise HTTPException(502, str(e))

@@ -69,6 +69,7 @@ class RolePackPatch(BaseModel):
     status: str | None = None
     model_mode: str | None = None
     gpu_quota_minutes: int | None = None
+    apps: list[str] | None = None
 
 
 @app.get("/api/health")
@@ -135,6 +136,8 @@ def update_role_pack(role_pack_id: str, body: RolePackPatch):
         raise HTTPException(400, "额度不能为负数")
     if body.gpu_quota_minutes is not None and body.gpu_quota_minutes < 0:
         raise HTTPException(400, "GPU 额度不能为负数")
+    if body.apps is not None and (unknown := [a for a in body.apps if apps.get_app(a) is None]):
+        raise HTTPException(400, f"这些应用没有在中枢注册：{'、'.join(unknown)}")
     if body.model_mode is not None and body.model_mode not in ("中枢模型", "自带模型"):
         raise HTTPException(400, "模型方式只能是「中枢模型」或「自带模型」")
     return provider.update_role_pack(role_pack_id, body.model_dump(exclude_none=True))

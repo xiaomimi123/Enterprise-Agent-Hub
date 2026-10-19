@@ -131,7 +131,7 @@ ROLE_PACKS = [
         "tools": ["kb.search", "skill.read", "xhs.collect", "image.cover", "image.generate", "video.generate", "draft.save", "file.write"],
         "models": ["claude-sonnet", "deepseek-v3", "qwen-local"],
         "monthly_quota": 300, "max_action_level": "需确认", "model_mode": "中枢模型", "gpu_quota_minutes": 120,
-        "external_access": "只读",
+        "apps": ["xhs-workbench"], "external_access": "只读",
     },
     {
         "id": "rp-designer", "name": "设计师", "dept": "design", "status": "规划中",

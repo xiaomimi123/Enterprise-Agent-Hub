@@ -117,6 +117,27 @@ def heartbeat(body: Heartbeat, authorization: str | None = Header(default=None))
     return {"ok": True}
 
 
+class AppEvent(BaseModel):
+    app_id: str
+    version: str = ""
+    ok: bool
+    url: str = ""
+    reason: str = ""
+
+
+@router.post("/app-event")
+def app_event(body: AppEvent, authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None)):
+    """接入器在本机启动应用后回报结果，中枢写审计（成功带网址，失败带原因）。"""
+    c = _verify_agent_token(authorization)
+    dept = policy.dept_from_groups(c.get("groups"))
+    detail = (f"应用「{body.app_id}」v{body.version} 已在本机启动：{body.url[:80]}" if body.ok
+              else f"应用「{body.app_id}」v{body.version} 启动失败：{body.reason[:200]}")
+    db.add_audit(trace_id=(x_hub_trace_id or "").strip()[:64] or f"app-{uuid.uuid4().hex[:10]}", org=c["owner"], user_name=c["name"],
+                 display_name=c.get("displayName") or c["name"], dept=dept, channel=policy.OFFICIAL,
+                 kind="应用", tool="app.launch", detail=detail, result="通过" if body.ok else "拒绝")
+    return {"ok": True}
+
+
 @router.post("/enroll")
 def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None),
            x_hub_task: str | None = Header(default=None), x_hub_key_scope: str | None = Header(default=None)):

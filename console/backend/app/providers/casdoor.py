@@ -251,7 +251,7 @@ class CasdoorProvider(DemoProvider):
         rp = self._find(self.d["role_packs"], role_pack_id, "岗位包")
         allowed = {"skills", "knowledge_bases", "tools", "models", "monthly_quota",
                    "max_action_level", "external_access", "description", "status",
-                   "model_mode", "gpu_quota_minutes"}
+                   "model_mode", "gpu_quota_minutes", "apps"}
         db.upsert_role_pack(role_pack_id, {**rp, **{k: v for k, v in patch.items() if k in allowed and v is not None}})
         return self.role_pack(role_pack_id)
 

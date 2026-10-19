@@ -102,6 +102,8 @@ CREATE INDEX IF NOT EXISTS gpu_tasks_status ON gpu_tasks (status, created_at);
 -- 计费：岗位包选模型方式（中枢模型 / 自带模型），以及每人每月 GPU 分钟额度（0 = 不限）
 ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS model_mode TEXT NOT NULL DEFAULT '中枢模型';
 ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS gpu_quota_minutes INTEGER NOT NULL DEFAULT 0;
+-- 可在员工本机打开的应用（apps/ 里注册的应用 id）
+ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS apps JSONB NOT NULL DEFAULT '[]';
 -- 容错：任务被改派过几次（节点掉线 / 超时后重新排队）
 ALTER TABLE gpu_tasks ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 
@@ -125,9 +127,9 @@ CREATE TABLE IF NOT EXISTS agent_presence (
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
-               "monthly_quota", "max_action_level", "external_access", "model_mode", "gpu_quota_minutes")
-PACK_DEFAULTS = {"model_mode": "中枢模型", "gpu_quota_minutes": 0}
-JSON_FIELDS = {"skills", "knowledge_bases", "tools", "models"}
+               "monthly_quota", "max_action_level", "external_access", "model_mode", "gpu_quota_minutes", "apps")
+PACK_DEFAULTS = {"model_mode": "中枢模型", "gpu_quota_minutes": 0, "apps": []}
+JSON_FIELDS = {"skills", "knowledge_bases", "tools", "models", "apps"}
 
 
 @contextmanager

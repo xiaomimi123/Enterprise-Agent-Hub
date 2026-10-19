@@ -20,7 +20,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import content, db, generation, gpu, policy
+from . import app_access, content, db, generation, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -216,6 +216,26 @@ def generate_video_from_image(image_url: str, prompt: str, ctx: Context, seconds
     return _generate(ctx, generation.submit_video_from_image, image=image, prompt=prompt, seconds=seconds)
 
 
+@mcp.tool(description="列出你这个岗位能在本机打开的公司应用（如小红书运营工作台）")
+def list_apps(ctx: Context) -> str:
+    return json.dumps(app_access.list_for(_principal()), ensure_ascii=False)
+
+
+@mcp.tool(description="在员工本机打开一个公司应用，例如员工说「打开小红书工作台」时调用 open_app(app_id=\"xhs-workbench\")。"
+                      "本机接入器会自动下载、校验并启动应用，返回浏览器网址；不确定有哪些应用时先调用 list_apps")
+def open_app(app_id: str, ctx: Context) -> str:
+    p = _principal()
+    trace_id, _ = _trace(ctx)
+    try:
+        t = app_access.ticket_for(p, trace_id, app_id)
+    except app_access.AppDenied as e:
+        return str(e)
+    # 走本机接入器桥的客户端会拦截这个返回并在本机启动；其他客户端看到下面的提示
+    return json.dumps({**t, "needs_local_connector": True,
+                       "terminal_hint": f"当前客户端没有经过本机接入器，请在终端运行：uv run hub_agent.py open-app {t['app_id']}"},
+                      ensure_ascii=False)
+
+
 @mcp.tool(description="查询图片 / 视频生成任务的进度和结果")
 def get_task(task_id: str, ctx: Context) -> str:
     r = generation.get_task(_principal(), task_id)
@@ -227,5 +247,6 @@ def get_cover_task(task_id: str, ctx: Context) -> str:
     return get_task(task_id, ctx)
 
 
-db.init_schema()
+if settings.database_url:  # 没配置数据库时（如单元测试导入本模块）不连库；线上总是有
+    db.init_schema()
 app = mcp.streamable_http_app(host="0.0.0.0")

@@ -1,7 +1,7 @@
 import { Cpu, ImageIcon, Plus } from 'lucide-react'
 import { App, Button, Drawer, Form, Input, Popconfirm, Select, Switch, Table } from 'antd'
 import { useState } from 'react'
-import { api, type ImageProvider, type Upstream } from '../api'
+import { api, type H3Gateway, type ImageProvider, type Upstream } from '../api'
 import { useRequest } from '../lib'
 import { Empty, PageHeader, Panel, Pill, Seg, Token } from '../ui'
 
@@ -15,6 +15,7 @@ export default function Models() {
       <div className="stack">
         <Upstreams />
         <ImageChannel />
+        <H3Channel />
       </div>
     </>
   )
@@ -145,6 +146,8 @@ function UpstreamDrawer({ target, onClose, onSaved }: { target: Upstream | 'new'
 
 /* ---------------- 出图通道 ---------------- */
 
+const ROUTE_NAME = { gpu: '本机 GPU', api: '第三方 API', h3: 'H3 网关' }
+
 function ImageChannel() {
   const cfg = useRequest(api.imageConfig)
   const { message } = App.useApp()
@@ -156,10 +159,11 @@ function ImageChannel() {
   const route = cfg.data?.route ?? 'gpu'
   const usable = providers.some((p) => p.enabled)
 
-  const setRoute = async (r: 'gpu' | 'api') => {
+  const h3Usable = !!cfg.data?.h3?.enabled
+  const setRoute = async (r: 'gpu' | 'api' | 'h3') => {
     try {
       await api.setImageRoute(r)
-      message.success(r === 'api' ? '之后的出图任务走第三方 API' : '之后的出图任务走本机 GPU')
+      message.success(`之后的出图任务走${ROUTE_NAME[r]}`)
       cfg.reload()
     } catch (e) {
       message.error((e as Error).message)
@@ -205,8 +209,9 @@ function ImageChannel() {
       <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid var(--line-2)' }}>
         <span style={{ fontWeight: 600 }}>当前通道</span>
         <Seg value={route} onChange={setRoute}
-          options={[{ value: 'gpu', label: '本机 GPU' }, { value: 'api', label: usable ? '第三方 API' : '第三方 API（需先添加）' }]} />
-        <Pill tone={route === 'api' ? 'amber' : 'green'}>{route === 'api' ? '出图走第三方，不占本机 GPU' : '出图走本机 ComfyUI'}</Pill>
+          options={[{ value: 'gpu', label: '本机 GPU' }, { value: 'api', label: usable ? '第三方 API' : '第三方 API（需先添加）' },
+            { value: 'h3', label: h3Usable ? 'H3 网关' : 'H3 网关（需先配置）' }]} />
+        <Pill tone={route === 'gpu' ? 'green' : 'amber'}>{route === 'api' ? '出图走第三方，不占本机 GPU' : route === 'h3' ? '出图走 H3 网关（Z-Image）' : '出图走本机 ComfyUI'}</Pill>
       </div>
       <Table<ImageProvider>
         rowKey="id" loading={cfg.loading && !cfg.data} dataSource={providers} pagination={false} scroll={{ x: 760 }}
@@ -298,6 +303,110 @@ function ProviderDrawer({ target, onClose, onSaved }: { target: ImageProvider | 
           <Input.TextArea rows={3} placeholder='{"resolution": "1K"}' />
         </Form.Item>
         <div className="muted" style={{ fontSize: 12 }}>保存后，用列表里的「出一张试试」实际跑一次，确认地址、模型和密钥都正确。</div>
+      </Form>
+    </Drawer>
+  )
+}
+
+/* ---------------- H3 网关 ---------------- */
+
+function H3Channel() {
+  const cfg = useRequest(api.imageConfig)
+  const { message } = App.useApp()
+  const [editing, setEditing] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; seconds: number; error: string; preview?: string }>()
+  const g = cfg.data?.h3 ?? null
+  const videoRoute = cfg.data?.video_route ?? 'gpu'
+
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    try {
+      await fn()
+      if (ok) message.success(ok)
+      cfg.reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
+  const test = async () => {
+    setTesting(true)
+    try {
+      setResult(await api.testH3())
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <Panel
+      tight
+      title={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Cpu size={16} />H3 网关</span>}
+      sub="本机 minimax h3 的生成网关（文生图、文生视频、图生视频）。网关单卡串行，中枢自己排队，一次只放少量任务进去。"
+      extra={<Button type="primary" icon={<Plus size={14} />} onClick={() => setEditing(true)}>{g ? '修改配置' : '配置网关'}</Button>}
+    >
+      {cfg.error && <div className="muted" style={{ padding: 16 }}>{cfg.error}</div>}
+      {!g ? <Empty>还没有配置 H3 网关。配置后，出图和视频通道都可以切到「H3 网关」</Empty> : (
+        <>
+          <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid var(--line-2)' }}>
+            <span className="mono">{g.base_url}</span>
+            <Token>{g.key_hint || '—'}</Token>
+            {!g.verify_tls && <Pill tone="amber">不校验证书</Pill>}
+            <Switch size="small" checked={g.enabled} onChange={(enabled) => run(() => api.saveH3({ base_url: g.base_url, enabled }))} />
+            <Button size="small" loading={testing} onClick={test}>出一张试试</Button>
+            {result?.preview && <img src={result.preview} alt="测试出图" style={{ height: 56, borderRadius: 4, cursor: 'zoom-in' }} onClick={() => window.open(result.preview)} />}
+            {result && (result.ok ? <Pill tone="green">{result.seconds} 秒</Pill> : <span title={result.error}><Pill tone="red">失败：{result.error}</Pill></span>)}
+            <Popconfirm title="删除 H3 网关配置？指向它的通道会退回本机 GPU。" okText="删除" cancelText="取消" onConfirm={() => run(() => api.deleteH3(), '已删除')}>
+              <Button size="small" type="text" danger>删除</Button>
+            </Popconfirm>
+          </div>
+          <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>视频通道</span>
+            <Seg value={videoRoute} onChange={(r) => run(() => api.setVideoRoute(r), `之后的视频任务走${ROUTE_NAME[r]}`)}
+              options={[{ value: 'gpu', label: '本机 GPU' }, { value: 'h3', label: g.enabled ? 'H3 网关' : 'H3 网关（已停用）' }]} />
+            <Pill tone={videoRoute === 'h3' ? 'amber' : 'green'}>{videoRoute === 'h3' ? '视频走 H3 网关（约 2.5 分钟 / 5 秒）' : '视频走本机 ComfyUI'}</Pill>
+          </div>
+        </>
+      )}
+      {editing && <H3Drawer current={g} onClose={() => setEditing(false)} onSaved={cfg.reload} />}
+    </Panel>
+  )
+}
+
+function H3Drawer({ current, onClose, onSaved }: { current: H3Gateway | null; onClose: () => void; onSaved: () => void }) {
+  const { message } = App.useApp()
+  const [form] = Form.useForm()
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    const v = await form.validateFields()
+    setSaving(true)
+    try {
+      await api.saveH3({ base_url: v.base_url, verify_tls: v.verify_tls, ...(v.key ? { key: v.key } : {}) })
+      message.success('已保存')
+      onSaved()
+      onClose()
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <Drawer open width={480} title={current ? '修改 H3 网关' : '配置 H3 网关'} onClose={onClose}
+      footer={<div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存</Button></div>}>
+      <Form form={form} layout="vertical" initialValues={{ base_url: current?.base_url ?? 'http://host.docker.internal:8100', verify_tls: current?.verify_tls ?? true }}>
+        <Form.Item name="base_url" label="网关地址" rules={[{ required: true, message: '请填写地址' }]}
+          extra="中枢所在机器能访问到的地址，例如 http://host.docker.internal:8100（本机 Docker）或 https://公网IP:8443（经云端转发）">
+          <Input />
+        </Form.Item>
+        <Form.Item name="key" label={current ? `API Key（当前 ${current.key_hint || '未记录'}，留空不修改）` : 'API Key'} rules={current ? [] : [{ required: true, message: '请填写 Key' }]}
+          extra="网关请求头 X-API-Key 用的 Key，请使用随机长串，不要用默认值">
+          <Input.Password autoComplete="off" />
+        </Form.Item>
+        <Form.Item name="verify_tls" label="校验 HTTPS 证书" valuePropName="checked" extra="网关用自签证书时关闭；只建议在内网或隧道里关闭">
+          <Switch />
+        </Form.Item>
       </Form>
     </Drawer>
   )

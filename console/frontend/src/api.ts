@@ -315,9 +315,18 @@ export interface ImageProvider {
   key_hint: string
 }
 
+export interface H3Gateway {
+  base_url: string
+  enabled: boolean
+  verify_tls: boolean
+  key_hint: string
+}
+
 export interface ImageConfig {
-  route: 'gpu' | 'api'
+  route: 'gpu' | 'api' | 'h3'
   providers: ImageProvider[]
+  video_route: 'gpu' | 'h3'
+  h3: H3Gateway | null
 }
 
 export interface GpuTasks {
@@ -363,8 +372,14 @@ export const api = {
   patchImageProvider: (id: string, body: Partial<{ name: string; base_url: string; model: string; key: string; params: Record<string, unknown>; enabled: boolean }>) =>
     request<ImageProvider>(`/models/image/providers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteImageProvider: (id: string) => request<{ ok: boolean }>(`/models/image/providers/${id}`, { method: 'DELETE' }),
-  setImageRoute: (route: 'gpu' | 'api') =>
+  setImageRoute: (route: 'gpu' | 'api' | 'h3') =>
     request<{ route: string }>('/models/image/route', { method: 'PUT', body: JSON.stringify({ route }) }),
+  saveH3: (body: { base_url: string; key?: string; enabled?: boolean; verify_tls?: boolean }) =>
+    request<H3Gateway>('/models/h3', { method: 'PUT', body: JSON.stringify(body) }),
+  deleteH3: () => request<{ ok: boolean }>('/models/h3', { method: 'DELETE' }),
+  testH3: () => request<{ ok: boolean; seconds: number; error: string; preview?: string }>('/models/h3/test', { method: 'POST' }),
+  setVideoRoute: (route: 'gpu' | 'h3') =>
+    request<{ route: string }>('/models/video/route', { method: 'PUT', body: JSON.stringify({ route }) }),
   testImageProvider: (id: string) =>
     request<{ ok: boolean; seconds: number; error: string; preview?: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),

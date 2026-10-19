@@ -291,6 +291,7 @@ description: 公司的企业智能体中枢（MCP 服务器 enterprise-hub）。
 | 出小红书封面（一次 3 版） | `generate_cover` |
 | 文生图 | `generate_image` |
 | 文生视频 / 图生视频 | `generate_video` / `generate_video_from_image`（图片链接必须是中枢返回的） |
+| 员工说「打开小红书工作台」等打开公司工具 | `open_app`（先 `list_apps` 看能打开哪些；工具会在本机启动并返回网址，把网址告诉员工） |
 | 生成没在 90 秒内完成 | `get_task` 查进度，不要重复提交 |
 
 技能里写的工具代号对应关系：`kb.search` → `search_knowledge`，`skill.read` → `read_skill`，`image.cover` → `generate_cover`，`image.generate` → `generate_image`，`video.generate` → `generate_video`。

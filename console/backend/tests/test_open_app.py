@@ -98,6 +98,7 @@ def test_role_pack_patch_accepts_registered_apps_only(env):
     assert r.status_code == 200 and r.json()["apps"] == ["xhs-workbench"]
     assert client.patch("/api/role-packs/rp-xhs-ops", json={"apps": ["not-registered"]}).status_code == 400
     assert client.patch("/api/role-packs/rp-xhs-ops", json={"apps": []}).json()["apps"] == []
+    client.patch("/api/role-packs/rp-xhs-ops", json={"apps": ["xhs-workbench"]})        # 演示数据是进程内共享的，恢复原值
 
 
 def test_rest_open_app_returns_ticket_or_403(env, monkeypatch):
@@ -110,3 +111,26 @@ def test_rest_open_app_returns_ticket_or_403(env, monkeypatch):
     monkeypatch.setattr(agent_api.policy, "resolve_pack", lambda org, user, dept: {"name": "财务", "apps": []})
     denied = client.post("/api/agent/open-app", headers={"Authorization": "Bearer x"}, json={"app_id": "xhs-workbench"})
     assert denied.status_code == 403 and "没有打开" in denied.json()["detail"]
+
+
+def test_apps_listing_for_console(env, monkeypatch):
+    r = client.get("/api/apps")
+    assert r.status_code == 200
+    [a] = r.json()
+    assert a["id"] == "xhs-workbench" and a["name"] == "小红书运营工作台" and a["version"] == "0.6.1"
+    assert len(a["sha256"]) == 64 and a["size"] > 0
+    assert {"id": "rp-xhs-ops", "name": "小红书运营"} in a["allowed_packs"]           # 演示数据里运营岗位包放行了它
+    assert a["opens_7d"] == 0 and a["last_open"] is None
+
+
+def test_apps_listing_counts_only_successful_opens(env, monkeypatch):
+    from datetime import datetime, timedelta
+    from app import main
+    now = datetime.now().astimezone()
+    events = [{"tool": "app.open", "result": "通过", "ts": now - timedelta(days=1), "detail": "打开应用「小红书运营工作台」v0.6.1"},
+              {"tool": "app.open", "result": "通过", "ts": now, "detail": "打开应用「小红书运营工作台」v0.6.1"},
+              {"tool": "app.open", "result": "拒绝", "ts": now, "detail": "申请打开应用「小红书运营工作台」：没有权限"},
+              {"tool": "app.open", "result": "通过", "ts": now - timedelta(days=9), "detail": "打开应用「小红书运营工作台」v0.6.0"}]
+    monkeypatch.setattr(main, "_app_events", lambda days: events)
+    [a] = client.get("/api/apps").json()
+    assert a["opens_7d"] == 2 and a["last_open"] is not None

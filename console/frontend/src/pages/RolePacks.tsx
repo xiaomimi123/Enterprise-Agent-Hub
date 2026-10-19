@@ -1,4 +1,4 @@
-import { Cpu, Globe, Library, NotebookPen, Wrench } from 'lucide-react'
+import { AppWindow, Cpu, Globe, Library, NotebookPen, Wrench } from 'lucide-react'
 import { App, Button, Drawer, Form, Input, InputNumber, Segmented, Select, Skeleton } from 'antd'
 import { useState } from 'react'
 import { api, type Catalog, type RolePack } from '../api'
@@ -151,6 +151,12 @@ function RolePackDrawer({ id, catalog, onClose, onSaved }: {
             <Form.Item name="tools" noStyle>
               <Select mode="multiple" optionFilterProp="label" style={{ width: '100%' }}
                 options={catalog.tools.map((t) => ({ value: t.id, label: `${t.name} · ${t.risk}` }))} />
+            </Form.Item>
+          </Section>
+          <Section icon={<AppWindow />} title="可打开的应用" hint="员工对 agent 说「打开小红书工作台」时，岗位包里有这个应用才会放行；没有则被拒绝并记审计。">
+            <Form.Item name="apps" noStyle>
+              <Select mode="multiple" optionFilterProp="label" style={{ width: '100%' }} placeholder="还没有发布应用"
+                options={(catalog.apps ?? []).map((a) => ({ value: a.id, label: `${a.name} · v${a.version}` }))} />
             </Form.Item>
           </Section>
           <Section icon={<Cpu />} title="模型与额度">

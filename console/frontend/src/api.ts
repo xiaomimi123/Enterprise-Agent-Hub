@@ -98,6 +98,7 @@ export interface RolePack {
   monthly_quota: number
   model_mode: '中枢模型' | '自带模型'
   gpu_quota_minutes: number
+  apps: string[]
   max_action_level: string
   external_access: string
   member_count: number
@@ -124,6 +125,20 @@ export interface Catalog {
   knowledge_bases: { id: string; name: string; dept_name: string; classification: string }[]
   tools: Tool[]
   models: Model[]
+  apps: { id: string; name: string; version: string }[]
+}
+
+export interface PublishedApp {
+  id: string
+  name: string
+  version: string
+  description: string
+  sha256: string
+  size: number
+  requires: Record<string, string>
+  allowed_packs: { id: string; name: string }[]
+  opens_7d: number
+  last_open: string | null
 }
 
 export interface Skill {
@@ -307,6 +322,7 @@ export const api = {
   traces: (params: { member_id?: string; outcome?: string; dept?: string; q?: string } = {}) =>
     request<TraceBrief[]>(`/audit/traces${qs(params)}`),
   trace: (id: string) => request<Trace>(`/audit/traces/${id}`),
+  apps: () => request<PublishedApp[]>('/apps'),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),

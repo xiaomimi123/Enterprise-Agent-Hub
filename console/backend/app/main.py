@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import mimetypes
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, gpu, public_api
+from . import agent_api, apps, auth, db, gpu, public_api
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -183,6 +184,29 @@ def gpu_tasks(limit: int = 100):
     if not settings.database_url:  # 演示模式没有任务队列
         return {"summary": {"queued": 0, "running": 0, "failed": 0, "done_today": 0}, "tasks": []}
     return gpu.list_tasks(max(1, min(limit, 200)))
+
+
+def _app_events(days: int) -> list[dict]:
+    """近 N 天与应用相关的审计事件；演示模式没有数据库，返回空。"""
+    return [e for e in db.recent_audit(settings.casdoor_org, days) if e["tool"] == "app.open"] if settings.database_url else []
+
+
+@api.get("/apps")
+def list_published_apps():
+    """控制台「应用」页：已发布的应用、哈希、哪些岗位包能打开、近 7 天打开次数。"""
+    since = datetime.now().astimezone() - timedelta(days=7)
+    events = [e for e in _app_events(7) if e["ts"] >= since]
+    packs = provider.role_packs()
+    out = []
+    for a in apps.list_apps():
+        mine = [e for e in events if e["result"] == "通过" and f"「{a.name}」" in e["detail"]]
+        out.append({
+            "id": a.id, "name": a.name, "version": a.version, "description": a.description,
+            "sha256": apps.sha256_of(a.zip_path), "size": a.zip_path.stat().st_size, "requires": a.requires,
+            "allowed_packs": [{"id": p["id"], "name": p["name"]} for p in packs if a.id in (p.get("apps") or [])],
+            "opens_7d": len(mine), "last_open": max((e["ts"] for e in mine), default=None),
+        })
+    return out
 
 
 @api.get("/connect")

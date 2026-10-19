@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from .. import demo_seed, metering
+from .. import apps, demo_seed, metering
 
 
 class NotFound(KeyError):
@@ -144,6 +144,7 @@ class DemoProvider:
                                  "classification": k["classification"]} for k in d["knowledge_bases"]],
             "tools": d["tools"],
             "models": d["models"],
+            "apps": [{"id": a.id, "name": a.name, "version": a.version} for a in apps.list_apps()],
         }
 
     # ---- 技能与知识库 ----

@@ -5,6 +5,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthGate, CallbackPage } from './auth'
 import './index.css'
 import ConsoleLayout from './layout/ConsoleLayout'
+import Apps from './pages/Apps'
 import Audit from './pages/Audit'
 import Connect from './pages/Connect'
 import Knowledge from './pages/Knowledge'
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="role-packs" element={<RolePacks />} />
               <Route path="skills" element={<Skills />} />
               <Route path="knowledge" element={<Knowledge />} />
+              <Route path="apps" element={<Apps />} />
               <Route path="connect" element={<Connect />} />
               <Route path="audit" element={<Audit />} />
               <Route path="tasks" element={<Tasks />} />

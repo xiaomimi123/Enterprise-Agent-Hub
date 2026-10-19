@@ -660,21 +660,56 @@ def _post_mcp(http: httpx.Client, url: str, msg: dict, headers: dict) -> httpx.R
     return http.post(url, json=msg, headers={**headers, "Authorization": f"Bearer {creds['access_token']}"})
 
 
-def _relay(resp: httpx.Response, out) -> None:
-    """把中枢的回复写给桌面智能体：JSON 直接转发，SSE 流按事件拆出 data 逐条转发。"""
+def parse_response(resp: httpx.Response) -> list[dict]:
+    """把中枢的回复拆成 JSON-RPC 消息列表：JSON 直接解析，SSE 流按事件累积 data 行；202（通知确认）为空。"""
     if resp.status_code == 202 or not resp.content:
-        return
+        return []
     if resp.headers.get("content-type", "").startswith("text/event-stream"):
-        data: list[str] = []
+        msgs, data = [], []
         for line in resp.text.splitlines() + [""]:
             if line.startswith("data:"):
                 data.append(line[5:].lstrip())
             elif not line and data:
-                out.write(("".join(data) + "\n").encode("utf-8"))
+                msgs.append(json.loads("".join(data)))
                 data = []
-    else:
-        out.write(resp.content.rstrip(b"\n") + b"\n")
+        return msgs
+    return [json.loads(resp.content)]
+
+
+def _write_messages(msgs: list[dict], out) -> None:
+    for m in msgs:
+        out.write((json.dumps(m, ensure_ascii=False) + "\n").encode("utf-8"))
     out.flush()
+
+
+def _tool_text(msg: dict) -> str:
+    return "".join(c.get("text", "") for c in (msg.get("result") or {}).get("content", []) if isinstance(c, dict))
+
+
+def bridge_intercept(msg: dict, resp_msgs: list[dict], launch, hub: str, creds: dict, report) -> list[dict] | None:
+    """拦截 open_app：中枢返回启动凭证时，在本机完成启动并用结果替换回复；
+    中枢拒绝（纯文本）或协议错误则原样透传，绝不吞掉。不是 open_app 返回 None。"""
+    if msg.get("method") != "tools/call" or (msg.get("params") or {}).get("name") != "open_app":
+        return None
+    for m in resp_msgs:
+        if m.get("id") != msg.get("id") or "result" not in m:
+            continue
+        try:
+            ticket = json.loads(_tool_text(m))
+        except ValueError:
+            return resp_msgs  # 拒绝提示（纯文本）
+        if not isinstance(ticket, dict) or not ticket.get("needs_local_connector"):
+            return resp_msgs
+        result = launch(ticket, hub, creds)
+        report(creds, hub, ticket, result)
+        text = result["message"] if result.get("ok") else f"没能打开「{ticket.get('name', ticket.get('app_id'))}」：{result.get('reason', '未知原因')}"
+        return [{"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": text}], "isError": not result.get("ok")}}]
+    return resp_msgs
+
+
+def _relay(resp: httpx.Response, out) -> None:
+    """把中枢的回复写给桌面智能体。"""
+    _write_messages(parse_response(resp), out)
 
 
 HEARTBEAT_SECONDS = 60
@@ -735,7 +770,8 @@ def cmd_mcp(args=None) -> None:
                     headers["Mcp-Session-Id"] = sid
                 if resp.status_code >= 400 and resp.status_code != 202:
                     raise RuntimeError(f"中枢返回 HTTP {resp.status_code}：{resp.text[:200]}")
-                _relay(resp, out)
+                replaced = bridge_intercept(msg, parse_response(resp), launch_app, creds["hub"], creds, report_app_event)
+                _write_messages(replaced if replaced is not None else parse_response(resp), out)
             except Exception as e:  # noqa: BLE001 出错时给请求方一个 JSON-RPC 错误，而不是让桥退出
                 print(f"hub-agent mcp: {e}", file=sys.stderr, flush=True)
                 if "id" in msg:

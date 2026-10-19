@@ -330,3 +330,59 @@ def test_nested_bridge_skips_sync_and_heartbeat(monkeypatch):
     assert calls == {"sync": 0, "threads": 0}
     ha.cmd_mcp(argparse.Namespace(client="WorkBuddy", nested=False))
     assert calls == {"sync": 1, "threads": 1}
+
+
+# ================= 桥拦截 open_app =================
+
+def mcp_result(text, rid=7, is_error=False):
+    return {"jsonrpc": "2.0", "id": rid, "result": {"content": [{"type": "text", "text": text}], "isError": is_error}}
+
+
+CALL = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "open_app", "arguments": {"app_id": "xhs-workbench"}}}
+HUB_TICKET = {"app_id": "xhs-workbench", "version": "0.6.1", "sha256": "a" * 64, "download_url": "http://hub/dl", "entry": ENTRY,
+              "requires": {}, "start_args": [], "needs_local_connector": True}
+
+
+def intercept(msg, resp_msgs, result):
+    seen = []
+
+    def fake_launch(ticket, hub, creds, **kw):
+        seen.append(ticket)
+        return result
+    out = ha.bridge_intercept(msg, resp_msgs, fake_launch, hub="http://hub", creds={"access_token": "t"},
+                              report=lambda *a, **k: seen.append("reported"))
+    return out, seen
+
+
+def test_intercept_replaces_ticket_with_launch_result():
+    out, seen = intercept(CALL, [mcp_result(json.dumps(HUB_TICKET))], {"ok": True, "url": "http://127.0.0.1:17890/?t=x", "message": "已打开：http://127.0.0.1:17890/?t=x", "version": "0.6.1"})
+    assert len(out) == 1 and out[0]["id"] == 7 and out[0]["result"]["isError"] is False
+    assert "http://127.0.0.1:17890/?t=x" in out[0]["result"]["content"][0]["text"]
+    assert seen[0]["app_id"] == "xhs-workbench" and seen[-1] == "reported"        # 启动后回报中枢
+
+
+def test_intercept_launch_failure_is_an_error_with_reason():
+    out, seen = intercept(CALL, [mcp_result(json.dumps(HUB_TICKET))], {"ok": False, "reason": "缺少 Node.js 18"})
+    assert out[0]["result"]["isError"] is True and "缺少 Node.js 18" in out[0]["result"]["content"][0]["text"]
+
+
+def test_intercept_passes_hub_refusal_through_untouched():
+    refusal = [mcp_result("岗位包「财务」没有打开「小红书运营工作台」的权限。该请求已记录。")]
+    out, seen = intercept(CALL, refusal, {"ok": True})
+    assert out == refusal and seen == []                                            # 不启动、不回报、原样透传
+
+
+def test_intercept_ignores_other_calls_and_errors():
+    other = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search_knowledge", "arguments": {}}}
+    assert intercept(other, [mcp_result("{}")], {"ok": True})[0] is None
+    assert intercept({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, [], {"ok": True})[0] is None
+    err = [{"jsonrpc": "2.0", "id": 7, "error": {"code": -32603, "message": "中枢不可用"}}]
+    assert intercept(CALL, err, {"ok": True})[0] == err                               # 中枢返回协议错误：原样透传
+
+
+def test_parse_response_handles_json_and_sse():
+    body = json.dumps(mcp_result("hi"))
+    r_json = httpx.Response(200, content=body.encode(), headers={"content-type": "application/json"})
+    r_sse = httpx.Response(200, content=f"event: message\ndata: {body}\n\n".encode(), headers={"content-type": "text/event-stream"})
+    assert ha.parse_response(r_json) == ha.parse_response(r_sse) == [mcp_result("hi")]
+    assert ha.parse_response(httpx.Response(202)) == []

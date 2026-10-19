@@ -75,6 +75,12 @@ New API 不会记录客户端传来的任何自定义信息（请求头 `X-Reque
 
 **New API 限流**：`/api/token/search` 被全局限流（约每分钟 10 次，且所有请求共用一个管理员身份），几个人同时领取配置就会触发（HTTP 429、空响应）。现在改用列表接口 `/api/token/`（无此限流）分页取全部 key、按名字建索引缓存 30 秒（跨实例共享）；限流或非 JSON 响应统一报「New API … 返回 HTTP 429」。实测连续领取 7 次 2.3 秒内全部成功。
 
+## 打开公司应用（open_app）
+
+员工对 agent 说「打开小红书工作台」→ agent 调 `open_app` → 本机 MCP 桥拦截中枢返回的启动凭证 → 检查 Node → 下载 zip 并核对 SHA-256 → 安全解压（拒绝绝对路径、`..`、符号链接、超限）到 `~/.hub-agent/apps/<应用>/<版本>/` → 执行应用的 `setup` / `start` → 把网址回报给员工，并向中枢回报启动结果（审计 `app.open` + `app.launch` 同一 trace ID）。同一应用并发打开串行化；运行中的实例不会被重启，新版本只提示升级。不走 MCP 桥的客户端（如 Hermes）用 `hub_agent.py open-app <应用 id>`。应用里的底层 agent 通过 `HUB_MCP_SERVERS_FILE`（`~/.hub-agent/hub-mcp.json`，嵌套桥 `--nested`，沿用 `HUB_TRACE_ID`）接入同一个中枢。设计见 [spec](superpowers/specs/2026-10-19-app-launcher-design.md)，发布方式见 [apps/README.md](../apps/README.md)。
+
+真实验证（小红书工作台 0.6.2）：中枢发布 zip → `open-app` 与 stdio 桥各打开一次成功、重复打开幂等、健康检查返回 0.6.2；岗位包去掉应用后被拒绝并记「拦截」审计；未知应用返回明确提示。
+
 ## 后续
 
 - 打包成安装程序（内置 uv 与 Hermes），并加托盘、确认弹窗（本机动作的确认分级）

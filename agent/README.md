@@ -70,6 +70,14 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 
 权限和审计与 Hermes 完全相同（同一个员工令牌、同一套岗位包）。区别是桌面智能体用它自己的大模型，不走中枢的 New API，所以这部分模型用量不会记到「用量与成本」里。超过 7 天没用、续期令牌也过期时，重新执行一次 `login`。
 
+## 打开公司应用
+
+对桌面智能体说「打开小红书工作台」即可（MCP 桥自动完成下载、校验、启动）。不走 MCP 桥的客户端：
+
+```bash
+uv run hub_agent.py open-app xhs-workbench
+```
+
 ## 本机会生成的文件
 
 ```
@@ -77,6 +85,8 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 ├── credentials.json     # 令牌（权限 600）
 ├── profile.json         # 最近一次领取的配置摘要
 ├── skills/<技能>/SKILL.md # 只包含岗位包里的技能，每次同步整体替换
+├── apps/<应用>/<版本>/   # open_app 下载并校验过的应用包（保留最近 2 个版本）
+├── hub-mcp.json         # 给应用里的 agent 用的 MCP 配置（嵌套桥）
 └── hermes/              # 专用的 HERMES_HOME
     ├── config.yaml      # 模型 → New API，MCP → 中枢，技能目录 → 上面的 skills/
     └── .env             # HUB_AGENT_TOKEN、HUB_MODEL_KEY（权限 600）

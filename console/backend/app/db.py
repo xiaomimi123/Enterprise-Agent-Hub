@@ -107,6 +107,12 @@ ALTER TABLE role_packs ADD COLUMN IF NOT EXISTS apps JSONB NOT NULL DEFAULT '[]'
 -- 容错：任务被改派过几次（节点掉线 / 超时后重新排队）
 ALTER TABLE gpu_tasks ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 
+-- 管理员在控制台里改的配置（出图通道、出图 API 等），值为 JSON
+CREATE TABLE IF NOT EXISTS hub_settings (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 -- 员工端在线状态：接入器报到或官方 agent 调用工具时刷新
 CREATE TABLE IF NOT EXISTS agent_presence_daily (
     org       TEXT NOT NULL,

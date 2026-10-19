@@ -32,6 +32,7 @@ class App:
     description: str
     entry: str
     requires: dict = field(default_factory=dict)
+    setup_args: list[str] = field(default_factory=list)  # 首次（或每次）启动前先跑一遍的初始化参数，可为空
     start_args: list[str] = field(default_factory=list)
     zip_path: Path = Path()
 
@@ -41,7 +42,8 @@ def _load(d: Path) -> App | None:
         meta = json.loads((d / "app.json").read_text(encoding="utf-8"))
         a = App(id=str(meta["id"]), name=str(meta["name"]), version=str(meta["version"]),
                 description=str(meta.get("description", "")), entry=str(meta["entry"]),
-                requires=dict(meta.get("requires") or {}), start_args=[str(x) for x in meta.get("start_args") or []],
+                requires=dict(meta.get("requires") or {}), setup_args=[str(x) for x in meta.get("setup_args") or []],
+                start_args=[str(x) for x in meta.get("start_args") or []],
                 zip_path=d / f"{meta['version']}.zip")
     except (OSError, ValueError, KeyError, TypeError) as e:
         log.warning("应用 %s 的 app.json 无效，已跳过：%s", d.name, e)

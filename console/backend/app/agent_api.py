@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import content, db, policy
+from . import app_access, content, db, policy
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -115,6 +115,25 @@ def heartbeat(body: Heartbeat, authorization: str | None = Header(default=None))
     c = _verify_agent_token(authorization)
     db.touch_presence(c["owner"], c["name"], client=body.client[:40], version=body.version[:20], os=body.os[:40])
     return {"ok": True}
+
+
+class OpenApp(BaseModel):
+    app_id: str
+
+
+@router.post("/open-app")
+def open_app_ticket(body: OpenApp, authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None)):
+    """给不走 MCP 桥的客户端（如 hub_agent.py open-app）取启动凭证：权限与审计和 MCP 的 open_app 完全一样。"""
+    c = _verify_agent_token(authorization)
+    dept = policy.dept_from_groups(c.get("groups"))
+    p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
+                         dept=dept, channel=policy.OFFICIAL)
+    p.pack = policy.resolve_pack(p.org, p.user_name, dept)
+    trace_id = (x_hub_trace_id or "").strip()[:64] or f"app-{uuid.uuid4().hex[:10]}"
+    try:
+        return app_access.ticket_for(p, trace_id, body.app_id)
+    except app_access.AppDenied as e:
+        raise HTTPException(403, str(e))
 
 
 class AppEvent(BaseModel):

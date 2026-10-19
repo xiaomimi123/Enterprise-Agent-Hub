@@ -153,3 +153,180 @@ def test_prune_keeps_newest_two_versions(tmp_path, monkeypatch):
         os.utime(d, (1000 + i, 1000 + i))
     ha.prune_versions("xhs", keep=2)
     assert sorted(p.name for p in (tmp_path / "apps" / "xhs").iterdir()) == ["0.6.0", "0.6.1"]
+
+
+# ================= 本机启动 =================
+
+import json  # noqa: E402
+import threading  # noqa: E402
+
+ENTRY = "xhs-workbench/scripts/workbench.mjs"
+
+
+def build_ticket(tmp_path, version="0.6.1", payload="x", **extra):
+    z = make_zip(tmp_path / f"srv-{version}.zip", {ENTRY: payload, "xhs-workbench/SKILL.md": "# skill"})
+    data = z.read_bytes()
+    return {"app_id": "xhs-workbench", "name": "小红书运营工作台", "version": version, "sha256": hashlib.sha256(data).hexdigest(),
+            "download_url": "http://hub/dl.zip", "entry": ENTRY, "requires": {"node": ">=18"},
+            "setup_args": ["setup"], "start_args": ["start", "--open"], **extra}, data
+
+
+class Recorder:
+    """假的 subprocess.run：记录每次调用，按子命令返回预设输出。"""
+
+    def __init__(self, start_out="工作台已启动。\nURL: http://127.0.0.1:17890/?t=abc\n", node="v24.21.0", hang=False):
+        self.calls, self.start_out, self.node, self.hang = [], start_out, node, hang
+
+    def __call__(self, cmd, **kw):
+        self.calls.append((cmd, kw))
+        if cmd[:2] == ["node", "-v"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=self.node, stderr="")
+        if self.hang and "start" in cmd:
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
+        return subprocess.CompletedProcess(cmd, 0, stdout=self.start_out if "start" in cmd else "初始化完成", stderr="")
+
+    def started(self):
+        return [c for c, _ in self.calls if "start" in c]
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    h = tmp_path / "home"
+    monkeypatch.setattr(ha, "HOME", h)
+    monkeypatch.setattr(ha, "find_uv", lambda: "/usr/bin/uv")
+    return h
+
+
+def launch(ticket, data, run):
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=data)))
+    return ha.launch_app(ticket, "http://hub", {"access_token": "t"}, run=run, client=client)
+
+
+def test_parse_url():
+    assert ha.parse_url("工作台已启动。\nURL: http://127.0.0.1:17890/?t=abc\n") == "http://127.0.0.1:17890/?t=abc"
+    assert ha.parse_url("没有网址") is None
+
+
+def test_launch_happy_path(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    run = Recorder()
+    r = launch(ticket, data, run)
+    assert r["ok"] is True and r["url"] == "http://127.0.0.1:17890/?t=abc" and r["version"] == "0.6.1"
+    cmd = run.started()[0]
+    kw = [k for c, k in run.calls if "start" in c][0]
+    assert cmd[0] == "node" and cmd[1].endswith("workbench.mjs") and cmd[2:] == ["start", "--open"]
+    assert kw["cwd"] == str(home / "apps" / "xhs-workbench" / "0.6.1")
+    assert kw["env"]["HUB_MCP_SERVERS_FILE"] == str(home / "hub-mcp.json") and "HUB_TRACE_ID" in kw["env"]
+    assert any(c[2:] == ["setup"] for c, _ in run.calls)                      # 先 setup 再 start
+    cfg = json.loads((home / "hub-mcp.json").read_text(encoding="utf-8"))["mcpServers"]["enterprise-hub"]
+    assert cfg["command"] == "/usr/bin/uv" and "--nested" in cfg["args"] and cfg["args"][:1] == ["run"]
+    assert (home / "apps" / "xhs-workbench" / "0.6.1" / ".sha256").read_text() == ticket["sha256"]
+    assert "SKILL.md" in r["message"]                                         # 告诉 agent 技能路径，收件箱模式据此进入值守
+
+
+def test_node_missing_stops_before_download(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    called = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: called.append(1) or httpx.Response(200, content=data)))
+
+    def run(cmd, **kw):
+        raise FileNotFoundError()
+    r = ha.launch_app(ticket, "http://hub", {"access_token": "t"}, run=run, client=client)
+    assert r["ok"] is False and "Node.js" in r["reason"] and called == []
+
+
+def test_hash_mismatch_refuses_and_leaves_nothing(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    ticket["sha256"] = "0" * 64
+    run = Recorder()
+    r = launch(ticket, data, run)
+    assert r["ok"] is False and "校验失败" in r["reason"] and run.started() == []
+    assert not (home / "apps" / "xhs-workbench" / "0.6.1").exists()
+
+
+def test_same_version_same_hash_is_not_downloaded_again(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    launch(ticket, data, Recorder())
+    hits = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: hits.append(1) or httpx.Response(200, content=data)))
+    r = ha.launch_app(ticket, "http://hub", {"access_token": "t"}, run=Recorder(), client=client)
+    assert r["ok"] and hits == []
+
+
+def test_republished_same_version_with_new_hash_is_redownloaded(tmp_path, home):
+    t1, d1 = build_ticket(tmp_path, payload="old")
+    launch(t1, d1, Recorder())
+    t2, d2 = build_ticket(tmp_path, payload="new")                           # 同版本号、内容变了
+    r = launch(t2, d2, Recorder())
+    assert r["ok"] and (home / "apps" / "xhs-workbench" / "0.6.1" / ENTRY).read_text() == "new"
+
+
+def test_no_url_in_output_reports_reason(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    r = launch(ticket, data, Recorder(start_out="出错了：端口被占用\n"))
+    assert r["ok"] is False and "端口被占用" in r["reason"]
+
+
+def test_start_timeout_reports_reason(tmp_path, home):
+    ticket, data = build_ticket(tmp_path)
+    r = launch(ticket, data, Recorder(hang=True))
+    assert r["ok"] is False and "超时" in r["reason"]
+
+
+def test_entry_must_stay_inside_package(tmp_path, home):
+    ticket, data = build_ticket(tmp_path, entry="../../etc/evil.mjs")
+    run = Recorder()
+    r = launch(ticket, data, run)
+    assert r["ok"] is False and "入口" in r["reason"] and run.started() == []
+
+
+def test_running_instance_of_older_version_is_not_restarted(tmp_path, home):
+    t1, d1 = build_ticket(tmp_path, version="0.6.0", payload="a")
+    launch(t1, d1, Recorder())                                                # 0.6.0 刚启动
+    t2, d2 = build_ticket(tmp_path, version="0.6.1", payload="b")
+    run = Recorder(start_out="工作台已在运行。\nURL: http://127.0.0.1:17890/?t=abc\n")
+    r = launch(t2, d2, run)
+    assert r["ok"] and "0.6.1" in r["message"] and "关闭" in r["message"] and "升级" in r["message"]
+    assert not any("stop" in c for c, _ in run.calls)                         # 绝不 stop / 重启
+
+
+def test_concurrent_opens_download_and_extract_once(tmp_path, home, monkeypatch):
+    ticket, data = build_ticket(tmp_path)
+    extracted, results = [], []
+    real = ha.safe_extract
+    monkeypatch.setattr(ha, "safe_extract", lambda *a, **k: extracted.append(1) or real(*a, **k))
+    ts = [threading.Thread(target=lambda: results.append(launch(ticket, data, Recorder()))) for _ in range(3)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(results) == 3 and all(r["ok"] for r in results) and extracted == [1]
+
+
+def test_old_versions_are_pruned_after_success(tmp_path, home):
+    for v in ("0.5.0", "0.6.0", "0.6.1"):
+        t, d = build_ticket(tmp_path, version=v, payload=v)
+        launch(t, d, Recorder())
+    names = sorted(p.name for p in (home / "apps" / "xhs-workbench").iterdir() if p.is_dir() and not p.name.startswith("."))
+    assert len(names) <= 2 and "0.6.1" in names
+
+
+# ================= 嵌套模式 =================
+
+def test_bridge_headers_use_inherited_trace_id(monkeypatch):
+    monkeypatch.setenv("HUB_TRACE_ID", "tr-from-open-app")
+    assert ha.bridge_headers()["X-Hub-Trace-Id"] == "tr-from-open-app"
+    monkeypatch.delenv("HUB_TRACE_ID")
+    assert ha.bridge_headers()["X-Hub-Trace-Id"].startswith("tr-")
+
+
+def test_nested_bridge_skips_sync_and_heartbeat(monkeypatch):
+    import argparse
+    calls = {"sync": 0, "threads": 0}
+    monkeypatch.setattr(ha, "cmd_sync", lambda *a, **k: calls.__setitem__("sync", calls["sync"] + 1))
+    monkeypatch.setattr(ha.threading, "Thread", lambda *a, **k: calls.__setitem__("threads", calls["threads"] + 1) or type("T", (), {"start": lambda s: None})())
+    monkeypatch.setattr(ha, "fresh_creds", lambda: {"hub": "http://hub", "access_token": "t"})
+    monkeypatch.setattr(ha.httpx, "get", lambda *a, **k: type("R", (), {"json": lambda s: {"mcp_url": "http://hub/mcp"}})())
+    monkeypatch.setattr(ha.sys, "stdin", type("S", (), {"buffer": io.BytesIO(b"")})())
+    ha.cmd_mcp(argparse.Namespace(client="工作台", nested=True))
+    assert calls == {"sync": 0, "threads": 0}
+    ha.cmd_mcp(argparse.Namespace(client="WorkBuddy", nested=False))
+    assert calls == {"sync": 1, "threads": 1}

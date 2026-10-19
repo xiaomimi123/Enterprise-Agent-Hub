@@ -19,7 +19,7 @@ def env(tmp_path, monkeypatch):
     d.mkdir()
     (d / "app.json").write_text(json.dumps({
         "id": "xhs-workbench", "name": "小红书运营工作台", "version": "0.6.1", "description": "d",
-        "entry": "xhs-workbench/scripts/workbench.mjs", "requires": {"node": ">=18"}, "start_args": ["start", "--open"]}), encoding="utf-8")
+        "entry": "xhs-workbench/scripts/workbench.mjs", "requires": {"node": ">=18"}, "setup_args": ["setup"], "start_args": ["start", "--open"]}), encoding="utf-8")
     with zipfile.ZipFile(d / "0.6.1.zip", "w") as z:
         z.writestr("xhs-workbench/scripts/workbench.mjs", "x")
     s = dataclasses.replace(apps.settings, apps_dir=str(tmp_path), file_secret="sec", public_url="http://hub:8088")
@@ -98,3 +98,15 @@ def test_role_pack_patch_accepts_registered_apps_only(env):
     assert r.status_code == 200 and r.json()["apps"] == ["xhs-workbench"]
     assert client.patch("/api/role-packs/rp-xhs-ops", json={"apps": ["not-registered"]}).status_code == 400
     assert client.patch("/api/role-packs/rp-xhs-ops", json={"apps": []}).json()["apps"] == []
+
+
+def test_rest_open_app_returns_ticket_or_403(env, monkeypatch):
+    assert client.post("/api/agent/open-app", json={"app_id": "xhs-workbench"}).status_code == 401      # 没有令牌
+    claims = {"owner": "o", "name": "u", "displayName": "U", "groups": ["o/ops"]}
+    monkeypatch.setattr(agent_api, "_verify_agent_token", lambda auth: claims)
+    monkeypatch.setattr(agent_api.policy, "resolve_pack", lambda org, user, dept: {"name": "运营", "apps": ["xhs-workbench"]})
+    ok = client.post("/api/agent/open-app", headers={"Authorization": "Bearer x", "X-Hub-Trace-Id": "tr-5"}, json={"app_id": "xhs-workbench"})
+    assert ok.status_code == 200 and ok.json()["version"] == "0.6.1" and ok.json()["setup_args"] == ["setup"]
+    monkeypatch.setattr(agent_api.policy, "resolve_pack", lambda org, user, dept: {"name": "财务", "apps": []})
+    denied = client.post("/api/agent/open-app", headers={"Authorization": "Bearer x"}, json={"app_id": "xhs-workbench"})
+    assert denied.status_code == 403 and "没有打开" in denied.json()["detail"]

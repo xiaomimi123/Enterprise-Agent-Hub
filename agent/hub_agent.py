@@ -516,6 +516,143 @@ def fetch_verified(url: str, sha256: str, dest: Path, client: httpx.Client) -> P
         tmp.unlink(missing_ok=True)
 
 
+_APP_LOCKS: dict[str, threading.Lock] = {}
+_APP_LOCKS_GUARD = threading.Lock()
+LAUNCH_TIMEOUT = 90
+# 工作台启动脚本的输出约定：已启动 / 已在运行 + 一行 URL:（见 apps/README.md）
+_STARTED, _ALREADY = "已启动", "已在运行"
+
+
+def parse_url(output: str) -> str | None:
+    m = re.search(r"URL:\s*(\S+)", output or "")
+    return m.group(1) if m else None
+
+
+def _app_lock(app_id: str):
+    """同一个应用的并发打开串行化：线程锁 + 文件锁（跨进程，如两个 agent 同时说「打开工作台」）。"""
+    with _APP_LOCKS_GUARD:
+        thread_lock = _APP_LOCKS.setdefault(app_id, threading.Lock())
+
+    class _Lock:
+        def __enter__(self):
+            thread_lock.acquire()
+            lock_dir = HOME / "apps" / app_id
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            self.f = open(lock_dir / ".lock", "a+")
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.f, fcntl.LOCK_EX)
+            except OSError:
+                pass  # 拿不到文件锁时退化为只有线程锁，不阻止打开
+            return self
+
+        def __exit__(self, *exc):
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            self.f.close()
+            thread_lock.release()
+    return _Lock()
+
+
+def _write_hub_mcp_config() -> Path:
+    """给工作台里的底层 agent 用的 MCP 配置：同一个桥，嵌套模式（不重复同步技能 / 心跳 / enroll）。"""
+    cfg = {"mcpServers": {MCP_SERVER_NAME: {
+        "command": find_uv(), "args": ["run", str(Path(__file__).resolve()), "mcp", "--client", "工作台", "--nested"],
+        "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}}}}
+    f = HOME / "hub-mcp.json"
+    write_private(f, json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    return f
+
+
+def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: httpx.Client | None = None) -> dict:
+    """按中枢签发的凭证在本机打开应用：检查 Node → 下载校验解压（已有同版本同哈希则复用）→ 启动 → 取回网址。
+    正在运行的实例绝不重启：应用的 start 是幂等的，已在运行时只返回同一个网址，新版本只给升级提示。"""
+    app_id, version = ticket["app_id"], ticket["version"]
+    try:
+        ok, node = node_status(ticket.get("requires") or {}, run=run)
+        if not ok:
+            return {"ok": False, "reason": node}
+        with _app_lock(app_id):
+            target = app_dir(app_id, version)
+            marker = target / ".sha256"
+            if not (target.is_dir() and marker.exists() and marker.read_text().strip() == ticket["sha256"]):
+                http = client or httpx.Client(follow_redirects=True)
+                zip_file = fetch_verified(ticket["download_url"], ticket["sha256"], HOME / "apps" / app_id / ".downloads" / f"{version}.zip", http)
+                shutil.rmtree(target, ignore_errors=True)
+                safe_extract(zip_file, target)
+                zip_file.unlink(missing_ok=True)
+                marker.write_text(ticket["sha256"])
+            entry = (target / ticket["entry"]).resolve()
+            if target.resolve() not in entry.parents or not entry.is_file():
+                return {"ok": False, "reason": f"应用入口不在应用包内或不存在：{ticket['entry']}"}
+            env = {**os.environ, "HUB_MCP_SERVERS_FILE": str(_write_hub_mcp_config()),
+                   "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID") or new_trace_id()}
+            base = {"cwd": str(target), "env": env, "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
+            try:
+                if ticket.get("setup_args"):
+                    run(["node", str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
+                started = run(["node", str(entry), *ticket.get("start_args", [])], timeout=LAUNCH_TIMEOUT, **base)
+            except subprocess.TimeoutExpired:
+                return {"ok": False, "reason": f"启动超时（{LAUNCH_TIMEOUT} 秒）。可以稍后再说一次「打开工作台」，仍不行请查看应用自己的日志。"}
+            out = (started.stdout or "") + (started.stderr or "")
+            url = parse_url(out)
+            if not url:
+                return {"ok": False, "reason": "应用没有返回网址。输出：" + (out.strip()[-300:] or "（空）")}
+            state_file = HOME / "apps" / app_id / ".running.json"
+            old = json.loads(state_file.read_text(encoding="utf-8")).get("version") if state_file.exists() else None
+            message = f"已打开「{ticket.get('name', app_id)}」v{version}：{url}"
+            skill = target / "xhs-workbench" / "SKILL.md" if (target / "xhs-workbench" / "SKILL.md").exists() else next(iter(target.glob("*/SKILL.md")), None)
+            if skill:
+                message += f"\n如果它的连接模式是「收件箱模式」，请按 {skill} 的「值守模式」一节进入值守。"
+            if _ALREADY in out and old and old != version:
+                message += f"\n注意：正在运行的是旧版本 v{old}，新版本 v{version} 已下载；关闭工作台后再打开即可升级（为避免打断定时任务，没有自动重启）。"
+            elif _STARTED in out or not old:
+                state_file.write_text(json.dumps({"version": version}), encoding="utf-8")
+            prune_versions(app_id)
+            return {"ok": True, "url": url, "version": version, "dir": str(target), "message": message}
+    except ValueError as e:
+        return {"ok": False, "reason": str(e)}
+    except OSError as e:
+        return {"ok": False, "reason": f"本机操作失败：{e}"}
+
+
+def report_app_event(creds: dict, hub: str, ticket: dict, result: dict) -> None:
+    """把启动结果回报给中枢写审计；失败只写 stderr，不影响使用。"""
+    try:
+        httpx.post(f"{hub}/api/agent/app-event", timeout=10,
+                   headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")},
+                   json={"app_id": ticket["app_id"], "version": ticket.get("version", ""), "ok": bool(result.get("ok")),
+                         "url": result.get("url", ""), "reason": result.get("reason", "")})
+    except Exception as e:  # noqa: BLE001
+        print(f"hub-agent: 回报应用事件失败：{e}", file=sys.stderr, flush=True)
+
+
+def cmd_open_app(args) -> None:
+    """open-app <应用 id>：向中枢取启动凭证并在本机打开（给不走 MCP 桥的客户端，如 Hermes）。"""
+    creds = fresh_creds()
+    os.environ.setdefault("HUB_TRACE_ID", new_trace_id())
+    r = httpx.post(f"{creds['hub']}/api/agent/open-app", timeout=30, json={"app_id": args.app_id},
+                   headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ["HUB_TRACE_ID"]})
+    if r.status_code != 200:
+        fail(r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text)
+    ticket = r.json()
+    result = launch_app(ticket, creds["hub"], creds)
+    report_app_event(creds, creds["hub"], ticket, result)
+    if not result["ok"]:
+        fail(result["reason"])
+    info(result["message"])
+
+
 # ---------------- 本地 MCP 桥 ----------------
 
 def _post_mcp(http: httpx.Client, url: str, msg: dict, headers: dict) -> httpx.Response:
@@ -561,19 +698,28 @@ def _heartbeat_loop(client: str) -> None:
         time.sleep(HEARTBEAT_SECONDS)
 
 
+def bridge_headers() -> dict:
+    """桥发给中枢的固定请求头。追踪 ID 优先沿用环境变量 HUB_TRACE_ID（open_app 启动的工作台里的桥继承它，
+    这样工作台里发起的调用与「打开应用」落在同一条审计链路里）。"""
+    return {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
+            "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID") or new_trace_id(), "X-Hub-Task": quote("桌面智能体会话")}
+
+
 def cmd_mcp(args=None) -> None:
-    """stdio ↔ 中枢 MCP（Streamable HTTP）的桥。stdout 只输出协议消息，日志写 stderr。"""
+    """stdio ↔ 中枢 MCP（Streamable HTTP）的桥。stdout 只输出协议消息，日志写 stderr。
+    嵌套模式（--nested 或 HUB_BRIDGE_NESTED=1）：由已接入的应用里的 agent 启动，不再同步技能、不报心跳。"""
     log_to_stderr()
-    try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
-        cmd_sync()
-    except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
-        print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
+    nested = bool(getattr(args, "nested", False)) or os.environ.get("HUB_BRIDGE_NESTED") == "1"
     client = getattr(args, "client", None) or "桌面 agent"
-    threading.Thread(target=_heartbeat_loop, args=(client,), daemon=True).start()
+    if not nested:
+        try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
+            cmd_sync()
+        except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
+            print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
+        threading.Thread(target=_heartbeat_loop, args=(client,), daemon=True).start()
     creds = fresh_creds()
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
-    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
-               "X-Hub-Trace-Id": new_trace_id(), "X-Hub-Task": quote("桌面智能体会话")}
+    headers = bridge_headers()
     out = sys.stdout.buffer
     with httpx.Client(timeout=httpx.Timeout(30, read=300)) as http:
         for raw in sys.stdin.buffer:
@@ -616,12 +762,15 @@ def main() -> None:
     sub.add_parser("chat", help="启动 Hermes（其余参数原样传给 hermes）")
     p = sub.add_parser("mcp", help="本地 MCP 桥（stdio），给 WorkBuddy 等桌面智能体用")
     p.add_argument("--client", default="", help="桌面 agent 的名称（用于控制台显示在线状态）")
+    p.add_argument("--nested", action="store_true", help="嵌套模式：由应用里的 agent 启动，不同步技能、不报心跳")
+    p = sub.add_parser("open-app", help="在本机打开中枢发布的应用（给不走 MCP 桥的客户端用）")
+    p.add_argument("app_id", help="应用 id，如 xhs-workbench")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
     {"login": cmd_login, "setup": cmd_setup, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
-     "mcp": cmd_mcp}[args.cmd](args)
+     "mcp": cmd_mcp, "open-app": cmd_open_app}[args.cmd](args)
 
 
 if __name__ == "__main__":

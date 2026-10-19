@@ -150,7 +150,7 @@ function ImageChannel() {
   const { message } = App.useApp()
   const [editing, setEditing] = useState<ImageProvider | 'new'>()
   const [testing, setTesting] = useState<string>()
-  const [result, setResult] = useState<Record<string, { ok: boolean; seconds: number; error: string }>>({})
+  const [result, setResult] = useState<Record<string, { ok: boolean; seconds: number; error: string; preview?: string }>>({})
 
   const providers = cfg.data?.providers ?? []
   const route = cfg.data?.route ?? 'gpu'
@@ -218,11 +218,12 @@ function ImageChannel() {
           { title: '密钥', dataIndex: 'key_hint', width: 90, render: (v) => <span className="mono muted">{v || '—'}</span> },
           { title: '启用', dataIndex: 'enabled', width: 70, render: (v, p) => <Switch size="small" checked={v} onChange={(c) => toggle(p, c)} /> },
           {
-            title: '测试', width: 190, render: (_, p) => {
+            title: '测试', width: 280, render: (_, p) => {
               const r = result[p.id]
               return (
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
                   <Button size="small" loading={testing === p.id} onClick={() => test(p)}>出一张试试</Button>
+                  {r?.preview && <img src={r.preview} alt="测试出图" style={{ height: 56, borderRadius: 4, cursor: 'zoom-in' }} onClick={() => window.open(r.preview)} />}
                   {r && (r.ok ? <Pill tone="green">{r.seconds} 秒</Pill> : <span title={r.error}><Pill tone="red">失败</Pill></span>)}
                 </span>
               )

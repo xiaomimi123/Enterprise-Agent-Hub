@@ -366,7 +366,7 @@ export const api = {
   setImageRoute: (route: 'gpu' | 'api') =>
     request<{ route: string }>('/models/image/route', { method: 'PUT', body: JSON.stringify({ route }) }),
   testImageProvider: (id: string) =>
-    request<{ ok: boolean; seconds: number; error: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
+    request<{ ok: boolean; seconds: number; error: string; preview?: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),

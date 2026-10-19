@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import math
+import base64
 import time
 import uuid
 
@@ -97,7 +98,7 @@ class ApimartClient:
         return r.content
 
     def test(self) -> dict:
-        """最小尺寸实际出一张，返回 {ok, seconds, error}；不计入员工任务。"""
+        """最小尺寸实际出一张，返回 {ok, seconds, error, preview}（preview 为成功时的图片 data URI，供页面确认图确实传回来了）；不计入员工任务。"""
         start = time.time()
         try:
             task = self.submit("a small red circle on white background", 512, 512, 1)
@@ -108,8 +109,9 @@ class ApimartClient:
                 if state == "done":
                     if not urls:
                         return {"ok": False, "seconds": round(time.time() - start, 1), "error": "完成了但没有图片"}
-                    self.download(urls[0])
-                    return {"ok": True, "seconds": round(time.time() - start, 1), "error": ""}
+                    data = self.download(urls[0])
+                    return {"ok": True, "seconds": round(time.time() - start, 1), "error": "",
+                            "preview": "data:image/png;base64," + base64.b64encode(data).decode()}
                 time.sleep(POLL_INTERVAL)
             return {"ok": False, "seconds": 120.0, "error": "120 秒内没有出图"}
         except ImageApiError as e:

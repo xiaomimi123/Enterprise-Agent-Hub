@@ -31,13 +31,16 @@ import http.server
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
+import subprocess
 import sys
 import threading
 import time
 import urllib.parse
 import uuid
+import zipfile
 import webbrowser
 from pathlib import Path
 from urllib.parse import quote
@@ -401,6 +404,116 @@ def cmd_setup(args) -> None:
         info(f"接入完成。请完全退出并重新打开 {'、'.join(done)}，在里面就能直接使用公司知识库、技能和出图出视频。")
     else:
         info("没有检测到 WorkBuddy、Cursor 或 Claude 桌面版。装好后重新运行这条命令即可；也可以用 chat 子命令启动 Hermes。")
+
+
+# ---------------- 应用：在员工本机打开中枢发布的应用 ----------------
+
+APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+APP_MAX_BYTES = 50 * 1024 * 1024
+APP_MAX_FILES = 2000
+
+
+def app_dir(app_id: str, version: str) -> Path:
+    """应用包的本机目录。id 与版本都来自网络，只允许安全字符，绝不拼出目录之外的路径。"""
+    if not APP_ID_RE.match(app_id or "") or not re.match(r"^[0-9A-Za-z][0-9A-Za-z._-]*$", version or "") or ".." in version:
+        raise ValueError(f"应用 id 或版本不合法：{app_id!r} {version!r}")
+    return HOME / "apps" / app_id / version
+
+
+def prune_versions(app_id: str, keep: int = 2) -> None:
+    """只保留最近使用的 keep 个版本目录，其余删除（员工数据在包外，不受影响）。"""
+    root = HOME / "apps" / app_id
+    if not root.is_dir():
+        return
+    versions = sorted((d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")), key=lambda d: d.stat().st_mtime, reverse=True)
+    for d in versions[keep:]:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _install_hint() -> str:
+    if sys.platform == "darwin":
+        return "macOS：已装 Homebrew 的话运行 brew install node；否则到 https://nodejs.org 下载 LTS 安装包（.pkg）。安装需要输入电脑密码。"
+    if sys.platform == "win32":
+        return "Windows：运行 winget install OpenJS.NodeJS.LTS，或到 https://nodejs.org 下载 LTS 安装包（.msi）；装完请重新打开 agent。"
+    return "请用系统包管理器安装 Node.js 18 或更高版本（或使用 nvm）。"
+
+
+def node_status(requires: dict, run=subprocess.run) -> tuple[bool, str]:
+    """检查本机 Node 是否满足应用要求。满足返回 (True, 版本)；不满足返回 (False, 带安装指引的说明)。不自动安装。"""
+    want = str((requires or {}).get("node") or "")
+    if not want:
+        return True, ""
+    need = int(m.group(1)) if (m := re.search(r"(\d+)", want)) else 0
+    try:
+        r = run(["node", "-v"], capture_output=True, text=True, timeout=10)
+        found = (m.group(1), r.stdout.strip()) if r.returncode == 0 and (m := re.match(r"v?(\d+)(?:\.\d+)*$", r.stdout.strip())) else None
+    except (OSError, subprocess.SubprocessError):
+        found = None
+    if found and int(found[0]) >= need:
+        return True, found[1]
+    now = f"（当前 {found[1]}）" if found else "（本机没有检测到 Node.js）"
+    return False, f"这个应用需要 Node.js {need} 或更高版本{now}。{_install_hint()}装好后再说一次「打开工作台」即可。"
+
+
+def safe_extract(zip_path: Path, dest: Path, max_bytes: int = APP_MAX_BYTES, max_files: int = APP_MAX_FILES) -> None:
+    """安全解压：拒绝绝对路径、.. 路径、符号链接、超大 / 超多文件（zip slip 与解压炸弹）。
+    先解到 dest.partial，全部通过后再原子改名；任何一步失败都不留下目标目录或半成品。"""
+    partial = dest.with_name(dest.name + ".partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            infos = z.infolist()
+            if len(infos) > max_files:
+                raise ValueError(f"应用包文件数超过上限（{max_files}）")
+            for i in infos:
+                name = i.filename.replace("\\", "/")
+                if name.startswith("/") or re.match(r"^[A-Za-z]:", name) or ".." in name.split("/"):
+                    raise ValueError(f"应用包含不安全的路径：{i.filename}")
+                if (i.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise ValueError(f"应用包含符号链接：{i.filename}")
+            if sum(i.file_size for i in infos) > max_bytes:
+                raise ValueError(f"应用包解压后大小超过上限（{max_bytes // 1024 // 1024}MB）")
+            partial.mkdir(parents=True)
+            written = 0
+            for i in infos:
+                target = partial / i.filename
+                if i.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(i) as src, open(target, "wb") as out:
+                    while chunk := src.read(1 << 16):
+                        written += len(chunk)
+                        if written > max_bytes:  # zip 头里的大小可以造假，按实际写出的字节再限一次
+                            raise ValueError(f"应用包解压后大小超过上限（{max_bytes // 1024 // 1024}MB）")
+                        out.write(chunk)
+        partial.rename(dest)
+    except BaseException:
+        shutil.rmtree(partial, ignore_errors=True)
+        raise
+
+
+def fetch_verified(url: str, sha256: str, dest: Path, client: httpx.Client) -> Path:
+    """下载到临时文件，SHA-256 与中枢给的一致才改名到 dest；不一致立即删除。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".part")
+    h = hashlib.sha256()
+    try:
+        with client.stream("GET", url, timeout=120) as r:
+            if r.status_code != 200:
+                raise ValueError(f"下载失败：HTTP {r.status_code}（链接可能已过期，请重试）")
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_bytes(1 << 16):
+                    h.update(chunk)
+                    f.write(chunk)
+        if h.hexdigest() != sha256:
+            raise ValueError("校验失败：应用包的 SHA-256 与中枢发布的不一致，已丢弃，没有执行")
+        tmp.replace(dest)
+        return dest
+    except httpx.HTTPError as e:
+        raise ValueError(f"下载失败：{e}") from e
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 # ---------------- 本地 MCP 桥 ----------------

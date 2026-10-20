@@ -116,9 +116,20 @@ services:
       dbName: casdoor
       origin: ${CASDOOR_ORIGIN}
       defaultLanguage: zh
+      # 服务端生成的默认图标地址也指向本服务，不引用 cdn.casbin.org
+      staticBaseUrl: ${CASDOOR_ORIGIN}/static-cdn
       # 仅在首次初始化数据库时生效：built-in/admin 的初始密码
       initAdminPassword: ${CASDOOR_ADMIN_PASSWORD:?}
       TZ: ${TZ}
+    # 登录页不引用任何境外资源：启动时把 Casdoor 前端里写死的 cdn.casbin.org 改指向本服务的 /static-cdn（文件在 casdoor-static 目录）
+    volumes:
+      - ./casdoor-static:/web/build/static-cdn:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sed -i -e 's#https://cdn.casbin.org/img/favicon.png#/static-cdn/favicon.svg#g'                -e 's#https://cdn.casbin.org/site/casdoor/manifest.json#/static-cdn/manifest.json#g'                -e 's#https://cdn.casbin.org#/static-cdn#g' web/build/index.html web/build/assets/*.js
+        exec /server
 
   new-api:
     image: calciumion/new-api:${NEWAPI_VERSION}

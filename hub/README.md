@@ -94,3 +94,7 @@ make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_cou
 - 备份 `data/`（含生成的图片 `data/outputs/`）、`logs/`，以及仓库里的 `skills/`、`vault/`、`gpu-node/workflows/`
 - 升级开源组件：改 `.env` 里的 `*_VERSION` 后执行 `make up`。RAGFlow 升级要先删掉 `ragflow/upstream/`，再执行 `make ragflow-up`
 - 目前没有 HTTPS。员工在公司局域网内访问没有问题；需要外网访问时，前面加一层反向代理配证书，并在 `.env` 中相应修改地址
+
+## 身份与登录页
+
+身份直接使用 Casdoor 自建账号（不接钉钉）：管理员在 Casdoor 里建组织、部门、成员。登录页不引用任何境外资源：`docker-compose.yml` 里 Casdoor 启动时把前端写死的 `cdn.casbin.org` 改指向本服务的 `/static-cdn`（文件在 `hub/casdoor-static/`：徽标、图标、manifest），并设置 `staticBaseUrl`；应用与组织的徽标由 `console/backend/scripts/casdoor_brand.py` 写入。升级 Casdoor 版本后重新 `make up` 即可，替换是按字符串做的，不依赖具体版本。

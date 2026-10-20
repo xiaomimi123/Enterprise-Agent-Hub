@@ -70,6 +70,7 @@ CSS_MOBILE = ".brand-side{display:none}"
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，打印 ✓ 会报错
     ap = argparse.ArgumentParser(description="给 Casdoor 登录页换上三年级六班集团品牌")
     ap.add_argument("--env-file", default="../../hub/.env")
     ap.add_argument("--casdoor-url", default="")
@@ -81,17 +82,29 @@ def main() -> None:
                                     "password": env["CASDOOR_ADMIN_PASSWORD"], "type": "login", "signinMethod": "Password"})
     if r.json().get("status") != "ok":
         sys.exit(f"登录 Casdoor 失败：{r.text[:200]}")
-    # Casdoor 的 logo / favicon 字段最长 200 字符，放不下内嵌图片：用控制台自己托管的徽标地址
-    logo = f"http://{env.get('HUB_HOST') or 'localhost'}:{env.get('CONSOLE_PORT') or '8088'}/logo.svg"
+    # Casdoor 的 logo / favicon 字段最长 200 字符，放不下内嵌图片：用 Casdoor 自己托管的徽标（hub/casdoor-static，见 docker-compose.yml）
+    logo, favicon = f"{base.rstrip('/')}/static-cdn/logo.svg", f"{base.rstrip('/')}/static-cdn/favicon.svg"
     for name, display in APPS.items():
         app = c.get("/api/get-application", params={"id": f"admin/{name}"}).json().get("data")
         if not app:
             print(f"· 应用 {name} 不存在，跳过")
             continue
-        app.update({"displayName": display, "title": "三年级六班集团", "logo": logo, "favicon": logo,
+        app.update({"displayName": display, "title": "三年级六班集团", "logo": logo, "favicon": favicon,
                     "formOffset": 4, "formSideHtml": SIDE_HTML, "formCss": CSS, "formCssMobile": CSS_MOBILE})
         res = c.post("/api/update-application", params={"id": f"admin/{name}"}, json=app).json()
         print(("✓ " if res.get("status") == "ok" else "✗ ") + f"登录页品牌：{name} {res.get('msg', '')}")
+    # 其余应用与组织只换徽标，去掉默认指向 cdn.casbin.org 的地址
+    for name in ("app-built-in", "hub-external"):
+        app = c.get("/api/get-application", params={"id": f"admin/{name}"}).json().get("data")
+        if app:
+            app.update({"logo": logo, "favicon": favicon})
+            c.post("/api/update-application", params={"id": f"admin/{name}"}, json=app)
+    for org_name in ("built-in", env.get("HUB_ORG") or ""):
+        org = org_name and c.get("/api/get-organization", params={"id": f"admin/{org_name}"}).json().get("data")
+        if org:
+            org.update({"logo": logo, "favicon": favicon})
+            res = c.post("/api/update-organization", params={"id": f"admin/{org_name}"}, json=org).json()
+            print(("✓ " if res.get("status") == "ok" else "✗ ") + f"组织徽标：{org_name} {res.get('msg', '')}")
 
 
 if __name__ == "__main__":

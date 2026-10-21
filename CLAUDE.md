@@ -73,13 +73,13 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 
 源码在 `D:\小红书运自动化运营系统\xhs-workbench1`，**有自己的 git 仓库和 GitHub 远程**（`xhs-workbench1`），不在本仓库里；通过本仓库 `apps/xhs-workbench/` 分发给员工。
 
-用户硬性要求：**自动化只能只读分析（学习博主、分析数据），不能自动发布**。CodeBuddy 的浏览器权限默认是只读档，测试档需要用户明确授权，测完切回。
+用户硬性要求：**自动化只能只读分析（学习博主、分析数据），不能自动发布**。工作台的操作手册（`playbooks/`）与中枢技能是**叠加**关系：中枢技能管业务标准（主管 / 老板在控制台维护），手册管怎么在工作台里做；冲突时格式 / 安全 / 不自动发布以手册为准，见工作台 `docs/hub-integration.md`。CodeBuddy 的浏览器权限默认是只读档，测试档需要用户明确授权，测完切回。
 
 **发布新版本（每次上传都必须升版本号）**：
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.7.3）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.7.4）。
 
 ## 相关的外部项目
 

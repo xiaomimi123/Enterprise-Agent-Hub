@@ -6,7 +6,7 @@
 - 「管 agent，不管人」：管理员下发任务和策略、查看 agent 操作日志，不看屏幕
 - 两级接入：官方 agent（WorkBuddy、CodeBuddy CLI、Hermes 等，经接入器连中枢，可在本机干活）+ 第三方智能体（MCP 只读接入）
 
-> 最近的变化见 [docs/CHANGELOG.md](docs/CHANGELOG.md)；开发约定、常用命令和已知的坑见 [CLAUDE.md](CLAUDE.md)；全部文档见 [docs/README.md](docs/README.md)。
+> 最近的变化见 [docs/CHANGELOG.md](docs/CHANGELOG.md)；**按角色看文档**：管理员 / 部署看 [hub/README.md](hub/README.md)，主管 / 老板看 [docs/console-roles.md](docs/console-roles.md)、[docs/skills.md](docs/skills.md)、[docs/knowledge.md](docs/knowledge.md)，开发看 [CLAUDE.md](CLAUDE.md) 和 [docs/app-integration-guide.md](docs/app-integration-guide.md)；开发约定、常用命令和已知的坑见 [CLAUDE.md](CLAUDE.md)；全部文档见 [docs/README.md](docs/README.md)。
 
 ## 当前状态（2026-10-21，本机 Docker 开发环境，尚未上云）
 
@@ -17,7 +17,11 @@
 - **模型**：控制台「模型」页接入对话模型上游、按模型设置价格；员工专属 key 按人计量，月度额度落到 key
 - **出图出视频**：本机 GPU（ComfyUI）、第三方 apimart API、H3 生成网关三条线，通道手动切换，调度容错
 - **员工接入**：一键接入（发一段话给员工的 agent 即可）、本地 MCP 桥；WorkBuddy / CodeBuddy CLI / Cursor / Claude 桌面版
-- **应用分发**：`open_app` 下载、校验、启动本机应用（小红书运营工作台）
+- **应用分发**：`open_app` 下载、校验、启动本机应用（小红书运营工作台）；应用在 `app.json` 里声明依赖，打开前预检（缺什么说明并询问安装，只拦对应功能）；应用把关键产出写到本机，接入器转发到中枢
+- **角色与部门**：管理员 / 老板 / 部门主管三种控制台角色（接口默认拒绝，主管只能看和管自己部门），控制台「部门与角色」管理部门、主管、老板和默认岗位包
+- **技能库与知识库**：在控制台里直接编辑，带版本、可回滚、有差异对比；本部门保存即生效，全公司内容由主管修改需老板 / 管理员审核；知识库有内容类型、负责人和复核周期，发布后同步到 RAGFlow
+- **改进建议**：员工的 agent 发现技能 / 知识库有错或过时，通过 MCP 提建议，主管 / 老板审核采纳（agent 不能直接改）
+- **工作成果与日报**：员工的 agent 或应用上报「做成了什么」，控制台「工作看板」按岗位 / 个人展示，老板的 agent 可定时拉日报
 
 **未完成 / 计划中**：云服务器部署（香港 + 隧道连本地 GPU，暂缓）、生产环境账号登录收口（员工端改走浏览器登录，已有实现，待端到端实测）、模型网关的真实价格需管理员按厂商价格设置。
 
@@ -41,8 +45,8 @@ hub/              部署：docker-compose、Makefile、Casdoor 静态资源
 agent/            员工端接入器 hub_agent.py 与一键安装脚本
 apps/             应用发布目录（zip 与 app.json 不入库，只在部署机上）
 gpu-node/         ComfyUI 工作流模板（调度代码在 console/backend/app/gpu.py）
-skills/           岗位技能仓库（<部门>/<技能 id>/SKILL.md，可用 Obsidian 编辑）
-vault/            企业知识库（Obsidian vault，每个文件夹一个知识库）
+skills/           运营等部门技能的**初始数据**（<部门>/<技能 id>/SKILL.md），首次启动导入数据库，之后在控制台编辑
+vault/            企业知识库的**初始数据**（每个文件夹一个知识库），首次启动导入数据库，之后在控制台编辑
 docs/             文档：更新记录、专题文档、设计与决策（见 docs/README.md）
 ```
 

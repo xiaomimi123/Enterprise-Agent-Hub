@@ -20,8 +20,11 @@
 |---|---|---|
 | 组织与成员 | `demo_seed.py` | **已接入**：Casdoor 自建账号（控制台可管理），`providers/casdoor.py` |
 | 用量与成本 | `demo_seed.py` | **已接入**：New API 调用日志，按员工专属 key 归属到人和部门 |
-| 知识库 | `demo_seed.py` | **已接入**：`vault/` 目录（Obsidian），之后换 RAGFlow 检索 |
-| 技能 | `demo_seed.py` | **已接入**：`skills/` 目录下的 SKILL.md |
+| 知识库 | `demo_seed.py` | **已接入**：知识库元数据在 `kbs` 表，文档在 `kb_docs` / `kb_doc_versions`（控制台编辑，`vault/` 只在首次启动时导入），检索走 RAGFlow，见 [knowledge.md](knowledge.md) |
+| 技能 | `demo_seed.py` | **已接入**：`skills` / `skill_versions` 表（控制台编辑，`skills/` 只在首次启动时导入），见 [skills.md](skills.md) |
+| 部门、主管、老板 | — | **已接入**：部门 = Casdoor 分组，主管 / 老板在 `console_roles`，默认岗位包在 `dept_config`，见 [console-roles.md](console-roles.md) |
+| 工作成果 | — | **已接入**：`work_items`（agent / 应用上报）+ 审计与 GPU 任务的自动统计，见 [work-report.md](work-report.md) |
+| 改进建议 | — | **已接入**：`proposals`，见 [proposals.md](proposals.md) |
 | 岗位包、成员分配 | 内存 | **已接入**：中枢数据库 `role_packs` / `role_assignments` |
 | 审计链路 | `demo_seed.py` | **已接入**：中枢 MCP Server 写入的 `audit_events` |
 | GPU 节点 | `demo_seed.py` | **已接入**：调度服务维护的 `gpu_nodes` / `gpu_tasks`，见 [gpu.md](gpu.md) |
@@ -39,11 +42,11 @@
 
 - **OAuth2 授权码流程**：前端发现未登录 → 向后端要 Casdoor 授权地址（state 存在 httpOnly cookie 里防 CSRF）→ Casdoor 登录 → 回到 `/callback` → 后端用 code 换取 access_token
 - **会话**：access_token 本身是 Casdoor 签发的 JWT，直接放在 httpOnly cookie `hub_session` 里；每个请求都用 Casdoor 的 JWKS 公钥校验签名、有效期和 audience，后端不存会话状态
-- **谁能进控制台**：必须属于配置的企业组织（`CASDOOR_ORG`），并且是该组织的管理员（Casdoor 用户的 `isAdmin`）。其他人看到「无权访问控制台」
+- **谁能进控制台**：必须属于配置的企业组织（`CASDOOR_ORG`），并且有三种控制台角色之一：**管理员**（Casdoor 用户的 `isAdmin`）、**老板**、**部门主管**（后两者在「部门与角色」页设置）。其他人看到「无权访问控制台」。老板和主管只能用白名单里的只读接口（外加技能 / 知识库的编辑和审核），主管只看自己负责的部门，见 [console-roles.md](console-roles.md)
 - **退出**：清除 cookie，并跳转 Casdoor 的 `/api/logout` 作废令牌、结束 Casdoor 会话，否则会被自动登录回来
 - **演示模式不需要登录**，便于离线演示
 
-**成员与组织的映射**：部门 = Casdoor 组织下的分组；成员 = 组织下的用户。成员的岗位包保存在中枢数据库 `role_assignments`，没有记录时按部门的默认岗位包（`policy.DEFAULT_ROLE_PACKS`，按客户实际的部门分组名调整），再没有就用「通用办公」。读取结果缓存 30 秒，修改岗位包后立即刷新。员工端 agent 还没接入中枢，所以 Casdoor 模式下成员的 agent 状态都是「未安装」、在线数为 0——这是真实状态。
+**成员与组织的映射**：部门 = Casdoor 组织下的分组；成员 = 组织下的用户。成员的岗位包保存在中枢数据库 `role_assignments`，没有记录时按部门的默认岗位包（`policy.DEFAULT_ROLE_PACKS`，按客户实际的部门分组名调整），再没有就用「通用办公」。读取结果缓存 30 秒，修改岗位包后立即刷新。成员的 agent 状态（在线 / 离线 / 未安装）来自接入器的心跳和官方 agent 的工具调用，见 [agent.md](agent.md)「在线状态」。
 
 **岗位包落库**：岗位包定义和成员分配已迁到 PostgreSQL，控制台与 MCP Server 共用，控制台一改，下一次 MCP 调用立即按新岗位包判断。
 
@@ -66,4 +69,5 @@
 1. ~~控制台登录接 Casdoor~~（已完成）
 2. ~~成员与组织接 Casdoor~~（已完成）；身份已决定直接用 Casdoor 自建账号，不接钉钉（成员管理见 [hub/README.md](../hub/README.md)「成员账号管理」）
 3. ~~岗位包落库（PostgreSQL）~~（已完成，见 [mcp-server.md](mcp-server.md)）
-4. ~~用量接 New API~~（已完成，见 [agent.md](agent.md)）；知识库检索换 RAGFlow
+4. ~~用量接 New API~~（已完成，见 [agent.md](agent.md)）；~~知识库检索换 RAGFlow~~（已完成，见 [mcp-server.md](mcp-server.md)）
+5. ~~技能库 / 知识库在控制台编辑、版本、审核；角色与部门；改进建议；工作看板~~（已完成，见 [docs/README.md](README.md) 的专题文档）

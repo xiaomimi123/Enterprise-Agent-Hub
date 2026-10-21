@@ -53,7 +53,7 @@ ragflow-ps:
 ragflow-bootstrap: ## RAGFlow 启动后执行一次：建管理员和 API Key，写回 .env
 	cd ../console/backend && uv run python scripts/ragflow_bootstrap.py --env-file ../../hub/.env
 
-kb-sync:        ## 把 vault 里的知识库同步到 RAGFlow
+kb-sync:        ## 把知识库文档（数据库里当前生效的版本）全量同步到 RAGFlow
 	docker compose exec console-api python scripts/ragflow_sync.py --wait
 
 all-up: up ragflow-up

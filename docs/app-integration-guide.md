@@ -54,7 +54,7 @@ apps/<应用 id>/
 {
   "id": "xhs-workbench",
   "name": "小红书运营工作台",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "一句话说明",
   "entry": "xhs-workbench/scripts/workbench.mjs",
   "requires": {"node": ">=18", "agent_cli": "codebuddy", "capabilities": ["browser"]},

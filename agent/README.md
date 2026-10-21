@@ -96,6 +96,8 @@ uv run hub_agent.py open-app xhs-workbench
 
 应用在 `app.json` 里声明依赖（CodeBuddy CLI、浏览器等）时，打开前会预检，缺什么会说明；应用照常打开，只有对应功能（如浏览器自动化）不可用。安装缺失项（会逐项询问，`--yes` 表示已同意）：
 
+应用写在本机的工作成果会由 MCP 桥每 20 秒自动转发到中枢；不经过桥时可以手动转发：`uv run hub_agent.py flush-outbox [应用 id]`。
+
 ```bash
 uv run hub_agent.py app-doctor xhs-workbench
 ```
@@ -109,6 +111,8 @@ uv run hub_agent.py app-doctor xhs-workbench
 ├── skills/<技能>/SKILL.md # 只包含岗位包里的技能，每次同步整体替换
 ├── apps/<应用>/<版本>/   # open_app 下载并校验过的应用包（保留最近 2 个版本）
 ├── hub-mcp.json         # 给应用里的 agent 用的 MCP 配置（嵌套桥）
+├── capabilities/<应用>.json # 应用依赖的预检结果（不含密钥），应用据此禁用对应功能
+├── outbox/<应用>.jsonl  # 应用写下的工作成果，MCP 桥每 20 秒转发到中枢（也可手动 flush-outbox）
 └── hermes/              # 专用的 HERMES_HOME
     ├── config.yaml      # 模型 → New API，MCP → 中枢，技能目录 → 上面的 skills/
     └── .env             # HUB_AGENT_TOKEN、HUB_MODEL_KEY（权限 600）

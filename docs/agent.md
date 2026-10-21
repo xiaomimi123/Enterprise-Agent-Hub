@@ -79,7 +79,15 @@ New API 不会记录客户端传来的任何自定义信息（请求头 `X-Reque
 
 员工对 agent 说「打开小红书工作台」→ agent 调 `open_app` → 本机 MCP 桥拦截中枢返回的启动凭证 → 检查 Node → 下载 zip 并核对 SHA-256 → 安全解压（拒绝绝对路径、`..`、符号链接、超限）到 `~/.hub-agent/apps/<应用>/<版本>/` → 执行应用的 `setup` / `start` → 把网址回报给员工，并向中枢回报启动结果（审计 `app.open` + `app.launch` 同一 trace ID）。同一应用并发打开串行化；运行中的实例不会被重启，新版本只提示升级。不走 MCP 桥的客户端（如 Hermes）用 `hub_agent.py open-app <应用 id>`。应用里的底层 agent 通过 `HUB_MCP_SERVERS_FILE`（`~/.hub-agent/hub-mcp.json`，嵌套桥 `--nested`，沿用 `HUB_TRACE_ID`）接入同一个中枢。设计见 [spec](superpowers/specs/2026-10-19-app-launcher-design.md)，发布方式见 [apps/README.md](../apps/README.md)。
 
-真实验证（小红书工作台 0.6.2）：中枢发布 zip → `open-app` 与 stdio 桥各打开一次成功、重复打开幂等、健康检查返回 0.6.2；岗位包去掉应用后被拒绝并记「拦截」审计；未知应用返回明确提示。
+**依赖预检（`app.json` 的 `requires`）**：打开前按应用声明检查 Node / npx、CodeBuddy CLI、中枢模型（`~/.codebuddy/models.json` 里有中枢下发的模型）、系统浏览器、Playwright。缺东西时应用照常打开，接入器把「缺什么、怎么装、是否同意安装」附在返回消息里，审计 `app.launch` 写「缺少能力」；`hub_agent.py app-doctor <应用 id>` 逐项询问后安装（`--yes` 表示员工已对 agent 同意；只有可自动的项会被执行，系统浏览器、Node.js 只给手动安装提示）。结果写入 `~/.hub-agent/capabilities/<应用>.json`（不含密钥）并通过环境变量 `HUB_CAPABILITIES_FILE` 交给应用，应用据此只禁用对应功能（如浏览器自动化）。契约见 [app-integration-guide.md](app-integration-guide.md) 4.2.1。
+
+**成果上报（outbox）**：接入器启动应用时设置 `HUB_WORK_OUTBOX=~/.hub-agent/outbox/<应用>.jsonl`，应用把关键产出追加写进去（一行一条 JSON，带固定的 `key`）；MCP 桥运行期间每 20 秒把新行转发到 `POST /api/agent/work-report`（也可手动 `hub_agent.py flush-outbox [应用 id]`），中枢按「人 + 应用 + key」幂等写入，显示在控制台「工作看板」。按字节偏移记进度，只处理完整的行，网络失败不推进、下次重试。契约见 [work-report.md](work-report.md)。
+
+真实验证（小红书工作台 0.6.2，早期版本；当前发布的是 0.7.4）：中枢发布 zip → `open-app` 与 stdio 桥各打开一次成功、重复打开幂等、健康检查返回 0.6.2；岗位包去掉应用后被拒绝并记「拦截」审计；未知应用返回明确提示。
+
+## 其他接入方式
+
+WorkBuddy 等桌面智能体和 CodeBuddy CLI 的接入（MCP 桥、技能同步、中枢模型写入 `~/.codebuddy/models.json` 等）见 [agent/README.md](../agent/README.md)。
 
 ## 后续
 

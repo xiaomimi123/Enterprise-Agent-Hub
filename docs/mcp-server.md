@@ -53,7 +53,7 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 **审计。** 每次工具调用写一条 `audit_events`。同一任务共用 `trace_id`：优先取请求头 `X-Hub-Trace-Id`，否则用 MCP 会话 ID。请求头 `X-Hub-Task`（URL 编码）可以带上任务描述，显示在控制台审计日志中。
 
 **内容。**
-- 技能：`skills/<部门>/<技能 id>/SKILL.md`
+- 技能：存在数据库里（控制台编辑，见 [skills.md](skills.md)），`skills/<部门>/<技能 id>/SKILL.md` 只在首次启动时导入；员工的 agent 读到的是当前生效的版本
 - 知识库：文档存在数据库里（控制台编辑，见 [knowledge.md](knowledge.md)），`vault/<知识库名>/*.md` 只在首次启动时导入。配置了 RAGFlow（`RAGFLOW_ENDPOINT` + `RAGFLOW_API_KEY`）时，`content.search()` 走 RAGFlow 向量 + 关键词混合检索；未配置或 RAGFlow 出错时回退到本地字符二元组关键词检索，返回结构相同。详见下文「RAGFlow 知识库」
 
 ## RAGFlow 知识库
@@ -61,7 +61,7 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 一个知识库 = RAGFlow 里的一个数据集（`hub-<kb_id>`），嵌入模型是 RAGFlow 自带 TEI 服务的 Qwen3-Embedding-0.6B（CPU 运行，不占显卡）。
 
 - **权限仍在中枢**：先按岗位包算出 `allowed_kbs`，只把这些库的数据集 ID 传给 RAGFlow；没同步到 RAGFlow 的库直接跳过（绝不扩大范围）；返回的命中若不属于本次允许的库会被丢弃
-- **同步**：`make kb-sync`（容器里 `scripts/ragflow_sync.py --wait`）把知识库文档推到 RAGFlow（配置了数据库时以数据库为准，否则读 vault），幂等：按「文件名 + 字节数」判断，改了的先删后传，本地删掉的同步删除。改了 vault 记得重新同步
+- **同步**：`make kb-sync`（容器里 `scripts/ragflow_sync.py --wait`）把知识库文档推到 RAGFlow（配置了数据库时以数据库为准，否则读 vault），幂等：按「文件名 + 字节数」判断，改了的先删后传，本地删掉的同步删除。在控制台里编辑发布后会自动同步这篇文档；`make kb-sync` 用于全量对齐
 - **回退**：RAGFlow 不可达、超时、返回错误或非 JSON 时，记 warning 并回退本地检索，MCP 调用不会因此失败
 - **初始化**：RAGFlow 启动后执行一次 `make ragflow-bootstrap`，注册管理员 `admin@hub.local`（密码是 `.env` 的 `RAGFLOW_ADMIN_PASSWORD`）、创建 API Key 并写入 `.env`
 - **Windows / Docker Desktop**：官方 ES 端口 1200 常落在 Hyper-V 保留端口段，已改 19200；TEI 官方默认批量 token 数会让预热内存冲到 20GB+ 被 OOM 杀掉，`hub/ragflow/docker-compose.override.yml` 把它降到 2048（稳定在约 3GB）
@@ -72,9 +72,16 @@ PostgreSQL 的 `hub` 库（`hub/docker-compose.yml` 里的同一个 PostgreSQL�
 
 | 表 | 内容 |
 |---|---|
-| `role_packs` | 岗位包定义；首次启动时写入演示岗位包作为初始数据 |
-| `role_assignments` | 成员 → 岗位包；没有记录的成员按部门默认岗位包 |
+| `role_packs` / `role_assignments` | 岗位包定义（首次启动写入演示岗位包）/ 成员 → 岗位包 |
 | `audit_events` | 审计事件，一步一行 |
+| `gpu_nodes` / `gpu_tasks` | GPU 节点与任务队列，见 [gpu.md](gpu.md) |
+| `hub_settings` | 管理员在控制台里改的配置（出图通道、出图 API、H3 网关等，密钥加密） |
+| `agent_presence` / `agent_presence_daily` | 员工 agent 在线状态与每日在线人数 |
+| `console_roles` / `dept_config` | 老板 / 部门主管 / 部门默认岗位包，见 [console-roles.md](console-roles.md) |
+| `skills` / `skill_versions` | 技能及其版本，见 [skills.md](skills.md) |
+| `kbs` / `kb_docs` / `kb_doc_versions` | 知识库元数据、文档及其版本，见 [knowledge.md](knowledge.md) |
+| `proposals` | agent 提交的改进建议，见 [proposals.md](proposals.md) |
+| `work_items` | 上报的工作成果，见 [work-report.md](work-report.md) |
 
 ## 本地验证
 
@@ -88,7 +95,7 @@ cd ../console/backend && uv run python scripts/mcp_smoke.py   # 模拟运营、�
 ## 取舍与后续
 
 - 开发环境的 agent 应用开启了 password 授权，方便脚本取令牌；生产环境应改为授权码或设备码流程，由员工端 agent 引导员工扫码登录
-- 控制台「知识库」页的文档列表和索引状态已读 RAGFlow（未同步的库读本地 vault）；检索结果的 `section`（所属章节）暂为空，RAGFlow 按分块返回，不带章节标题
+- 控制台「知识库」页的文档列表来自数据库，索引状态读 RAGFlow 的真实解析状态；检索结果的 `section`（所属章节）暂为空，RAGFlow 按分块返回，不带章节标题
 - 已容器化：与控制台后端共用 `hub-backend` 镜像，见 `hub/docker-compose.yml`
 
 ## 对话模型上游（控制台「模型」页）

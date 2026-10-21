@@ -14,7 +14,7 @@
 | PostgreSQL 16 / Redis 7 | 共用数据库与缓存 | PostgreSQL 仅本机 25432 | 开源镜像 |
 | RAGFlow v0.27.2 | 知识库检索（已接入 MCP 的 search_knowledge） | 网页 8080 / API 9380 | 官方 compose，由 `ragflow/setup.sh` 拉取 |
 
-PostgreSQL 里有三个库：`casdoor`、`newapi`，以及中枢自研服务用的 `hub`（岗位包、成员分配、审计日志）。
+PostgreSQL 里有三个库：`casdoor`、`newapi`，以及中枢自研服务用的 `hub`（岗位包、成员与角色、审计日志、GPU 任务、技能、知识库文档与版本、改进建议、工作成果等，表清单见 [docs/mcp-server.md](../docs/mcp-server.md)「数据库」）。
 
 技能仓库 `skills/` 和知识库 `vault/` 在宿主机上，以只读方式挂载进 console-api 和 hub-mcp，**只在首次启动时导入数据库**；之后技能和知识库文档在控制台里编辑、存在数据库里（见 docs/skills.md、docs/knowledge.md），改这两个目录里的文件不再生效。
 
@@ -45,7 +45,7 @@ ComfyUI 没有鉴权，不要对局域网开放：在 ComfyUI Desktop 的设置�
 make ragflow-up          # 拉取官方部署文件并启动（镜像约 13GB，首次较慢；嵌入服务 TEI 会再下载一次模型）
 make ragflow-bootstrap   # 建管理员和 API Key，写回 .env（RAGFLOW_ENDPOINT、RAGFLOW_API_KEY）
 docker compose up -d     # 让 console-api、hub-mcp 读到新配置
-make kb-sync             # 把 vault 里的知识库同步到 RAGFlow
+make kb-sync             # 把知识库文档（数据库里当前生效的版本）全量同步到 RAGFlow；之后在控制台编辑会自动同步单篇
 ```
 内存建议 ≥ 32GB（Docker Desktop 虚拟机分到 ≥ 16GB）。不启用时 `search_knowledge` 自动用本地关键词检索。
 

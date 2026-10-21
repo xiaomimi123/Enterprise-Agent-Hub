@@ -306,11 +306,6 @@ class CasdoorProvider(DemoProvider):
         self._sync()
         return super().knowledge_bases()
 
-    def kb_documents(self, kb_id: str) -> list[dict]:
-        if kb_id not in content.KB_REGISTRY:
-            raise NotFound(f"知识库 {kb_id} 不存在")
-        return content.kb_documents(kb_id)
-
     def traces(self, member_id=None, outcome=None, dept=None, q=None):
         self._sync()
         return super().traces(member_id, outcome, dept, q)

@@ -41,3 +41,13 @@ def test_manager_and_boss_kb_routes():
         assert all(allowed(role, "GET", p) for p in reads) and all(allowed(role, m, p) for m, p in writes)
     assert not allowed("manager", "POST", "/api/kb-reviews/kb-company/x/2") and allowed("boss", "POST", "/api/kb-reviews/kb-company/x/2")
     assert not allowed("manager", "DELETE", "/api/knowledge-bases/kb-brand") and not allowed("boss", "PATCH", "/api/knowledge-bases/kb-brand/documents/x")
+
+
+def test_casdoor_provider_lists_documents_from_the_database_not_ragflow_ids():
+    """回归：CasdoorProvider 里曾有两个 kb_documents，后一个（读 RAGFlow，id 是 RAGFlow 的文档 id）盖掉了读数据库的那个，
+    控制台拿着 RAGFlow id 去取文档详情得到 404。"""
+    import inspect
+
+    from app.providers.casdoor import CasdoorProvider
+    assert inspect.getsource(CasdoorProvider).count("def kb_documents") == 1
+    assert "kbstore" in inspect.getsource(CasdoorProvider.kb_documents)

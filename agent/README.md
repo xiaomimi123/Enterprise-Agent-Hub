@@ -49,6 +49,8 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 
 它会：没有 uv 就安装 → 下载接入器到 `~/.hub-agent/` → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版，把 `enterprise-hub` 写进它们的 MCP 配置（保留原有内容，改之前备份为 `*.bak-hub-<时间>`，格式有误的配置文件不覆盖）。重复运行是安全的。也可以把这条命令发给 WorkBuddy 这类能执行命令的 agent，让它自己接入。
 
+一键脚本还会检测 **Node.js**（打开公司应用如小红书工作台需要）和 **CodeBuddy CLI**（只有工作台里的浏览器自动化需要），缺哪个就**询问是否安装**，不会静默安装：Windows 用 `winget install -e --id OpenJS.NodeJS.LTS` 装 Node.js，macOS 用 `brew install node`，CodeBuddy CLI 用 `npm install -g @tencent-ai/codebuddy-code`（macOS / Linux 装到 `~/.local`，不需要 sudo）。环境变量：`HUB_INSTALL_TOOLS=yes` 不询问直接装、`HUB_INSTALL_TOOLS=no` 一律不装、`HUB_INSTALL_DRYRUN=1` 只打印会装什么（演练，不登录）；没有交互终端（比如让 agent 代跑）时不会安装，只打印命令。
+
 员工电脑不需要改防火墙（只有中枢那台需要放行 8088、8200、8000 端口），和中枢在同一个局域网即可。新员工从建账号到接通的完整步骤和常见问题，见控制台「能力 → 接入方式」页（含可一键复制的「发给员工的话」）。安装脚本通过局域网 HTTP 下发，只应在公司内网使用。
 
 ## 接 WorkBuddy 等桌面智能体（手动）

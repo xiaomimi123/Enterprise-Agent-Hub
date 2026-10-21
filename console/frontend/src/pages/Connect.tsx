@@ -130,7 +130,11 @@ export default function Connect() {
         <Panel title="要让 agent 控制浏览器（采集 / 发布 / 回评论）：用 CodeBuddy CLI" sub="WorkBuddy 等桌面 agent 在工作台里只能走「收件箱模式」，按设计不能开浏览器">
           <div className="stack-sm">
             <div>小红书工作台给桌面 agent 的任务会带「只处理本地文件，不得打开浏览器」的限制，WorkBuddy 拒绝开浏览器是正常的，不是故障。要自动操作浏览器，工作台必须用 <b>CLI 模式</b>：由它在后台启动命令行 agent 来做。</div>
-            <div><Pill tone="accent" dot={false}>第 1 步</Pill> 员工电脑装好 CodeBuddy CLI（命令 <span className="mono">codebuddy</span> 能用），再运行一次上面的一键接入——它会自动把中枢的 MCP 和<b>岗位包允许的模型</b>写进 CodeBuddy（<span className="mono">~/.codebuddy/.mcp.json</span>、<span className="mono">models.json</span>），模型调用走中枢的模型网关，按人计量。</div>
+            <div><Pill tone="accent" dot={false}>第 1 步</Pill> 员工电脑上要有 <b>Node.js</b> 和 <b>CodeBuddy CLI</b>（命令 <span className="mono">codebuddy</span> 能用）。上面的一键接入会检测，缺哪个就<b>询问是否安装</b>（不会静默安装）；在没有交互终端的环境里（比如让 agent 代跑）不会装，只打印安装命令。想自己装，按下面的命令：</div>
+            <Code label={quickOs === 'Windows' ? '安装 Node.js（PowerShell）' : '安装 Node.js（macOS 用 Homebrew；Linux 用系统包管理器或 nodejs.org）'} text={quickOs === 'Windows' ? 'winget install -e --id OpenJS.NodeJS.LTS' : 'brew install node'} />
+            <Code label="安装 CodeBuddy CLI（装好 Node.js 后；Windows 装完要重新打开终端）" text={quickOs === 'Windows' ? 'npm install -g @tencent-ai/codebuddy-code' : 'npm install -g --prefix ~/.local @tencent-ai/codebuddy-code'} />
+            <Code label="想让一键接入不再询问、直接装好（PowerShell 先设环境变量，再运行一键接入命令）" text={quickOs === 'Windows' ? '$env:HUB_INSTALL_TOOLS = "yes"' : 'export HUB_INSTALL_TOOLS=yes'} />
+            <div>装好后<b>再运行一次上面的一键接入</b>——它会自动把中枢的 MCP 和<b>岗位包允许的模型</b>写进 CodeBuddy（<span className="mono">~/.codebuddy/.mcp.json</span>、<span className="mono">models.json</span>），模型调用走中枢的模型网关，按人计量。</div>
             <div><Pill tone="accent" dot={false}>第 2 步</Pill> 在工作台「连接与设置」里选 <b>CLI 模式</b>，适配器选 CodeBuddy Code，并开启浏览器控制。</div>
             <div><Pill tone="accent" dot={false}>第 3 步</Pill> 第一次打开小红书会停在登录页，请员工<b>本人</b>在弹出的浏览器里扫码登录（agent 不会碰密码和验证码）。</div>
             <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
@@ -222,6 +226,7 @@ export default function Connect() {
             <div><b>密码输对了还是登录失败</b>：连续输错 5 次会被锁定 15 分钟，等一会儿再试；或请管理员在「成员与组织」页重置密码。</div>
             <div><b>提示「账号已被停用」</b>：账号被管理员停用了，请联系管理员启用。</div>
             <div><b>让 WorkBuddy 开浏览器被拒绝</b>：工作台对桌面 agent 只开放收件箱模式，不允许开浏览器，这是设计。要自动操作浏览器，改用上面的 CodeBuddy CLI（CLI 模式）。</div>
+            <div><b>一键接入提示 Node.js / CodeBuddy CLI 未安装</b>：Node.js 用来打开公司应用（如小红书工作台），CodeBuddy CLI 只有工作台里的浏览器自动化需要，只用 WorkBuddy 的话可以不装。按上面「要让 agent 控制浏览器」那一节的命令安装即可。</div>
             <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
             <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>

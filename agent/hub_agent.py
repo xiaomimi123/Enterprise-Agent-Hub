@@ -488,6 +488,8 @@ def cmd_setup(args) -> None:
     print()
     for name, status in results:
         info(f"{name}：{status}")
+    if not shutil.which("codebuddy"):
+        info("提示：要在小红书工作台里用浏览器自动化，需要先安装 CodeBuddy CLI（需要 Node.js）：npm install -g @tencent-ai/codebuddy-code ，装好后重新运行这条命令。只用 WorkBuddy 的话可以不装。")
     done = [n for n, s in results if s in ("已配置", "已是最新")]
     if done:
         info(f"接入完成。请完全退出并重新打开 {'、'.join(done)}，在里面就能直接使用公司知识库、技能和出图出视频。")

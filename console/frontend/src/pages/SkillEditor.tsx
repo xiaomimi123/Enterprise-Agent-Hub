@@ -17,11 +17,9 @@ description: 一句话说明这个技能做什么、什么时候用
 
 ## 什么时候用
 
-## 步骤
-1.
-2.
+## 业务标准
 
-## 注意事项
+## 不能做
 `
 
 /** 编辑一个技能：本部门的直接生效，全公司的提交审核。 */
@@ -55,7 +53,7 @@ export function SkillEditor({ id, content, baseVersion, mode, onDone, onCancel }
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
         {mode === 'direct' ? '保存后立即对员工生效；每次保存都是新版本，可在「历史版本」里回滚。' : '这是全公司的技能，修改要经老板或管理员审核后才生效。'}
-        开头的 <code>---</code> 部分必须有 name 和 description。
+        开头的 <code>---</code> 部分必须有 name 和 description。技能只写**业务标准和判断**（做什么、做到什么程度、哪些不能做），不要写文件格式、存放位置、操作步骤——这些由各应用（如工作台）自己的手册定，写进技能会和它们冲突。
       </div>
     </div>
   )

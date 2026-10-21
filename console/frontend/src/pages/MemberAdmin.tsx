@@ -13,6 +13,29 @@ function download(name: string, text: string) {
   URL.revokeObjectURL(url)
 }
 
+/** 复制文本。navigator.clipboard 只在 HTTPS / localhost 可用，内网 http 访问时退回 execCommand。 */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // 退回下面的方式
+  }
+  const area = Object.assign(document.createElement('textarea'), { value: text })
+  area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'
+  document.body.appendChild(area)
+  area.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    area.remove()
+  }
+}
+
 /** 创建 / 重置密码后展示初始密码，只显示这一次。 */
 export function PasswordNotice({ info, onClose }: { info?: { id: string; name?: string; password: string }; onClose: () => void }) {
   const { message } = App.useApp()
@@ -22,9 +45,9 @@ export function PasswordNotice({ info, onClose }: { info?: { id: string; name?: 
         <>
           <p>请把账号和初始密码告诉 <b>{info.name || info.id}</b>。首次登录会要求修改密码，关闭后将无法再查看这个密码。</p>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 12, background: 'var(--bg-sunk, #f5f5f5)', borderRadius: 8 }}>
-            <span className="mono">账号 {info.id}</span>
-            <span className="mono" style={{ fontWeight: 700 }}>密码 {info.password}</span>
-            <Button size="small" icon={<Copy size={13} />} onClick={() => navigator.clipboard.writeText(`账号：${info.id}\n初始密码：${info.password}`).then(() => message.success('已复制'))}>复制</Button>
+            <span className="mono" style={{ userSelect: 'all' }}>账号 {info.id}</span>
+            <span className="mono" style={{ fontWeight: 700, userSelect: 'all' }}>密码 {info.password}</span>
+            <Button size="small" icon={<Copy size={13} />} onClick={async () => ((await copyText(`账号：${info.id}\n初始密码：${info.password}`)) ? message.success('已复制') : message.error('复制失败，请手动选中密码复制'))}>复制</Button>
           </div>
         </>
       )}

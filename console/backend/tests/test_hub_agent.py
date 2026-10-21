@@ -164,7 +164,8 @@ def test_codebuddy_models_written_with_full_chat_completions_url_and_default(tmp
     assert [m["id"] for m in ours] == ["deepseek-v4", "qwen-max"] and "2 个" in msg
     assert all(m["url"] == "http://hub:3000/v1/chat/completions" and m["apiKey"] == "sk-employee-key" and m["supportsToolCall"] for m in ours)
     assert data["availableModels"] == ["mine"] and any(m["id"] == "mine" for m in data["models"])   # 员工自己的模型和设置保留
-    assert json.loads((home / "settings.json").read_text(encoding="utf-8"))["model"] == "deepseek-v4"
+    st = json.loads((home / "settings.json").read_text(encoding="utf-8"))
+    assert st["model"] == "deepseek-v4" and st["permissions"]["allow"] == ["DeferExecuteTool"]                # 无人值守也能调中枢工具
     assert list(home.glob("models.json.bak-hub-*"))                                                    # 改之前备份
 
 
@@ -178,9 +179,14 @@ def test_codebuddy_sync_is_idempotent_updates_key_and_respects_user_default(tmp_
     data = json.loads((home / "models.json").read_text(encoding="utf-8"))
     assert [m["apiKey"] for m in data["models"]] == ["sk-rotated", "sk-rotated"] and len(data["models"]) == 2   # 不重复追加
     s = home / "settings.json"
-    s.write_text(json.dumps({"model": "my-own-choice", "env": {"A": "1"}}), encoding="utf-8")                 # 员工自己改了默认模型
+    s.write_text(json.dumps({"model": "my-own-choice", "env": {"A": "1"}, "permissions": {"allow": ["Bash(ls)"], "deny": ["Read(.env)"]}}),
+                 encoding="utf-8")                                                                           # 员工自己改了默认模型、有自己的权限规则
     hub_agent.sync_codebuddy_models(c2, home, state)
-    assert json.loads(s.read_text(encoding="utf-8")) == {"model": "my-own-choice", "env": {"A": "1"}}
+    st = json.loads(s.read_text(encoding="utf-8"))
+    assert st["model"] == "my-own-choice" and st["env"] == {"A": "1"} and st["permissions"]["deny"] == ["Read(.env)"]
+    assert st["permissions"]["allow"] == ["Bash(ls)", "DeferExecuteTool"]                                    # 追加而不是覆盖，且不重复
+    hub_agent.sync_codebuddy_models(c2, home, state)
+    assert json.loads(s.read_text(encoding="utf-8"))["permissions"]["allow"] == ["Bash(ls)", "DeferExecuteTool"]
 
 
 def test_codebuddy_cleanup_when_no_model_and_skip_when_not_installed_or_broken(tmp_path):

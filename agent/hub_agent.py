@@ -373,19 +373,28 @@ def sync_codebuddy_models(cfg: dict, home: Path | None = None, state_file: Path 
     if changed:
         _backup(models_f)
         write_private(models_f, json.dumps(new_models, ensure_ascii=False, indent=2) + "\n")
-    # 默认模型：员工没设过、或还是上次中枢设的那个，才改成中枢的默认模型，不覆盖员工自己的选择
-    current = settings_doc.get("model")
+    # settings.json：① 默认模型——员工没设过、或还是上次中枢设的那个，才改成中枢的默认模型，不覆盖员工自己的选择；
+    # ② 放行 DeferExecuteTool——CodeBuddy 把 MCP 工具当延迟加载工具，经它调用；无人值守（-p，如工作台的 CLI 模式）时没有权限弹窗，
+    # 不放行中枢工具就会被拒绝。它对所有延迟加载的 MCP 工具生效，中枢工具本身仍由岗位包按人限制。
+    new_settings = dict(settings_doc)
+    current = new_settings.get("model")
     note = ""
     if m and (not current or current == prev.get("default")) and current != m["model"]:
-        _backup(settings_f)
-        write_private(settings_f, json.dumps({**settings_doc, "model": m["model"]}, ensure_ascii=False, indent=2) + "\n")
+        new_settings["model"] = m["model"]
         note = f"，默认模型 {m['model']}"
     elif not m and current and current == prev.get("default"):
-        rest = {k: v for k, v in settings_doc.items() if k != "model"}
+        new_settings.pop("model", None)
+    perms = dict(new_settings.get("permissions") or {})
+    allow = list(perms.get("allow") or [])
+    if "DeferExecuteTool" not in allow:
+        perms["allow"] = allow + ["DeferExecuteTool"]
+        new_settings["permissions"] = perms
+        note += "，已放行中枢工具的无人值守调用"
+    if new_settings != settings_doc:
         _backup(settings_f)
-        write_private(settings_f, json.dumps(rest, ensure_ascii=False, indent=2) + "\n")
+        write_private(settings_f, json.dumps(new_settings, ensure_ascii=False, indent=2) + "\n")
     write_private(state_file, json.dumps({"default": m["model"] if m else None}, ensure_ascii=False))
-    return f"已同步中枢模型 {len(mine)} 个到 {models_f}{note}" if m else "中枢未下发模型（岗位包用自带模型），已清理中枢写入的条目"
+    return f"已同步中枢模型 {len(mine)} 个到 {models_f}{note}" if m else f"中枢未下发模型（岗位包用自带模型），已清理中枢写入的条目{note}"
 
 
 def codebuddy_mcp_file(home: Path) -> Path:

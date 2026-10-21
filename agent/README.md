@@ -79,9 +79,10 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 - 把中枢写进它的 MCP 配置 `~/.codebuddy/.mcp.json`（已有 `mcp.json` 或旧的 `~/.codebuddy.json` 里已有服务器时写那个文件，避免顶掉员工原有的服务器）
 - 把**岗位包允许的中枢模型**写进 `~/.codebuddy/models.json`：条目名带「公司中枢 · 」前缀，`url` 为完整的 `<模型网关>/v1/chat/completions`（CodeBuddy 要求写完整路径，只支持 OpenAI 接口格式），`apiKey` 是员工本人的模型 key（按岗位包限定模型和额度，调用记入「用量与成本」），文件权限 600
 - 员工没自己选过默认模型时，在 `~/.codebuddy/settings.json` 把 `model` 设为中枢的默认模型；员工之后自己改了就不再覆盖
+- 在同一个 `settings.json` 的 `permissions.allow` 里追加 `DeferExecuteTool`（保留员工原有规则）：CodeBuddy 把 MCP 工具当延迟加载工具，无人值守（`codebuddy -p`，工作台的 CLI 模式）时没有权限弹窗，不放行就会被拒绝。它对所有延迟加载的 MCP 工具生效；中枢工具本身仍由岗位包按人限制
 - 之后每次 `sync` 都会更新密钥和模型列表；岗位包改成「自带模型」时，会清掉中枢写入的条目
 
-改动前都会备份为 `*.bak-hub-<时间>`，格式有误的文件不覆盖。数据来自官方文档，**还没有在真实的 CodeBuddy CLI 上完整验证过**（已验证：生成的地址和密钥能直接调用模型网关）。
+改动前都会备份为 `*.bak-hub-<时间>`，格式有误的文件不覆盖。已在真实的 CodeBuddy CLI 2.171.0 上验证：识别中枢 MCP、调用中枢模型（用量记到员工本人的 key）、无人值守调用 `whoami` 和 `generate_image`。注意 CodeBuddy 每次请求带的上下文很大（约 2.5 万 token），岗位包的月度模型额度会消耗得比较快，额度不足时模型网关返回 403。
 
 ## 打开公司应用
 

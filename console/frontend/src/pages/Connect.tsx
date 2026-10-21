@@ -134,7 +134,7 @@ export default function Connect() {
             <div><Pill tone="accent" dot={false}>第 2 步</Pill> 在工作台「连接与设置」里选 <b>CLI 模式</b>，适配器选 CodeBuddy Code，并开启浏览器控制。</div>
             <div><Pill tone="accent" dot={false}>第 3 步</Pill> 第一次打开小红书会停在登录页，请员工<b>本人</b>在弹出的浏览器里扫码登录（agent 不会碰密码和验证码）。</div>
             <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
-            <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。命令行 agent 首次在后台运行时，可能因为工具权限提示而停住，遇到时请把现象反馈给管理员。</p>
+            <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。接入时会在 CodeBuddy 的设置里放行中枢工具的无人值守调用（否则后台运行没有权限弹窗会被拒绝）。CodeBuddy 每次请求带的上下文很大，岗位包的月度模型额度会消耗得比较快，额度不足时调用会被模型网关拒绝，请在「岗位包」页按需调高。</p>
           </div>
         </Panel>
 

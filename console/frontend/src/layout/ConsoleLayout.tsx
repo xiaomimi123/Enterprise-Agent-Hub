@@ -1,5 +1,5 @@
 import {
-  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
 } from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
@@ -29,6 +29,7 @@ const NAV = [
   },
   {
     group: '监管', items: [
+      { path: '/work', icon: <ClipboardList />, label: '工作看板' },
       { path: '/audit', icon: <ClipboardCheck />, label: '审计日志', badge: true },
       { path: '/tasks', icon: <Palette />, label: '生成任务' },
       { path: '/usage', icon: <ChartPie />, label: '用量与成本' },
@@ -45,6 +46,7 @@ const TITLES: Record<string, [string, string]> = {
   '/models': ['能力', '模型'],
   '/apps': ['能力', '应用'],
   '/connect': ['能力', '接入方式'],
+  '/work': ['监管', '工作看板'],
   '/audit': ['监管', '审计日志'],
   '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],

@@ -21,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import accounts, app_access, content, db, generation, gpu, policy
+from . import accounts, app_access, content, db, generation, gpu, policy, work
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -35,6 +35,8 @@ INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公�
 - search_knowledge：检索有权限的企业知识库
 - generate_cover / generate_image / generate_video / generate_video_from_image：派发到公司 GPU 节点生成封面图、图片、带声音的短视频、图生视频（排队执行）
 - get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
+- report_work：做完一项有交付物的工作（笔记草稿、对标报告、选题、封面、视频等）、或工作状态变化（待审核、受阻）时上报，老板和主管在看板上看的就是这些；my_work 查看自己已上报的
+- team_report：（仅管理层）查看各岗位、各成员的工作成果与进度，可用来写日报
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
@@ -237,6 +239,45 @@ def open_app(app_id: str, ctx: Context) -> str:
     return json.dumps({**t, "needs_local_connector": True,
                        "terminal_hint": f"当前客户端没有经过本机接入器，请在终端运行：uv run hub_agent.py open-app {t['app_id']}"},
                       ensure_ascii=False)
+
+
+@mcp.tool(description="上报一项工作成果或进度，让主管和老板在中枢看板上看到你做成了什么。完成一项有交付物的工作（笔记草稿、对标报告、选题表、封面、视频、客户方案等）、"
+                      "进度变化、等审核或被卡住时调用。title 写成果名称（不要贴正文）；kind 是类型，如 笔记 / 对标报告 / 选题 / 封面 / 视频 / 方案 / 其他；"
+                      "status 为 进行中 / 待审核 / 已完成 / 受阻（默认 已完成）；progress 0–100；link 是产物的 http(s) 链接（可选）；note 一句话说明（受阻时写原因）。"
+                      "继续更新同一项工作时带上 item_id（上次返回的），不要重复新建。不要上报敏感内容，只写标题和状态")
+def report_work(title: str, ctx: Context, kind: str = "其他", status: str = "已完成", progress: int | None = None,
+                link: str = "", note: str = "", item_id: int | None = None) -> str:
+    p = _principal()
+    trace_id, _ = _trace(ctx)
+    try:
+        r = work.report_work(p, trace_id, {"title": title, "kind": kind, "status": status, "progress": progress, "link": link, "note": note},
+                             item_id=item_id, source="外部智能体" if p.is_external else "agent")
+    except work.BadReport as e:
+        return str(e)
+    return json.dumps(r, ensure_ascii=False)
+
+
+@mcp.tool(description="查看你自己最近上报的工作成果和状态（默认近 7 天）")
+def my_work(ctx: Context, days: int = 7) -> str:
+    p = _principal()
+    days = max(1, min(days, 30))
+    items = db.work_items_since(p.org, work.period_start(days), p.user_name)
+    return json.dumps([{"item_id": i["id"], "kind": i["kind"], "title": i["title"], "status": i["status"], "progress": i["progress"],
+                        "link": i["link"], "updated_at": i["updated_at"].isoformat()} for i in items], ensure_ascii=False)
+
+
+@mcp.tool(description="（管理层）查看团队的工作成果与进度：按岗位、按成员汇总已上报的成果（已完成 / 待审核 / 进行中 / 受阻）和活动（出图出视频数、调用数、期间无活动的人）。"
+                      "days=1 是今天，7 是近一周；person 可只看某个人（用户名或姓名）。返回里的 digest 是事实摘要，可据此写日报，数据以 roles / people / items 为准，不要编造。"
+                      "只有岗位包开放了「查看团队工作汇报」的员工能用")
+def team_report(ctx: Context, days: int = 1, person: str | None = None) -> str:
+    p = _principal()
+    trace_id, _ = _trace(ctx)
+    if p.is_external or not policy.can_use_tool(p, work.REPORT_TOOL):
+        _audit(ctx, p, "拦截", "work.team_report", f"岗位包「{p.pack['name']}」没有查看团队工作汇报的权限", "拒绝")
+        return "无权查看团队工作汇报。"
+    r = work.load_report(p.org, days, person=person)
+    _audit(ctx, p, "工具", "work.team_report", f"查看团队工作汇报（近 {r['days']} 天{'，' + person if person else ''}）", "通过")
+    return json.dumps(r, ensure_ascii=False)
 
 
 @mcp.tool(description="查询图片 / 视频生成任务的进度和结果")

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, db, gpu, members_api, models_api, public_api
+from . import agent_api, apps, auth, db, gpu, members_api, models_api, public_api, work
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -215,6 +215,15 @@ def list_published_apps():
             "opens_7d": len(mine), "last_open": max((e["ts"] for e in mine), default=None),
         })
     return out
+
+
+@api.get("/work/report")
+def work_report(days: int = 7, person: str | None = None):
+    """控制台「工作看板」：按岗位、按个人汇总已上报的成果和自动统计的活动。演示模式没有数据库，返回空看板。"""
+    if not settings.database_url:
+        return work.build_report(days=days, events=[], items=[], tasks=[], assignments={}, packs={})
+    members = [{"user_name": m.get("id"), "name": m.get("name", ""), "dept": m.get("dept", "")} for m in provider.members()]
+    return work.load_report(settings.casdoor_org, days, members=members, person=person)
 
 
 @api.get("/connect")

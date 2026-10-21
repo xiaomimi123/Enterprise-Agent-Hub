@@ -6,6 +6,10 @@
 
 ## 2026-10-21
 
+**工作成果与进度（老板看板）**
+- 新增 MCP 工具 `report_work` / `my_work`（员工上报做成了什么）和 `team_report`（管理层，需岗位包开放新工具 `report.view`），新表 `work_items`；控制台新增「工作看板」页（按岗位 / 按个人、成果清单、受阻、无活动的人）。设计、口径和限制见 [work-report.md](work-report.md)。老板的每日日报由老板自己的 agent 定时调用 `team_report` 生成，中枢不推送。
+- 验证：后端测试 269 项通过（新增 `test_work.py` 11 项）；`tsc` 通过；重建后用真实库验证上报、更新、他人不能改、汇总；MCP 工具列表含新工具。**未验证**：真实 agent 是否会按说明主动上报、控制台页面在浏览器里的实际渲染（需登录）、老板 agent 的定时日报。
+
 **应用能力预检（工作台 0.7.2）**
 - `app.json` 的 `requires` 可声明 `agent_cli` / `capabilities` / `playwright_mcp`，中枢校验（写错则该应用不列出）。接入器打开应用前预检 Node、CodeBuddy CLI、中枢模型、系统浏览器、Playwright，缺什么在返回消息里说明并询问是否安装（`app-doctor <app_id> [--yes]`，只自动执行可自动的项），审计写「缺少能力」。结果写入 `~/.hub-agent/capabilities/<id>.json` 并设 `HUB_CAPABILITIES_FILE`；工作台只拦浏览器功能、不拦打开。
 - 验证：中枢后端测试 258 项通过；工作台新增 8 项（含桥层拦截）通过，全量仅 ffmpeg 相关用例因本机缺 ffmpeg 失败（与本次无关）；中枢已能读到 0.7.2 的 `requires`。**未验证**：真实环境里交互式安装提示、`app-doctor` 在真实员工机上的完整流程。

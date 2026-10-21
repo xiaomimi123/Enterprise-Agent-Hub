@@ -16,6 +16,7 @@ import RolePacks from './pages/RolePacks'
 import Skills from './pages/Skills'
 import Tasks from './pages/Tasks'
 import UsagePage from './pages/Usage'
+import WorkPage from './pages/Work'
 import { ThemeProvider } from './theme'
 
 createRoot(document.getElementById('root')!).render(
@@ -36,6 +37,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="connect" element={<Connect />} />
               <Route path="audit" element={<Audit />} />
               <Route path="tasks" element={<Tasks />} />
+              <Route path="work" element={<WorkPage />} />
               <Route path="usage" element={<UsagePage />} />
             </Route>
           </Routes>

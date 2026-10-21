@@ -207,6 +207,25 @@ export interface Trace extends TraceBrief {
   steps: TraceStep[]
 }
 
+export interface WorkCounts { 进行中: number; 待审核: number; 已完成: number; 受阻: number; total: number }
+export interface WorkPerson {
+  user_name: string; display_name: string; dept: string; role: string; items: WorkCounts; kinds: Record<string, number>
+  images: number; videos: number; calls: number; denied: number; active_days: number; active: boolean; last_active: string | null
+}
+export interface WorkRole {
+  role: string; people: number; active_people: number; items: WorkCounts; kinds: Record<string, number>
+  images: number; videos: number; calls: number
+}
+export interface WorkItem {
+  id: number; user_name: string; display_name: string; role: string; kind: string; title: string
+  status: string; progress: number; link: string; note: string; source: string; updated_at: string
+}
+export interface WorkReport {
+  days: number; since: string; generated_at: string; digest: string
+  totals: { people: number; active_people: number; items: WorkCounts; images: number; videos: number; calls: number; denied: number }
+  roles: WorkRole[]; people: WorkPerson[]; items: WorkItem[]; inactive: string[]; blocked: WorkItem[]
+}
+
 export interface HubMemberUsage {
   member_id: string
   member: string
@@ -423,5 +442,6 @@ export const api = {
     request<{ ok: boolean; seconds: number; error: string; preview?: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
+  workReport: (days = 7) => request<WorkReport>(`/work/report?days=${days}`),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),
 }

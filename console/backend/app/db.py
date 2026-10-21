@@ -130,6 +130,26 @@ CREATE TABLE IF NOT EXISTS agent_presence (
     last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (org, user_name)
 );
+
+-- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
+CREATE TABLE IF NOT EXISTS work_items (
+    id           BIGSERIAL PRIMARY KEY,
+    org          TEXT NOT NULL,
+    user_name    TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    dept         TEXT NOT NULL DEFAULT '',
+    kind         TEXT NOT NULL DEFAULT '其他',
+    title        TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT '已完成',
+    progress     INTEGER NOT NULL DEFAULT 100,
+    link         TEXT NOT NULL DEFAULT '',
+    note         TEXT NOT NULL DEFAULT '',
+    source       TEXT NOT NULL DEFAULT '',
+    trace_id     TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS work_items_updated ON work_items (org, updated_at DESC);
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -489,3 +509,33 @@ def gpu_task_stats() -> dict[str, dict]:
         ).fetchall()
         queued = conn.execute("SELECT count(*) AS n FROM gpu_tasks WHERE status = 'queued'").fetchone()["n"]
     return {r["node_id"]: dict(r) for r in rows} | {"_queued": {"n": queued}}
+
+
+# ---- 工作成果 ----
+WORK_KEYS = ("org", "user_name", "display_name", "dept", "kind", "title", "status", "progress", "link", "note", "source", "trace_id")
+
+
+def add_work_item(item: dict) -> int:
+    row = {k: item.get(k, "" if k not in ("progress",) else 0) for k in WORK_KEYS}
+    with connect() as conn:
+        return conn.execute(
+            f"INSERT INTO work_items ({', '.join(WORK_KEYS)}) VALUES ({', '.join(f'%({k})s' for k in WORK_KEYS)}) RETURNING id", row
+        ).fetchone()["id"]
+
+
+def update_work_item(item_id: int, org: str, user_name: str, fields: dict) -> bool:
+    """只能改自己的条目；返回是否改到了。"""
+    allowed = {k: v for k, v in fields.items() if k in ("kind", "title", "status", "progress", "link", "note", "trace_id") and v is not None}
+    sets = ", ".join(f"{k} = %({k})s" for k in allowed)
+    with connect() as conn:
+        cur = conn.execute(f"UPDATE work_items SET {sets}{', ' if sets else ''}updated_at = now() "
+                           "WHERE id = %(id)s AND org = %(org)s AND user_name = %(u)s",
+                           {**allowed, "id": item_id, "org": org, "u": user_name})
+        return cur.rowcount > 0
+
+
+def work_items_since(org: str, since: datetime, user_name: str | None = None) -> list[dict]:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM work_items WHERE org = %s AND updated_at >= %s AND (%s::text IS NULL OR user_name = %s) "
+            "ORDER BY updated_at DESC", (org, since, user_name, user_name)).fetchall()

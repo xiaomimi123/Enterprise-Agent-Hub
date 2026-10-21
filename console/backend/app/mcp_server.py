@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from urllib.parse import unquote
 
@@ -20,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import app_access, content, db, generation, gpu, policy
+from . import accounts, app_access, content, db, generation, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -51,6 +52,8 @@ class CasdoorTokenVerifier:
             return None
         if claims.get("owner") != settings.casdoor_org:
             return None
+        if not await asyncio.to_thread(accounts.is_active, claims["owner"], claims.get("name", "")):
+            return None  # 账号已被停用或删除：令牌签名有效也不放行
         aud = claims.get("aud")
         client_id = next((a for a in (aud if isinstance(aud, list) else [aud]) if a in audiences), "")
         return AccessToken(token=token, client_id=client_id, scopes=[], expires_at=claims.get("exp"),

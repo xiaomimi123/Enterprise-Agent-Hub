@@ -95,6 +95,11 @@ class CasdoorProvider(DemoProvider):
                 "role_pack": pack if pack in pack_ids else DEFAULT_ROLE_PACKS.get(group, FALLBACK_ROLE_PACK),
                 **presence.member_agent(seen.get(u["name"]), now),
                 "dingtalk_bound": bool(u.get("dingtalk")),
+                "enabled": not u.get("isForbidden"),
+                "must_change_password": bool(u.get("needUpdatePassword")),
+                "is_admin": bool(u.get("isAdmin")),
+                "phone": u.get("phone") or "",
+                "email": u.get("email") or "",
                 "last_active": u.get("lastSigninTime") or u.get("createdTime"),
             })
 

@@ -208,6 +208,18 @@ class NewApi:
                 n += 1
         return n
 
+    def delete_tokens_of(self, org: str, user_name: str) -> int:
+        """删除这个人的全部 key（基础 key 和会话 key），返回个数。成员被停用或删除时调用。
+        历史调用日志记的是 key 的名字，删除不影响归属；重新启用后下次领取配置会自动新建。"""
+        index = self._token_index(refresh=True)
+        n = 0
+        for name, t in list(index.items()):
+            if user_from_token_name(name, org) == user_name:
+                self.http.delete(f"/api/token/{t['id']}")
+                index.pop(name, None)
+                n += 1
+        return n
+
     def logs(self, days: int = 30, page_size: int = 100, max_pages: int = 50) -> list[dict]:
         """近 N 天的模型调用日志（type=2 为消费记录）。"""
         start = int(time.time()) - days * 86400

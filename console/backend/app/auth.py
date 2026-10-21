@@ -16,6 +16,7 @@ import jwt
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from . import accounts
 from .config import settings
 
 SESSION_COOKIE = "hub_session"
@@ -67,6 +68,8 @@ def current_user(request: Request) -> dict:
     user = user_from_claims(claims)
     if user["org"] != settings.casdoor_org:
         raise HTTPException(403, "不属于本企业组织")
+    if not accounts.is_active(user["org"], user["name"]):
+        raise HTTPException(401, "账号已被停用")
     if not user["is_admin"]:
         raise HTTPException(403, "只有组织管理员可以访问控制台")
     return user

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import app_access, content, db, policy
+from . import accounts, app_access, content, db, policy
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -100,6 +100,8 @@ def _verify_agent_token(authorization: str | None) -> dict:
         raise HTTPException(401, "登录凭证无效或已过期")
     if claims.get("owner") != settings.casdoor_org:
         raise HTTPException(403, "不属于本企业组织")
+    if not accounts.is_active(claims["owner"], claims.get("name", "")):
+        raise HTTPException(401, "账号已被停用，请联系管理员")
     return claims
 
 

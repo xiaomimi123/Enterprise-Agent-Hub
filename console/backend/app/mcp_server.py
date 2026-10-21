@@ -21,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import accounts, app_access, content, db, generation, gpu, policy, roles, work
+from . import accounts, app_access, content, db, generation, gpu, policy, roles, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -127,7 +127,7 @@ def list_skills(ctx: Context) -> str:
         _audit(ctx, p, "拦截", "skill.read", "当前入口或岗位包不允许读取技能", "拒绝")
         return "无权读取技能。"
     allowed = set(p.pack["skills"])
-    skills = [s for s in content.list_skills() if s["id"] in allowed]
+    skills = [s for s in skillstore.list_skills() if s["id"] in allowed]
     _audit(ctx, p, "技能", "skill.read", f"列出技能 {len(skills)} 个", "通过")
     return json.dumps([{k: s[k] for k in ("id", "name", "description")} for s in skills], ensure_ascii=False)
 
@@ -138,7 +138,7 @@ def read_skill(skill_id: str, ctx: Context) -> str:
     if p.is_external or skill_id not in p.pack["skills"] or not policy.can_use_tool(p, "skill.read"):
         _audit(ctx, p, "拦截", "skill.read", f"技能「{skill_id}」不在岗位包「{p.pack['name']}」内", "拒绝")
         return f"无权读取技能 {skill_id}。"
-    text = content.read_skill(skill_id)
+    text = skillstore.read_skill(skill_id)
     if text is None:
         return f"技能 {skill_id} 不存在。"
     _audit(ctx, p, "技能", "skill.read", f"加载技能「{skill_id}」", "通过")

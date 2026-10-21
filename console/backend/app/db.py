@@ -147,6 +147,31 @@ CREATE TABLE IF NOT EXISTS dept_config (
     PRIMARY KEY (org, dept_id)
 );
 
+-- 技能（SKILL.md）：控制台里编辑，带版本。skills/ 目录只在首次启动时导入为第 1 版
+CREATE TABLE IF NOT EXISTS skills (
+    id                TEXT PRIMARY KEY,
+    dept_id           TEXT NOT NULL,             -- 部门（Casdoor 分组名）或 all（全公司）
+    name              TEXT NOT NULL DEFAULT '',
+    description       TEXT NOT NULL DEFAULT '',
+    published_version INTEGER NOT NULL DEFAULT 0, -- 0 = 还没有已发布的版本（新建后等审核）
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS skill_versions (
+    skill_id    TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    version     INTEGER NOT NULL,
+    content     TEXT NOT NULL,
+    author      TEXT NOT NULL DEFAULT '',
+    author_name TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL,                   -- published | pending | rejected
+    reviewer    TEXT NOT NULL DEFAULT '',
+    review_note TEXT NOT NULL DEFAULT '',
+    reviewed_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (skill_id, version)
+);
+
 -- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
 CREATE TABLE IF NOT EXISTS work_items (
     id           BIGSERIAL PRIMARY KEY,

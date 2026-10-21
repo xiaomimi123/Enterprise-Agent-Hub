@@ -18,6 +18,7 @@
 | &nbsp;&nbsp;`policy.py` | 岗位包权限；`db.py` 数据库（审计、岗位包、GPU 任务队列）；`providers/casdoor.py` 成员与组织 |
 | &nbsp;&nbsp;`members_admin.py` / `accounts.py` | 成员管理 / 账号状态检查（停用即失效） |
 | &nbsp;&nbsp;`roles.py` / `depts_api.py` | 控制台角色（管理员 / 老板 / 部门主管，默认拒绝的接口白名单在 `auth.py`）/ 部门与角色管理，见 [docs/console-roles.md](docs/console-roles.md) |
+| &nbsp;&nbsp;`skillstore.py` / `skills_api.py` | 技能库（数据库里带版本，主管本部门直接生效、全公司审核），见 [docs/skills.md](docs/skills.md) |
 | &nbsp;&nbsp;`work.py` | 工作成果上报与汇总（看板、`team_report`），见 [docs/work-report.md](docs/work-report.md) |
 | &nbsp;&nbsp;`newapi.py` / `model_upstreams.py` | 模型网关客户端（员工 key、渠道、模型价格）/ 对话模型上游 |
 | &nbsp;&nbsp;`generation.py` / `gpu.py` | 出图出视频统一入口 / 任务队列与调度（本机 ComfyUI、第三方 API、H3 网关三个分支） |

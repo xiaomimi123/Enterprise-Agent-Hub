@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, db, depts_api, gpu, members_api, models_api, public_api, roles, work
+from . import agent_api, apps, auth, db, depts_api, gpu, members_api, models_api, public_api, roles, skills_api, work
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -258,4 +258,5 @@ def usage(days: int = 30):
 api.include_router(models_api.router)
 api.include_router(members_api.router)
 api.include_router(depts_api.router)
+api.include_router(skills_api.router)
 app.include_router(api)

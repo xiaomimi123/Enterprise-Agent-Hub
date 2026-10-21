@@ -166,6 +166,22 @@ export interface Skill {
   source: string
   role_packs: string[]
   content?: string
+  pending?: number
+}
+
+export interface SkillVersion {
+  version: number; author: string; author_name: string; note: string; status: 'published' | 'pending' | 'rejected'
+  reviewer: string; review_note: string; created_at: string; reviewed_at: string | null; content: string
+}
+export interface SkillHistory {
+  skill: { id: string; name: string; dept: string; dept_name: string; published_version: number }
+  mode: 'direct' | 'review' | null // 这个人改这个技能：直接生效 / 提交审核 / 不能改
+  can_review: boolean
+  versions: SkillVersion[]
+}
+export interface SkillReview {
+  skill_id: string; skill_name: string; version: number; dept: string; dept_name: string; author_name: string
+  note: string; created_at: string; published_version: number; content: string
 }
 
 export interface KnowledgeBase {
@@ -453,6 +469,16 @@ export const api = {
     request<{ ok: boolean; seconds: number; error: string; preview?: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
+  skillHistory: (id: string) => request<SkillHistory>(`/skills/${id}/history`),
+  saveSkill: (id: string, body: { content: string; note: string; base_version: number }) =>
+    request<{ version: number; status: string }>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  createSkill: (body: { id: string; dept: string; content: string; note?: string }) =>
+    request<{ version: number; status: string }>('/skills', { method: 'POST', body: JSON.stringify(body) }),
+  rollbackSkill: (id: string, version: number, note = '') =>
+    request<{ version: number; status: string }>(`/skills/${id}/rollback`, { method: 'POST', body: JSON.stringify({ version, note }) }),
+  skillReviews: () => request<SkillReview[]>('/skill-reviews'),
+  reviewSkill: (id: string, version: number, approve: boolean, note = '') =>
+    request<{ version: number; status: string }>(`/skill-reviews/${id}/${version}`, { method: 'POST', body: JSON.stringify({ approve, note }) }),
   org: () => request<OrgOverview>('/org'),
   createDept: (name: string) => request<{ id: string; name: string }>('/org/departments', { method: 'POST', body: JSON.stringify({ name }) }),
   renameDept: (id: string, name: string) => request<{ id: string }>(`/org/departments/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),

@@ -1,5 +1,7 @@
 # 岗位技能仓库
 
+> **注意**：技能现在存在数据库里、在控制台编辑（见 [docs/skills.md](../docs/skills.md)）。本目录只在首次启动时导入为第 1 版，之后改这里的文件不会再生效。
+
 目录结构：`<部门>/<技能 id>/SKILL.md`。文件夹名就是技能 id，岗位包通过技能 id 引用。
 
 技能采用 SKILL.md 格式（markdown + frontmatter：name、description、department、version），可以直接用 Obsidian 打开编辑。

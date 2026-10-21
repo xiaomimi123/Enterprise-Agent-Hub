@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import accounts, app_access, apps, content, db, policy, work
+from . import accounts, app_access, apps, content, db, policy, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -212,8 +212,8 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
             raise HTTPException(502, str(e))
 
     allowed = set(p.pack["skills"]) if policy.can_use_tool(p, "skill.read") else set()
-    skills = [{"id": s["id"], "name": s["name"], "description": s["description"], "content": content.read_skill(s["id"])}
-              for s in content.list_skills() if s["id"] in allowed]
+    skills = [{"id": s["id"], "name": s["name"], "description": s["description"], "content": skillstore.read_skill(s["id"])}
+              for s in skillstore.list_skills() if s["id"] in allowed]
 
     # 接入器传来本次工作会话的追踪 ID，后面的 MCP 调用、出图、模型调用都挂在同一条链路上
     trace_id = (x_hub_trace_id or "").strip()[:64] or f"enroll-{uuid.uuid4().hex[:10]}"

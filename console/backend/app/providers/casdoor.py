@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db, metering, presence
+from .. import content, db, metering, presence, skillstore
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import default_pack_id
@@ -46,6 +46,7 @@ class CasdoorProvider(DemoProvider):
             timeout=10,
         )
         self._org_synced_at = 0.0
+        self._skills_imported = False
         self.newapi = NewApi()
         self._usage_synced_at = 0.0
         self._model_logs: list[dict] = []
@@ -199,15 +200,23 @@ class CasdoorProvider(DemoProvider):
 
     def _skills(self, events: list[dict]) -> list[dict]:
         used = Counter(e["detail"] for e in events if e["tool"] == "skill.read" and e["result"] == "通过")
+        if not self._skills_imported:  # 首次：把 skills/ 目录导入版本库（已有的不覆盖）
+            skillstore.import_from_disk({v: k for k, v in self.d["dept_names"].items() if k not in ("all", UNASSIGNED)})
+            self._skills_imported = True
+        meta = skillstore.published_meta()
         out = []
-        for s in content.list_skills():
+        for s in skillstore.list_skills():
+            m = meta.get(s["id"], {})
             out.append({
                 **s,
-                "dept": next((k for k, v in self.d["dept_names"].items() if v == s["dept_name"]), "all"),
+                "dept_name": "全公司" if s["dept"] == "all" else self.d["dept_names"].get(s["dept"], s["dept"]),
+                "version": str(s["version"]) if s["version"] else "—",
+                "source": f"{s['id']}/SKILL.md" + (f" · 第 {s['version']} 版" if s["version"] else " · 未导入"),
                 "status": "已发布",
-                "author": "",
+                "author": m.get("author_name", ""),
+                "pending": m.get("pending", 0),
                 "used_7d": sum(n for d, n in used.items() if f"「{s['id']}」" in d),
-                "content": content.read_skill(s["id"]) or "",
+                "content": skillstore.read_skill(s["id"]) or "",
             })
         return out
 

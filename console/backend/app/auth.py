@@ -82,11 +82,15 @@ def current_user(request: Request) -> dict:
     return {**user, "role": roles.ADMIN, "depts": None}
 
 
-# 老板 / 主管能访问的接口白名单（只读）；不在名单里的一律拒绝，新增接口默认只有管理员能用
-_MANAGER_READ = (r"departments", r"members", r"role-packs", r"skills(?:/[^/]+)?", r"knowledge-bases(?:/[^/]+/documents)?", r"work/report")
+# 老板 / 主管能访问的接口白名单：(方法, 路径正则)。不在名单里的一律拒绝，新增接口默认只有管理员能用
+_MANAGER_READ = (r"departments", r"members", r"role-packs", r"skills(?:/[^/]+)?", r"skills/[^/]+/history", r"skill-reviews",
+                 r"knowledge-bases(?:/[^/]+/documents)?", r"work/report")
 _BOSS_READ = _MANAGER_READ + (r"overview", r"audit/traces(?:/[^/]+)?", r"usage", r"gpu/tasks", r"apps", r"catalog")
-ROLE_ALLOWED = {roles.MANAGER: re.compile(r"^/api/(?:" + "|".join(_MANAGER_READ) + r")$"),
-                roles.BOSS: re.compile(r"^/api/(?:" + "|".join(_BOSS_READ) + r")$")}
+_SKILL_WRITE = (("POST", r"skills"), ("PUT", r"skills/[^/]+"), ("POST", r"skills/[^/]+/rollback"))  # 能不能改某个技能，由 skillstore.plan_for 判断
+_allow = lambda reads, writes: [("GET", re.compile(r"^/api/(?:" + "|".join(reads) + r")$")),  # noqa: E731
+                                *((m, re.compile(rf"^/api/{p}$")) for m, p in writes)]
+ROLE_ALLOWED = {roles.MANAGER: _allow(_MANAGER_READ, _SKILL_WRITE),
+                roles.BOSS: _allow(_BOSS_READ, _SKILL_WRITE + (("POST", r"skill-reviews/[^/]+/\d+"),))}
 
 
 def console_user(request: Request) -> dict:
@@ -95,7 +99,7 @@ def console_user(request: Request) -> dict:
     scope = roles.resolve(user["org"], user["name"], user["is_admin"]) if settings.auth_enabled else {"role": roles.ADMIN, "depts": None}
     if scope["role"] is None:
         raise HTTPException(403, "只有管理员、老板和部门主管可以访问控制台")
-    if scope["role"] != roles.ADMIN and not (request.method == "GET" and ROLE_ALLOWED[scope["role"]].match(request.url.path)):
+    if scope["role"] != roles.ADMIN and not any(request.method == m and rx.match(request.url.path) for m, rx in ROLE_ALLOWED[scope["role"]]):
         raise HTTPException(403, "你的角色没有这个功能的权限")
     return {**user, **scope}
 

@@ -51,13 +51,19 @@ export default function Connect() {
     ? `powershell -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
     : `curl -fsSL ${d.hub_url}/api/agent/install.sh | sh`
   const verifyPrompt = '请调用企业智能体中枢的 whoami，告诉我我是谁、在哪个部门、有哪些技能'
-  const agentPrompt = `请帮我把这台电脑接入公司的企业智能体中枢：在${quickOs === 'Windows' ? ' PowerShell ' : '终端'}里执行下面这条命令。` +
-    `它会打开浏览器让我用公司账号登录，请等我登录完成，然后把命令最后几行输出告诉我，并提醒我完全退出、重新打开你自己。\n\n${quickCmd}`
-
-  const welcome = `你好，公司「企业智能体中枢」账号已开通：\n账号：<账号>\n初始密码：<初始密码>（首次登录需要修改）\n\n接入步骤（在你的电脑上，需要和公司在同一个局域网）：\n` +
-    `1. 打开${quickOs === 'Windows' ? ' PowerShell ' : '终端'}，粘贴下面这条命令回车：\n${quickCmd}\n` +
-    `2. 弹出浏览器后，用上面的账号和初始密码登录，按提示修改成自己的新密码\n` +
-    `3. 命令执行完成后，完全退出并重新打开 WorkBuddy（或 Cursor / Claude）\n` +
+  const winCmd = `powershell -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
+  const macCmd = `curl -fsSL ${d.hub_url}/api/agent/install.sh | sh`
+  // 员工把这一段原样发给自己的 agent，由 agent 自己执行命令；不要求员工打开命令行
+  const agentPrompt = `请帮我把这台电脑接入公司的企业智能体中枢，按下面步骤做：\n` +
+    `1. 看一下我电脑的系统，在终端里执行对应的那一条命令（Windows 用 PowerShell 那条，macOS / Linux 用 curl 那条）：\n` +
+    `Windows：${winCmd}\nmacOS / Linux：${macCmd}\n` +
+    `2. 命令会打开浏览器让我登录公司账号，请等我自己登录完成（首次登录需要先修改初始密码），不要替我输入密码。\n` +
+    `3. 命令执行结束后，把最后几行输出告诉我，并提醒我完全退出、重新打开你自己。`
+  const welcome = `你好，公司「企业智能体中枢」账号已开通：\n账号：<账号>\n初始密码：<初始密码>（首次登录需要修改）\n\n` +
+    `接入方法（不需要自己敲命令，需要和公司在同一个局域网）：\n` +
+    `1. 打开你的 WorkBuddy，把下面横线之间的整段话粘贴给它，发送：\n----------\n${agentPrompt}\n----------\n` +
+    `2. 它会弹出浏览器，用上面的账号和初始密码登录，按提示改成自己的新密码\n` +
+    `3. 它提示完成后，完全退出并重新打开 WorkBuddy\n` +
     `4. 对它说：${verifyPrompt}\n能说出你的姓名、部门和岗位包，就接通了。`
 
   const name = user.trim() || '<用户名>'
@@ -93,12 +99,12 @@ export default function Connect() {
         sub="员工的 agent 通过 MCP 连到中枢，使用知识库、技能和 GPU 出图出视频。权限按员工本人的岗位包执行，每次调用都记入审计。"
       />
       <div className="stack">
-        <Panel title="新员工入职三步" sub="管理员建账号 → 员工首次登录改密码 → 一键接入并验证">
+        <Panel title="新员工入职三步" sub="管理员建账号 → 把一段话发给员工 → 员工粘贴给自己的 agent，全程不用敲命令">
           <div className="stack-sm">
             <div><Pill tone="accent" dot={false}>第 1 步 · 管理员</Pill> 在「成员与组织」页点「新建成员」（或「批量导入」），记下账号和初始密码——初始密码只显示一次。</div>
-            <div><Pill tone="accent" dot={false}>第 2 步 · 发给员工</Pill> 把账号、初始密码和接入步骤一起发给员工（把下面的 &lt;账号&gt;、&lt;初始密码&gt; 换成实际值）：</div>
+            <div><Pill tone="accent" dot={false}>第 2 步 · 发给员工</Pill> 复制下面这段话，把 &lt;账号&gt;、&lt;初始密码&gt; 换成实际值，发给员工（钉钉 / 微信 / 邮件都行）。员工只需要把其中一段话粘贴给自己的 WorkBuddy，剩下的由 agent 自己完成。</div>
             <Code label="发给员工的话" text={welcome} />
-            <div><Pill tone="accent" dot={false}>第 3 步 · 员工</Pill> 按上面的步骤接入后，对 agent 说下面这句话验证；能说出姓名、部门和岗位包就接通了。</div>
+            <div><Pill tone="accent" dot={false}>第 3 步 · 员工</Pill> 在浏览器里用账号登录并改新密码，重启 WorkBuddy 后对它说下面这句话验证；能说出姓名、部门和岗位包就接通了。</div>
             <Code label="验证接通" text={verifyPrompt} />
             <p className="muted">首次登录时，Casdoor 会要求先把初始密码改成自己的密码（至少 8 位），改完才能继续；员工不需要改防火墙。</p>
           </div>
@@ -110,10 +116,10 @@ export default function Connect() {
           extra={<Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />}
         >
           <div className="stack-sm">
-            <div><Pill tone="accent" dot={false}>方式一</Pill> 复制这条命令，粘贴到{quickOs === 'Windows' ? ' PowerShell ' : '终端'}里回车</div>
-            <Code label={quickOs === 'Windows' ? 'PowerShell' : '终端'} text={quickCmd} />
-            <div><Pill tone="accent" dot={false}>方式二</Pill> 把这段话发给你的 agent（WorkBuddy 等能执行命令的），让它自己接入</div>
+            <div><Pill tone="accent" dot={false}>方式一（推荐）</Pill> 把这段话发给员工的 agent（WorkBuddy 等能执行命令的），让它自己接入——员工不用打开命令行</div>
             <Code label="发给 agent" text={agentPrompt} />
+            <div><Pill tone="accent" dot={false}>方式二</Pill> 熟悉命令行的人：复制这条命令，粘贴到{quickOs === 'Windows' ? ' PowerShell ' : '终端'}里回车</div>
+            <Code label={quickOs === 'Windows' ? 'PowerShell' : '终端'} text={quickCmd} />
             <p className="muted">
               命令会自动完成：安装运行环境 → 下载接入器 → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版并写好配置（原配置先备份）。
               完成后完全退出并重新打开 agent 即可使用。之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次这条命令。

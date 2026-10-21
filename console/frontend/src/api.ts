@@ -206,7 +206,25 @@ export interface KbDocument {
   chunks: number
   status: string
   updated_at: string
+  version?: number
+  pending?: number
+  author_name?: string
+  chars?: number
 }
+export interface KbDocVersion {
+  version: number; author: string; author_name: string; note: string; status: 'published' | 'pending' | 'rejected'; is_delete: boolean
+  reviewer: string; review_note: string; created_at: string; reviewed_at: string | null; content: string
+}
+export interface KbDocDetail {
+  kb: { id: string; name: string; dept: string; dept_name: string }
+  name: string; deleted: boolean; published_version: number; content: string
+  mode: 'direct' | 'review' | null; can_review: boolean; versions: KbDocVersion[]
+}
+export interface KbReview {
+  kb_id: string; kb_name: string; name: string; version: number; is_delete: boolean; author_name: string
+  note: string; created_at: string; published_version: number; content: string
+}
+export interface KbResult { version: number; status: string; published: boolean; synced: boolean | null }
 
 export interface TraceStep {
   time: string
@@ -434,6 +452,20 @@ export const api = {
   skills: () => request<Skill[]>('/skills'),
   skill: (id: string) => request<Skill>(`/skills/${id}`),
   knowledgeBases: () => request<KnowledgeBase[]>('/knowledge-bases'),
+  kbDocument: (kb: string, name: string) => request<KbDocDetail>(`/knowledge-bases/${kb}/documents/${encodeURIComponent(name)}`),
+  kbDeleted: (kb: string) => request<{ name: string; updated_at: string }[]>(`/knowledge-bases/${kb}/deleted`),
+  createKbDoc: (kb: string, body: { name: string; content: string; note?: string }) =>
+    request<KbResult>(`/knowledge-bases/${kb}/documents`, { method: 'POST', body: JSON.stringify(body) }),
+  saveKbDoc: (kb: string, name: string, body: { content: string; note: string; base_version: number }) =>
+    request<KbResult>(`/knowledge-bases/${kb}/documents/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteKbDoc: (kb: string, name: string, note = '') =>
+    request<KbResult>(`/knowledge-bases/${kb}/documents/${encodeURIComponent(name)}${qs({ note })}`, { method: 'DELETE' }),
+  rollbackKbDoc: (kb: string, name: string, version: number) =>
+    request<KbResult>(`/knowledge-bases/${kb}/documents/${encodeURIComponent(name)}/rollback`, { method: 'POST', body: JSON.stringify({ version }) }),
+  resyncKb: (kb: string) => request<{ synced: number; failed: number }>(`/knowledge-bases/${kb}/sync`, { method: 'POST' }),
+  kbReviews: () => request<KbReview[]>('/kb-reviews'),
+  reviewKbDoc: (kb: string, name: string, version: number, approve: boolean, note = '') =>
+    request<KbResult>(`/kb-reviews/${kb}/${encodeURIComponent(name)}/${version}`, { method: 'POST', body: JSON.stringify({ approve, note }) }),
   kbDocuments: (id: string) => request<KbDocument[]>(`/knowledge-bases/${id}/documents`),
   traces: (params: { member_id?: string; outcome?: string; dept?: string; q?: string } = {}) =>
     request<TraceBrief[]>(`/audit/traces${qs(params)}`),

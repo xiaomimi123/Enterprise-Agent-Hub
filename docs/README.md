@@ -9,6 +9,7 @@
 | [console.md](console.md) | 控制台各页面（成员、岗位包、模型、应用、接入方式、审计、用量……）与数据来源 |
 | [agent.md](agent.md) | 员工端接入器：登录、一键接入、MCP 桥、CodeBuddy / WorkBuddy / Hermes、在线状态、应用启动 |
 | [mcp-server.md](mcp-server.md) | 中枢 MCP Server：工具、权限、审计、知识库、对话模型上游与**模型价格** |
+| [knowledge.md](knowledge.md) | **知识库**：文档查看与编辑、版本与回滚、同步到检索 |
 | [skills.md](skills.md) | **技能库**：控制台编辑、版本与回滚、本部门直接生效 / 全公司审核 |
 | [console-roles.md](console-roles.md) | **控制台角色与部门**：管理员 / 老板 / 部门主管的权限、默认拒绝、部门配置、分期 |
 | [work-report.md](work-report.md) | **工作成果与进度**：员工上报、控制台看板、老板 agent 日报、口径和限制 |

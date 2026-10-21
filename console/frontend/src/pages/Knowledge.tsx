@@ -1,9 +1,10 @@
-import { FileText, Globe, Lock } from 'lucide-react'
-import { Drawer, Table } from 'antd'
+import { Globe, Lock } from 'lucide-react'
+import { Table } from 'antd'
 import { useState } from 'react'
-import { api, type KbDocument, type KnowledgeBase } from '../api'
-import { DEPT_META, fmtTime, fromNow, useRequest } from '../lib'
+import { api, type KnowledgeBase } from '../api'
+import { fromNow, useRequest } from '../lib'
 import { DeptTile, PageHeader, Panel, Pill, Seg, Token } from '../ui'
+import { DocsDrawer } from './KbDocs'
 
 export default function Knowledge() {
   const kbs = useRequest(api.knowledgeBases)
@@ -23,7 +24,7 @@ export default function Knowledge() {
     <>
       <PageHeader
         title="知识库"
-        sub="Obsidian 是知识的「源码」，中枢负责检索和权限。员工电脑上不放完整知识库，每次查询由中枢按身份过滤，只返回有权限的片段。"
+        sub="点开一个知识库查看、新建和编辑文档：本部门的知识库保存即生效并同步到检索，全公司的知识库修改要老板或管理员审核；每次保存都是新版本，可以回滚。员工电脑上不放完整知识库，每次查询由中枢按身份过滤。"
         extra={<Seg value={level} onChange={setLevel} options={['全部', '公开', '内部', '机密'].map((v) => ({ value: v, label: v }))} />}
       />
       <div className="stack">
@@ -69,48 +70,7 @@ export default function Knowledge() {
           />
         </Panel>
       </div>
-      {open && <DocsDrawer kb={open} onClose={() => setOpen(undefined)} />}
+      {open && <DocsDrawer kb={open} onClose={() => setOpen(undefined)} onChanged={kbs.reload} />}
     </>
-  )
-}
-
-function DocsDrawer({ kb, onClose }: { kb: KnowledgeBase; onClose: () => void }) {
-  const docs = useRequest(() => api.kbDocuments(kb.id), [kb.id])
-  return (
-    <Drawer
-      open size={620} onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <DeptTile dept={kb.dept} size={32} />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{kb.name}<Pill>{kb.classification}</Pill></div>
-            <div className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{kb.dept_name} · 来源 {kb.source}</div>
-          </div>
-        </div>
-      }
-    >
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-        <span className="muted">授权给</span>
-        {kb.role_packs.length ? kb.role_packs.map((x) => <Token key={x}>{x}</Token>) : <span className="muted">无</span>}
-      </div>
-      <Panel tight>
-        <Table<KbDocument>
-          rowKey="id" size="small" loading={docs.loading} dataSource={docs.data} pagination={false}
-          columns={[
-            {
-              title: '文档', dataIndex: 'title', render: (v, d) => (
-                <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                  <FileText style={{ color: DEPT_META[kb.dept]?.color }} />{v}
-                  <span className="muted mono" style={{ fontSize: 11 }}>.{d.type}</span>
-                </span>
-              ),
-            },
-            { title: '片段', dataIndex: 'chunks', width: 60, align: 'right', render: (v) => <span className="num">{v}</span> },
-            { title: '状态', dataIndex: 'status', width: 90, render: (v) => <Pill>{v}</Pill> },
-            { title: '更新', dataIndex: 'updated_at', width: 100, render: (v) => <span className="muted num">{fmtTime(v)}</span> },
-          ]}
-        />
-      </Panel>
-    </Drawer>
   )
 }

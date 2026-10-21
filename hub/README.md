@@ -16,7 +16,7 @@
 
 PostgreSQL 里有三个库：`casdoor`、`newapi`，以及中枢自研服务用的 `hub`（岗位包、成员分配、审计日志）。
 
-技能仓库 `skills/` 和知识库 `vault/` 留在宿主机上（方便用 Obsidian 和 git 维护），以只读方式挂载进 console-api 和 hub-mcp，改完立即生效，不用重建镜像。
+技能仓库 `skills/` 和知识库 `vault/` 在宿主机上，以只读方式挂载进 console-api 和 hub-mcp，**只在首次启动时导入数据库**；之后技能和知识库文档在控制台里编辑、存在数据库里（见 docs/skills.md、docs/knowledge.md），改这两个目录里的文件不再生效。
 
 ## 硬件要求
 
@@ -91,7 +91,7 @@ make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_cou
 - `.env` 里有全部密码和应用凭证，权限为 600，不要提交到 git（已在 .gitignore 中）
 - `CASDOOR_ADMIN_PASSWORD` 和 `init-db.sh` 都只在数据目录为空、首次初始化时生效；之后改 `.env` 里的这些密码不会改动已有数据
 - RAGFlow 首次启动后**不要再改** `RAGFLOW_*_PASSWORD`，否则它会连不上已初始化的数据
-- 备份 `data/`（含生成的图片 `data/outputs/`）、`logs/`，以及仓库里的 `skills/`、`vault/`、`gpu-node/workflows/`
+- 备份 `data/`（含生成的图片 `data/outputs/`）、`logs/`、**Postgres 数据库**（技能、知识库文档及其版本都在里面），以及仓库里的 `skills/`、`vault/`（初始数据）、`gpu-node/workflows/`
 - 升级开源组件：改 `.env` 里的 `*_VERSION` 后执行 `make up`。RAGFlow 升级要先删掉 `ragflow/upstream/`，再执行 `make ragflow-up`
 - 目前没有 HTTPS。员工在公司局域网内访问没有问题；需要外网访问时，前面加一层反向代理配证书，并在 `.env` 中相应修改地址
 

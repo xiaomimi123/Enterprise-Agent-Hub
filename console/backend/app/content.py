@@ -72,22 +72,36 @@ class Chunk:
     text: str
 
 
-def _chunks() -> list[Chunk]:
+def _docs_for_search() -> list[tuple[str, str, str]]:
+    """(知识库 id, 文档名, 内容)：数据库里当前生效的文档；没配置数据库或还没导入时读 vault 目录。"""
+    if settings.database_url:
+        from . import kbstore
+        try:
+            docs = kbstore.published_docs()
+            if docs:
+                return [(d["kb_id"], d["name"], d["content"]) for d in docs]
+        except Exception as e:  # noqa: BLE001
+            log.warning("读取知识库文档失败，改读 vault：%s", e)
     out = []
     for folder in sorted(Path(settings.vault_dir).iterdir()):
         kb_id = KB_BY_NAME.get(folder.name) if folder.is_dir() else None
-        if not kb_id:
-            continue
-        for p in sorted(folder.rglob("*.md")):
-            heading = p.stem
-            for block in re.split(r"\n\s*\n", p.read_text(encoding="utf-8")):
-                block = block.strip()
-                if not block:
-                    continue
-                if block.startswith("#") and "\n" not in block:
-                    heading = block.lstrip("# ").strip()
-                    continue
-                out.append(Chunk(kb_id, p.stem, heading, block))
+        if kb_id:
+            out += [(kb_id, p.stem, p.read_text(encoding="utf-8")) for p in sorted(folder.rglob("*.md"))]
+    return out
+
+
+def _chunks() -> list[Chunk]:
+    out = []
+    for kb_id, doc, text in _docs_for_search():
+        heading = doc
+        for block in re.split(r"\n\s*\n", text):
+            block = block.strip()
+            if not block:
+                continue
+            if block.startswith("#") and "\n" not in block:
+                heading = block.lstrip("# ").strip()
+                continue
+            out.append(Chunk(kb_id, doc, heading, block))
     return out
 
 

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -22,7 +23,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db, metering, presence, skillstore
+from .. import content, db, kbstore, metering, presence, skillstore
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import default_pack_id
@@ -47,6 +48,7 @@ class CasdoorProvider(DemoProvider):
         )
         self._org_synced_at = 0.0
         self._skills_imported = False
+        self._kb_imported = False
         self.newapi = NewApi()
         self._usage_synced_at = 0.0
         self._model_logs: list[dict] = []
@@ -221,19 +223,28 @@ class CasdoorProvider(DemoProvider):
         return out
 
     def _knowledge_bases(self, events: list[dict]) -> list[dict]:
+        if not self._kb_imported:  # 首次：把 vault/ 目录导入文档库（已有的不覆盖）
+            kbstore.import_from_disk()
+            self._kb_imported = True
         hits = [e["detail"] for e in events if e["tool"] == "kb.search" and e["result"] == "通过"]
         out = []
         for kid, kb in content.KB_REGISTRY.items():
-            docs = content.kb_documents(kid)
+            docs = kbstore.list_docs(kid)
             out.append({
                 **kb,
                 "dept_name": self.d["dept_names"].get(kb["dept"], kb["dept"]),
                 "doc_count": len(docs),
-                "chunk_count": sum(d["chunks"] for d in docs),
+                "chunk_count": sum(len([b for b in re.split(r"\n\s*\n", d["content"] or "") if b.strip()]) for d in docs),
                 "queries_7d": sum(1 for h in hits if kb["name"] in h),
-                "updated_at": max((d["updated_at"] for d in docs), default=""),
+                "updated_at": max((d["updated_at"].isoformat() for d in docs), default=""),
             })
         return out
+
+    def kb_documents(self, kb_id: str) -> list[dict]:
+        self._sync()
+        if kb_id not in content.KB_REGISTRY:
+            raise NotFound("知识库不存在")
+        return kbstore.ui_documents(kb_id)
 
     # ---- 覆盖：先同步，再复用演示数据源的计算 ----
     def overview(self):

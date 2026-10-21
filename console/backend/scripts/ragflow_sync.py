@@ -21,7 +21,7 @@ def main() -> None:
     client = ragflow.from_settings()
     if client is None:
         sys.exit("未配置 RAGFLOW_ENDPOINT / RAGFLOW_API_KEY")
-    stats = kb_sync.sync_vault(client, settings.vault_dir, wait=args.wait)
+    stats = (kb_sync.sync_db(client, wait=args.wait) if settings.database_url else kb_sync.sync_vault(client, settings.vault_dir, wait=args.wait))  # 配置了数据库就以控制台里的文档为准
     print(f"同步完成：新增 {stats['uploaded']}，更新 {stats['updated']}，删除 {stats['deleted']}，未变 {stats['skipped']}")
 
 

@@ -172,6 +172,34 @@ CREATE TABLE IF NOT EXISTS skill_versions (
     PRIMARY KEY (skill_id, version)
 );
 
+-- 知识库文档（Markdown）：控制台里编辑，带版本；vault/ 目录只在首次启动时导入为第 1 版
+CREATE TABLE IF NOT EXISTS kb_docs (
+    kb_id             TEXT NOT NULL,
+    name              TEXT NOT NULL,                 -- 文档名（不含 .md）
+    published_version INTEGER NOT NULL DEFAULT 0,    -- 0 = 还没有已发布的版本
+    synced_version    INTEGER NOT NULL DEFAULT 0,    -- 已同步到检索索引（RAGFlow）的版本
+    deleted           BOOLEAN NOT NULL DEFAULT false,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kb_id, name)
+);
+CREATE TABLE IF NOT EXISTS kb_doc_versions (
+    kb_id       TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    content     TEXT NOT NULL,
+    is_delete   BOOLEAN NOT NULL DEFAULT false,      -- 这一版是「删除」
+    author      TEXT NOT NULL DEFAULT '',
+    author_name TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL,                       -- published | pending | rejected
+    reviewer    TEXT NOT NULL DEFAULT '',
+    review_note TEXT NOT NULL DEFAULT '',
+    reviewed_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kb_id, name, version),
+    FOREIGN KEY (kb_id, name) REFERENCES kb_docs (kb_id, name) ON DELETE CASCADE
+);
+
 -- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
 CREATE TABLE IF NOT EXISTS work_items (
     id           BIGSERIAL PRIMARY KEY,

@@ -82,6 +82,17 @@ export interface Member {
   os: string
   dingtalk_bound: boolean
   last_active: string
+  enabled?: boolean
+  must_change_password?: boolean
+  is_admin?: boolean
+  phone?: string
+  email?: string
+}
+
+export interface ImportResult {
+  created: number
+  failed: number
+  results: { row: number; username: string; ok: boolean; initial_password?: string; error?: string }[]
 }
 
 export interface RolePack {
@@ -343,6 +354,17 @@ export const api = {
   overview: () => request<Overview>('/overview'),
   departments: () => request<Department[]>('/departments'),
   members: (params: { dept?: string; q?: string } = {}) => request<Member[]>(`/members${qs(params)}`),
+  createMember: (body: { username: string; display_name: string; dept: string; title?: string; phone?: string; email?: string; password?: string }) =>
+    request<{ id: string; name: string; dept: string; initial_password: string }>('/members', { method: 'POST', body: JSON.stringify(body) }),
+  updateMember: (id: string, body: { display_name?: string; dept?: string; title?: string; phone?: string; email?: string }) =>
+    request<{ id: string }>(`/members/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  resetMemberPassword: (id: string, password = '') =>
+    request<{ id: string; initial_password: string }>(`/members/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+  setMemberEnabled: (id: string, enabled: boolean) =>
+    request<{ id: string; enabled: boolean; revoked_keys: number }>(`/members/${id}/enabled`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  deleteMember: (id: string) => request<{ id: string; revoked_keys: number }>(`/members/${id}`, { method: 'DELETE' }),
+  importMembers: (csv: string) =>
+    request<ImportResult>('/members/import', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: csv }),
   assignRolePack: (memberId: string, rolePackId: string) =>
     request<Member>(`/members/${memberId}/role-pack`, { method: 'PUT', body: JSON.stringify({ role_pack_id: rolePackId }) }),
   rolePacks: () => request<RolePack[]>('/role-packs'),

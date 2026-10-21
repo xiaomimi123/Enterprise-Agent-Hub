@@ -1,10 +1,11 @@
-import { RefreshCw, Search } from 'lucide-react'
-import { App, Input, Select, Table } from 'antd'
+import { RefreshCw, Search, Upload as UploadIcon, UserPlus } from 'lucide-react'
+import { App, Button, Input, Popconfirm, Select, Table } from 'antd'
 import { useState } from 'react'
 import { api, type Member } from '../api'
 import { useSession } from '../auth'
 import { DEPT_META, fromNow, useRequest } from '../lib'
 import { Avatar, PageHeader, Panel, Pill, Seg } from '../ui'
+import { ImportModal, MemberDrawer, PasswordNotice } from './MemberAdmin'
 
 export default function Members() {
   const { message } = App.useApp()
@@ -15,6 +16,31 @@ export default function Members() {
   const depts = useRequest(api.departments)
   const packs = useRequest(api.rolePacks)
   const members = useRequest(() => api.members({ dept, q }), [dept, q])
+  const [editing, setEditing] = useState<Member | 'new'>()
+  const [importing, setImporting] = useState(false)
+  const [notice, setNotice] = useState<{ id: string; name?: string; password: string }>()
+
+  const reload = () => {
+    members.reload()
+    depts.reload()
+  }
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    try {
+      await fn()
+      message.success(ok)
+      reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
+  const resetPassword = async (m: Member) => {
+    try {
+      const out = await api.resetMemberPassword(m.id)
+      setNotice({ id: m.id, name: m.name, password: out.initial_password })
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
 
   const assign = async (m: Member, rolePackId: string) => {
     const updated = await api.assignRolePack(m.id, rolePackId)
@@ -30,8 +56,14 @@ export default function Members() {
     <>
       <PageHeader
         title="成员与组织"
-        sub="人员和部门来自钉钉通讯录（经 Casdoor 同步）：入职自动开通，离职自动吊销令牌，不需要单独维护人员表。"
-        extra={<span className="chip"><RefreshCw />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>}
+        sub="成员账号由 Casdoor 统一管理：在这里新建、导入、重置密码；停用成员会立即禁止登录并回收他的模型 key，已签发的令牌最多 30 秒内失效。"
+        extra={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="chip"><RefreshCw />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>
+            {live && <Button icon={<UploadIcon size={14} />} onClick={() => setImporting(true)}>批量导入</Button>}
+            {live && <Button type="primary" icon={<UserPlus size={14} />} onClick={() => setEditing('new')}>新建成员</Button>}
+          </div>
+        }
       />
       <div className="split">
         <Panel title="组织架构" tight style={{ position: 'sticky', top: 72 }}>
@@ -75,10 +107,10 @@ export default function Members() {
             columns={[
               {
                 title: '成员', dataIndex: 'name', render: (v, m) => (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: m.enabled === false ? 0.55 : 1 }}>
                     <Avatar name={v} size={30} />
                     <div style={{ lineHeight: 1.35 }}>
-                      <div style={{ fontWeight: 600 }}>{v}</div>
+                      <div style={{ fontWeight: 600 }}>{v}{m.enabled === false && <span style={{ marginLeft: 8 }}><Pill tone="red" dot={false}>已停用</Pill></span>}{m.must_change_password && m.enabled !== false && <span style={{ marginLeft: 8 }}><Pill tone="amber" dot={false}>待改密</Pill></span>}</div>
                       <div className="muted" style={{ fontSize: 12 }}>{m.title}</div>
                     </div>
                   </div>
@@ -107,10 +139,36 @@ export default function Members() {
                 ),
               },
               { title: '最近活跃', dataIndex: 'last_active', align: 'right', render: (v) => <span className="muted">{fromNow(v)}</span> },
+              ...(live ? [{
+                title: '', width: 230, render: (_: unknown, m: Member) => (
+                  <span style={{ display: 'inline-flex', gap: 2, whiteSpace: 'nowrap' }}>
+                    <Button size="small" type="text" onClick={() => setEditing(m)}>编辑</Button>
+                    <Popconfirm title={`重置「${m.name}」的密码？`} description="会生成新的初始密码，首次登录需修改。" okText="重置" cancelText="取消" onConfirm={() => resetPassword(m)}>
+                      <Button size="small" type="text">重置密码</Button>
+                    </Popconfirm>
+                    {m.enabled === false
+                      ? <Button size="small" type="text" onClick={() => run(() => api.setMemberEnabled(m.id, true), `已启用 ${m.name}`)}>启用</Button>
+                      : <Popconfirm title={`停用「${m.name}」？`} description="立即禁止登录并回收他的模型 key；已签发的令牌最多 30 秒内失效。" okText="停用" cancelText="取消" disabled={m.is_admin}
+                          onConfirm={() => run(() => api.setMemberEnabled(m.id, false), `已停用 ${m.name}`)}>
+                          <Button size="small" type="text" danger disabled={m.is_admin} title={m.is_admin ? '管理员账号不能停用' : undefined}>停用</Button>
+                        </Popconfirm>}
+                    <Popconfirm title={`删除「${m.name}」？`} description="账号将被永久删除且不可恢复；通常建议停用。" okText="删除" cancelText="取消" disabled={m.is_admin}
+                      onConfirm={() => run(() => api.deleteMember(m.id), `已删除 ${m.name}`)}>
+                      <Button size="small" type="text" danger disabled={m.is_admin}>删除</Button>
+                    </Popconfirm>
+                  </span>
+                ),
+              }] : []),
             ]}
           />
         </Panel>
       </div>
+      {editing && (
+        <MemberDrawer target={editing} depts={depts.data ?? []} onClose={() => setEditing(undefined)}
+          onDone={(created) => { reload(); if (created) setNotice(created) }} />
+      )}
+      <ImportModal open={importing} onClose={() => setImporting(false)} onDone={reload} />
+      <PasswordNotice info={notice} onClose={() => setNotice(undefined)} />
     </>
   )
 }

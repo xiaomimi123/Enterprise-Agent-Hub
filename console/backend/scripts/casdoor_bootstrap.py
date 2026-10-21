@@ -154,6 +154,13 @@ def main() -> None:
         ok(c.post("/api/add-organization", json=org), "创建组织")
         print(f"✓ 创建组织 {org_name}")
 
+    # 密码规则：至少 8 位（中枢创建 / 重置密码时另外要求字母 + 数字）；员工改密码时 Casdoor 按此校验
+    cur = ok(c.get("/api/get-organization", params={"id": f"admin/{org_name}"}), "读取组织")["data"]
+    if cur.get("passwordOptions") != ["AtLeast8"]:
+        cur["passwordOptions"] = ["AtLeast8"]
+        ok(c.post("/api/update-organization", params={"id": f"admin/{org_name}"}, json=cur), "更新密码规则")
+        print("✓ 密码规则：至少 8 位")
+
     # ---- 应用（OAuth 客户端）----
     consoles = [console_url] + ([DEV_CONSOLE_URL] if args.demo else [])
     redirect_uris = [u for url in consoles for u in (f"{url}/callback", url)]  # 后者用于退出登录后跳回

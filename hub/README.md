@@ -98,3 +98,14 @@ make ragflow-up   # 首次会拉约 10GB 镜像；Linux 上需要 vm.max_map_cou
 ## 身份与登录页
 
 身份直接使用 Casdoor 自建账号（不接钉钉）：管理员在 Casdoor 里建组织、部门、成员。登录页不引用任何境外资源：`docker-compose.yml` 里 Casdoor 启动时把前端写死的 `cdn.casbin.org` 改指向本服务的 `/static-cdn`（文件在 `hub/casdoor-static/`：徽标、图标、manifest），并设置 `staticBaseUrl`；应用与组织的徽标由 `console/backend/scripts/casdoor_brand.py` 写入。升级 Casdoor 版本后重新 `make up` 即可，替换是按字符串做的，不依赖具体版本。
+
+### 成员账号管理
+
+控制台「成员与组织」页（管理员）：
+
+- **新建**：填用户名、姓名、部门，初始密码可自填或留空随机生成（至少 8 位，含字母和数字）。初始密码只在创建后的弹窗里显示一次；员工首次登录 Casdoor 会强制修改密码，改完才能换到令牌。
+- **批量导入**：上传 CSV，表头 `username,display_name,dept,title,phone,email,password`（dept 填部门名称，password 留空则随机生成，一次最多 500 人）；逐行创建，失败的行给出原因，成功行的初始密码在结果里显示一次，可导出。
+- **重置密码**、**编辑**（姓名、部门、职位、手机、邮箱）、**停用 / 启用**、**删除**。管理员账号和自己的账号不能停用或删除。
+- **停用即失效**：Casdoor 立即禁止登录；该员工在模型网关的全部 key 被回收；已签发的令牌（有效期 24 小时，刷新令牌 7 天）由中枢在 30 秒内拒绝（每次请求按账号状态校验，查询结果缓存 30 秒；身份服务暂时不可用时放行，不拖垮其他人）。重新启用后，员工下次领取配置会自动新建 key。
+- 登录失败 5 次锁定 15 分钟（Casdoor 应用默认）；密码规则「至少 8 位」由 `casdoor_bootstrap.py` 写入组织。
+- 所有操作写审计（密码不入审计）。生产环境员工端只能走浏览器登录（授权码 + PKCE），账号密码直换令牌仅在 `bootstrap-demo` 时开启。

@@ -6,6 +6,10 @@
 
 ## 2026-10-21
 
+**文档**
+- 新增 [app-integration-guide.md](app-integration-guide.md)《接入新应用指南》：把「应用托管 + 对接契约」模式沉淀成文档（适合接什么、三个接入层级、中枢与应用两侧契约、适配底层 agent 的经验、改造清单、发布流程）。同时记下接第二个应用前要处理的限制：接入器只会用 `node` 启动、`launch_app` 里还有工作台的特例、`HUB_MCP_SERVERS_FILE` 只对 Claude Code 生效、应用自带的模型密钥未统一到中枢。
+- 新增 `CLAUDE.md` 项目指南、`docs/README.md` 索引、本更新记录，重写根 `README.md`；清掉各文档里「钉钉」的旧说法。
+
 **成员与登录（身份直接用 Casdoor 自建账号，不接钉钉）**
 - 控制台「成员与组织」页支持新建、编辑、重置密码、停用 / 启用、删除、CSV 批量导入。初始密码只在创建 / 重置后显示一次，员工首次登录强制改密（Casdoor 的 `needUpdatePassword`）；密码规则至少 8 位（`casdoor_bootstrap.py` 写入组织）。
 - **停用即失效**：停用时 Casdoor 禁止登录 + 回收该员工在模型网关的全部 key；已签发的令牌由 `accounts.is_active` 在 30 秒内拒绝（控制台、MCP、接入器三处都校验，Casdoor 暂时不可用时放行，避免拖垮所有人）。已用真实 Casdoor 验证。代码：`members_admin.py`、`accounts.py`、`members_api.py`。

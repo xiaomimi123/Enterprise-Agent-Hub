@@ -55,6 +55,10 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
+## 接入新应用
+
+要把别的开源工作台 / 智能体改造成中枢的应用，先读 [docs/app-integration-guide.md](docs/app-integration-guide.md)（判断标准、两侧契约、改造清单、已知限制）。下面的小红书运营工作台是样板。
+
 ## 小红书运营工作台（独立项目）
 
 源码在 `D:\小红书运自动化运营系统\xhs-workbench1`，**有自己的 git 仓库和 GitHub 远程**（`xhs-workbench1`），不在本仓库里；通过本仓库 `apps/xhs-workbench/` 分发给员工。

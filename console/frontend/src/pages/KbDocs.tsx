@@ -1,6 +1,6 @@
 import { App, Button, Drawer, Empty, Input, Modal, Popconfirm, Segmented, Skeleton, Table } from 'antd'
 import dayjs from 'dayjs'
-import { FileText, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { FileText, Pencil, Plus, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import Markdown from 'react-markdown'
 import { api, type KbDocDetail, type KbDocument, type KbResult, type KbReview, type KnowledgeBase } from '../api'
@@ -8,6 +8,7 @@ import { useSession } from '../auth'
 import DiffView from '../components/DiffView'
 import { DEPT_META, fmtTime, useRequest } from '../lib'
 import { DeptTile, Pill, Token } from '../ui'
+import { KbSettingsModal, reviewText } from './KbSettings'
 
 type Mode = 'direct' | 'review' | null
 const STATUS_TONE: Record<string, string> = { published: 'green', pending: 'amber', rejected: 'red' }
@@ -35,6 +36,10 @@ export function DocsDrawer({ kb, onClose, onChanged }: { kb: KnowledgeBase; onCl
   const [open, setOpen] = useState<string>()
   const [creating, setCreating] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  const [settings, setSettings] = useState(false)
+  const session = useSession().user
+  const canMark = session.role !== 'manager' || (kb.dept !== 'all' && !!session.depts?.includes(kb.dept)) || kb.owner === session.name
+  const canSettings = session.role !== 'manager' || (kb.dept !== 'all' && !!session.depts?.includes(kb.dept))
   const reloadAll = () => { docs.reload(); deleted.reload(); onChanged() }
   const unsynced = docs.data?.some((d) => d.status === '待同步')
   const pending = docs.data?.reduce((n, d) => n + (d.pending ?? 0), 0) ?? 0
@@ -52,6 +57,7 @@ export function DocsDrawer({ kb, onClose, onChanged }: { kb: KnowledgeBase; onCl
         </div>
       }
       extra={<div style={{ display: 'flex', gap: 8 }}>
+        {canSettings && <Button icon={<Settings size={13} />} onClick={() => setSettings(true)}>库设置</Button>}
         {unsynced && mode && <Button icon={<RefreshCw size={13} />} onClick={async () => {
           const r = await api.resyncKb(kb.id)
           message[r.failed ? 'warning' : 'success'](r.failed ? `${r.failed} 篇同步失败` : `已同步 ${r.synced} 篇`)
@@ -61,6 +67,17 @@ export function DocsDrawer({ kb, onClose, onChanged }: { kb: KnowledgeBase; onCl
         {mode && <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>新建文档</Button>}
       </div>}
     >
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <Pill tone="gray" dot={false}>{kb.category}</Pill>
+        <span className="muted">负责人：{kb.owner_name || '未指定'}</span>
+        <span style={{ color: kb.overdue ? 'var(--red)' : undefined, fontWeight: kb.overdue ? 600 : undefined }} className={kb.overdue ? '' : 'muted'}>复核：{reviewText(kb)}</span>
+        {canMark && kb.review_every_days > 0 && (
+          <Button size="small" onClick={async () => {
+            try { await api.kbReviewed(kb.id); message.success('已标记为已复核'); onChanged() } catch (e) { message.error((e as Error).message) }
+          }}>标记已复核</Button>
+        )}
+      </div>
+      {kb.description && <div className="muted" style={{ marginBottom: 12 }}>{kb.description}</div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <span className="muted">授权给</span>
         {kb.role_packs.length ? kb.role_packs.map((x) => <Token key={x}>{x}</Token>) : <span className="muted">无</span>}
@@ -89,6 +106,7 @@ export function DocsDrawer({ kb, onClose, onChanged }: { kb: KnowledgeBase; onCl
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{deleted.data.map((d) => <Token key={d.name}><span style={{ cursor: 'pointer' }} onClick={() => setOpen(d.name)}>{d.name}</span></Token>)}</div>
         </div>
       )}
+      <KbSettingsModal kb={kb} open={settings} onClose={() => setSettings(false)} onSaved={() => onChanged()} />
       {open && <DocDrawer kb={kb} name={open} onClose={() => setOpen(undefined)} onChanged={reloadAll} />}
       <NewDocModal kb={kb} open={creating} onClose={() => setCreating(false)} onCreated={(name) => { reloadAll(); setOpen(name) }} />
       <KbReviewDrawer open={reviewing} onClose={() => setReviewing(false)} onChanged={reloadAll} canReview={canReview} kbId={kb.id} />

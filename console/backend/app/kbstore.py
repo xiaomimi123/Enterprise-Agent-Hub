@@ -14,7 +14,7 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import db
+from . import db, kbmeta
 from .config import settings
 from .content import DATASET_PREFIX, KB_REGISTRY
 from .skillstore import ALL, DIRECT, REVIEW, Conflict, SkillError, can_review, plan_for
@@ -55,6 +55,7 @@ def clean_content(text: str) -> str:
 
 
 def kb_dept(kb_id: str) -> str:
+    kbmeta.refresh()
     if kb_id not in KB_REGISTRY:
         raise KbError("知识库不存在。")
     return KB_REGISTRY[kb_id]["dept"]

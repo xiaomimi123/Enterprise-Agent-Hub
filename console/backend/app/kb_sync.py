@@ -48,7 +48,8 @@ def sync_vault(client: Ragflow, vault_dir: str, wait: bool = False, timeout: flo
 
 def sync_db(client: Ragflow, wait: bool = False, timeout: float = 600) -> dict:
     """把数据库里当前生效的知识库文档同步到 RAGFlow（控制台编辑后的内容以数据库为准），按「文件名 + 字节数」判断变化。"""
-    from . import db, kbstore
+    from . import db, kbmeta, kbstore
+    kbmeta.refresh(force=True)
     stats = {"uploaded": 0, "updated": 0, "deleted": 0, "skipped": 0}
     parse_jobs: list[tuple[str, list[str]]] = []
     docs = kbstore.published_docs()

@@ -208,10 +208,28 @@ def digest(days: int, totals: dict, roles: list[dict], inactive: list[str], rece
     return "\n".join(lines)
 
 
+def kb_overdue(depts: list[str] | None, now: datetime | None = None) -> list[dict]:
+    """逾期没有复核的知识库（主管只看自己部门和全公司的）。"""
+    from . import kbmeta
+    kbmeta.refresh()
+    now = now or datetime.now().astimezone()
+    out = []
+    for kb in kbmeta.overdue(now):
+        if depts is not None and kb["dept"] not in (*depts, "all"):
+            continue
+        left = kbmeta.due_in_days(kb, now)
+        out.append({"id": kb["id"], "name": kb["name"], "dept": kb["dept"], "owner": kb["owner"], "overdue_days": -left if left is not None and left < 0 else 0})
+    return sorted(out, key=lambda k: -k["overdue_days"])
+
+
 def load_report(org: str, days: int, members: list[dict] | None = None, person: str | None = None, depts: list[str] | None = None) -> dict:
     """从库里取数据并汇总。"""
     days = max(1, min(int(days), 30))
     since = period_start(days)
-    return build_report(days=days, events=db.recent_audit(org, days + 1), items=db.work_items_since(org, since),
-                        tasks=db.gpu_tasks_since(org, days + 1), assignments=db.assignments(org),
-                        packs={p["id"]: p for p in db.role_packs()}, members=members, person=person, depts=depts, dept_defaults=db.dept_defaults(org))
+    r = build_report(days=days, events=db.recent_audit(org, days + 1), items=db.work_items_since(org, since),
+                     tasks=db.gpu_tasks_since(org, days + 1), assignments=db.assignments(org),
+                     packs={p["id"]: p for p in db.role_packs()}, members=members, person=person, depts=depts, dept_defaults=db.dept_defaults(org))
+    r["kb_overdue"] = kb_overdue(depts)
+    if r["kb_overdue"]:
+        r["digest"] += "\n- 知识库逾期未复核：" + "、".join(f"{k['name']}（{k['overdue_days']} 天）" for k in r["kb_overdue"][:8])
+    return r

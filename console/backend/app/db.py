@@ -200,6 +200,23 @@ CREATE TABLE IF NOT EXISTS kb_doc_versions (
     FOREIGN KEY (kb_id, name) REFERENCES kb_docs (kb_id, name) ON DELETE CASCADE
 );
 
+-- 知识库本身：名称、部门、密级、内容类型、负责人、复核周期。首次启动从 demo_seed.KNOWLEDGE_BASES 导入，之后以此表为准
+CREATE TABLE IF NOT EXISTS kbs (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL UNIQUE,
+    dept_id           TEXT NOT NULL,               -- 部门（Casdoor 分组名）或 all
+    classification    TEXT NOT NULL,               -- 公开 | 内部 | 机密
+    external_access   BOOLEAN NOT NULL DEFAULT false,
+    source            TEXT NOT NULL DEFAULT '控制台',
+    category          TEXT NOT NULL DEFAULT '其他',  -- 内容类型
+    owner             TEXT NOT NULL DEFAULT '',    -- 负责人（用户名）
+    review_every_days INTEGER NOT NULL DEFAULT 90, -- 复核周期，0 = 不需要复核
+    last_reviewed_at  TIMESTAMPTZ,
+    description       TEXT NOT NULL DEFAULT '',
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
 CREATE TABLE IF NOT EXISTS work_items (
     id           BIGSERIAL PRIMARY KEY,

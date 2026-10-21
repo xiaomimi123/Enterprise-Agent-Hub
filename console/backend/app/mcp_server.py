@@ -21,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import accounts, app_access, content, db, generation, gpu, policy, roles, skillstore, work
+from . import accounts, app_access, content, db, generation, gpu, kbmeta, policy, roles, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -86,6 +86,7 @@ def _principal() -> policy.Principal:
                          dept=dept, channel=channel)
     p.pack = policy.resolve_pack(p.org, p.user_name, dept)
     p.is_admin = bool(c.get("isAdmin"))
+    kbmeta.refresh()  # 知识库配置（密级、部门、是否开放外部）改了，下一次调用就生效
     if channel == policy.OFFICIAL:  # 官方 agent 调用工具也算在线（直连的 Hermes 不经过接入器报到）
         try:
             db.touch_presence(p.org, p.user_name)

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import db
+from . import db, kbmeta
 from .content import KB_REGISTRY
 
 FALLBACK_ROLE_PACK = "rp-general"
@@ -55,6 +55,7 @@ def resolve_pack(org: str, user_name: str, dept: str) -> dict:
 
 
 def allowed_kbs(p: Principal) -> list[str]:
+    kbmeta.refresh()
     """这个人在当前入口下能检索的知识库。外部智能体只能读岗位包允许、且知识库本身开放给外部的。"""
     kbs = [k for k in p.pack.get("knowledge_bases", []) if k in KB_REGISTRY]
     if p.is_external:

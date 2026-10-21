@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from . import auth, db, kbstore, skillstore
+from . import auth, db, kbmeta, kbstore, skillstore
 from .config import settings
 from .content import KB_REGISTRY
 from .kbstore import KbError
@@ -30,6 +30,7 @@ def _audit(user: dict, tool: str, detail: str) -> None:
 
 
 def _kb(kb_id: str, user: dict) -> dict:
+    kbmeta.refresh()
     kb = KB_REGISTRY.get(kb_id)
     if kb is None:
         raise HTTPException(404, "知识库不存在")
@@ -197,3 +198,102 @@ def review(kb_id: str, name: str, version: int, body: ReviewBody, user: dict = D
     r = _after(kb_id, name, _run(lambda: kbstore.review(kb_id, name, version, user, user, body.approve, body.note)))
     _audit(user, "kb.review", f"{'通过' if body.approve else '驳回'}知识库「{KB_REGISTRY[kb_id]['name']}」文档「{name}」第 {version} 版的修改")
     return r
+
+
+# ---- 知识库本身：新建、属性（内容类型 / 负责人 / 复核周期 / 密级……）、标记已复核 ----
+
+ADMIN_ONLY_FIELDS = {"name", "dept", "classification", "external_access"}  # 密级和是否开放外部直接决定信息会不会外泄，主管不能改
+MANAGER_FIELDS = {"owner", "category", "review_every_days", "description"}
+
+
+class KbCreateBody(BaseModel):
+    name: str
+    dept: str
+    classification: str
+    category: str = "其他"
+    owner: str = ""
+    review_every_days: int = kbmeta.DEFAULT_REVIEW_DAYS
+    external_access: bool = False
+    description: str = ""
+
+
+class KbPatchBody(BaseModel):
+    name: str | None = None
+    dept: str | None = None
+    classification: str | None = None
+    external_access: bool | None = None
+    category: str | None = None
+    owner: str | None = None
+    review_every_days: int | None = None
+    description: str | None = None
+
+
+def _public(kb: dict) -> dict:
+    return {**kb, "overdue": kbmeta.is_overdue(kb), "due_in_days": kbmeta.due_in_days(kb)}
+
+
+def _member_ids() -> set[str]:
+    from .main import provider
+    return {m["id"] for m in provider.members()}
+
+
+def _depts_valid() -> set[str]:
+    from .main import provider
+    return {d["id"] for d in provider.departments() if d["id"] != "unassigned"}
+
+
+def _check_owner(owner: str | None) -> None:
+    if owner and owner not in _member_ids():
+        raise HTTPException(400, f"负责人「{owner}」不是公司成员。")
+
+
+def _run_meta(fn):
+    try:
+        return fn()
+    except kbmeta.KbMetaError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+@router.post("/knowledge-bases")
+def create_kb(body: KbCreateBody, user: dict = Depends(auth.console_user)):
+    """新建知识库：只有管理员和老板可以；新建后要由管理员在「岗位包」里授权给岗位，员工的 agent 才能检索。"""
+    _need_db()
+    if user["role"] not in ("admin", "boss"):
+        raise HTTPException(403, "只有管理员和老板可以新建知识库")
+    _check_owner(body.owner)
+    kb = _run_meta(lambda: kbmeta.create(body.model_dump(), _depts_valid()))
+    _audit(user, "kb.create_base", f"新建知识库「{kb['name']}」（{kb['dept']}，{kb['classification']}，{kb['category']}）")
+    return _public(kb)
+
+
+@router.patch("/knowledge-bases/{kb_id}")
+def patch_kb(kb_id: str, body: KbPatchBody, user: dict = Depends(auth.console_user)):
+    _need_db()
+    kb = _kb(kb_id, user)
+    fields = body.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(400, "没有要修改的内容")
+    if user["role"] == "manager":
+        if kb["dept"] == skillstore.ALL or kb["dept"] not in (user["depts"] or []):
+            raise HTTPException(403, "部门主管只能修改本部门知识库的属性")
+        if banned := sorted(set(fields) & ADMIN_ONLY_FIELDS):
+            raise HTTPException(403, f"部门主管不能修改：{'、'.join(banned)}（只有管理员和老板可以）")
+    _check_owner(fields.get("owner"))
+    before = {k: kb.get(k) for k in ("name", "dept", "classification", "external_access", "category", "owner", "review_every_days")}
+    after = _run_meta(lambda: kbmeta.update(kb_id, fields, _depts_valid()))
+    changes = [f"{k}：{before.get(k)} → {after.get(k)}" for k in fields if k != "description" and before.get(k) != after.get(k)]
+    _audit(user, "kb.settings", f"修改知识库「{after['name']}」属性：{'；'.join(changes) or '无变化'}")
+    return _public(after)
+
+
+@router.post("/knowledge-bases/{kb_id}/reviewed")
+def mark_reviewed(kb_id: str, user: dict = Depends(auth.console_user)):
+    """标记「已复核」：内容仍然准确，重新开始计时。管理员、老板、本部门主管和负责人可以做。"""
+    _need_db()
+    kb = _kb(kb_id, user)
+    is_manager = user["role"] == "manager" and kb["dept"] in (user["depts"] or [])
+    if not (user["role"] in ("admin", "boss") or is_manager or kb.get("owner") == user["name"]):
+        raise HTTPException(403, "只有管理员、老板、本部门主管和这个知识库的负责人可以标记已复核")
+    after = _run_meta(lambda: kbmeta.mark_reviewed(kb_id))
+    _audit(user, "kb.reviewed", f"知识库「{after['name']}」标记为已复核")
+    return _public(after)

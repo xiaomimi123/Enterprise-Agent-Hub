@@ -88,7 +88,8 @@ _MANAGER_READ = (r"departments", r"members", r"role-packs", r"skills(?:/[^/]+)?"
 _BOSS_READ = _MANAGER_READ + (r"overview", r"audit/traces(?:/[^/]+)?", r"usage", r"gpu/tasks", r"apps", r"catalog")
 _SKILL_WRITE = (("POST", r"skills"), ("PUT", r"skills/[^/]+"), ("POST", r"skills/[^/]+/rollback"))  # 能不能改某个技能，由 skillstore.plan_for 判断
 _KB_WRITE = (("POST", r"knowledge-bases/[^/]+/documents"), ("PUT", r"knowledge-bases/[^/]+/documents/[^/]+"), ("DELETE", r"knowledge-bases/[^/]+/documents/[^/]+"),
-             ("POST", r"knowledge-bases/[^/]+/documents/[^/]+/rollback"), ("POST", r"knowledge-bases/[^/]+/sync"))  # 能不能改，由 kbstore / skillstore.plan_for 判断
+             ("POST", r"knowledge-bases/[^/]+/documents/[^/]+/rollback"), ("POST", r"knowledge-bases/[^/]+/sync"),
+             ("POST", r"knowledge-bases"), ("PATCH", r"knowledge-bases/[^/]+"), ("POST", r"knowledge-bases/[^/]+/reviewed"))  # 新建只有管理员 / 老板；属性字段由 kb_api 按角色限制  # 能不能改，由 kbstore / skillstore.plan_for 判断
 _allow = lambda reads, writes: [("GET", re.compile(r"^/api/(?:" + "|".join(reads) + r")$")),  # noqa: E731
                                 *((m, re.compile(rf"^/api/{p}$")) for m, p in writes)]
 ROLE_ALLOWED = {roles.MANAGER: _allow(_MANAGER_READ, _SKILL_WRITE + _KB_WRITE),

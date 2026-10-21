@@ -23,7 +23,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import content, db, kbstore, metering, presence, skillstore
+from .. import content, db, kbmeta, kbstore, metering, presence, skillstore
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import default_pack_id
@@ -119,6 +119,7 @@ class CasdoorProvider(DemoProvider):
             })
         departments.sort(key=lambda x: (x["id"] == UNASSIGNED, -x["member_count"], x["name"]))
 
+        self.d["member_names"] = {m["id"]: m["name"] for m in members}
         events = db.recent_audit(self.org, days=7)
         traces = db.traces_from_events(events, dept_names)
         self.d.update({
@@ -223,6 +224,7 @@ class CasdoorProvider(DemoProvider):
         return out
 
     def _knowledge_bases(self, events: list[dict]) -> list[dict]:
+        kbmeta.refresh()
         if not self._kb_imported:  # 首次：把 vault/ 目录导入文档库（已有的不覆盖）
             kbstore.import_from_disk()
             self._kb_imported = True
@@ -236,6 +238,9 @@ class CasdoorProvider(DemoProvider):
                 "doc_count": len(docs),
                 "chunk_count": sum(len([b for b in re.split(r"\n\s*\n", d["content"] or "") if b.strip()]) for d in docs),
                 "queries_7d": sum(1 for h in hits if kb["name"] in h),
+                "overdue": kbmeta.is_overdue(kb),
+                "due_in_days": kbmeta.due_in_days(kb),
+                "owner_name": (self.d.get("member_names") or {}).get(kb["owner"], kb["owner"]),
                 "updated_at": max((d["updated_at"].isoformat() for d in docs), default=""),
             })
         return out

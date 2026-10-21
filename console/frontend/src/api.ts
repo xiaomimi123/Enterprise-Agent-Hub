@@ -197,6 +197,18 @@ export interface KnowledgeBase {
   queries_7d: number
   updated_at: string
   role_packs: string[]
+  category: string
+  owner: string
+  owner_name: string
+  review_every_days: number
+  last_reviewed_at: string | null
+  overdue: boolean
+  due_in_days: number | null // 距下次复核还有几天；负数 = 已逾期几天；null = 不需要复核
+  description: string
+}
+export interface KbFields {
+  name?: string; dept?: string; classification?: string; external_access?: boolean
+  category?: string; owner?: string; review_every_days?: number; description?: string
 }
 
 export interface KbDocument {
@@ -452,6 +464,10 @@ export const api = {
   skills: () => request<Skill[]>('/skills'),
   skill: (id: string) => request<Skill>(`/skills/${id}`),
   knowledgeBases: () => request<KnowledgeBase[]>('/knowledge-bases'),
+  createKb: (body: KbFields & { name: string; dept: string; classification: string }) =>
+    request<KnowledgeBase>('/knowledge-bases', { method: 'POST', body: JSON.stringify(body) }),
+  patchKb: (id: string, body: KbFields) => request<KnowledgeBase>(`/knowledge-bases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  kbReviewed: (id: string) => request<KnowledgeBase>(`/knowledge-bases/${id}/reviewed`, { method: 'POST' }),
   kbDocument: (kb: string, name: string) => request<KbDocDetail>(`/knowledge-bases/${kb}/documents/${encodeURIComponent(name)}`),
   kbDeleted: (kb: string) => request<{ name: string; updated_at: string }[]>(`/knowledge-bases/${kb}/deleted`),
   createKbDoc: (kb: string, body: { name: string; content: string; note?: string }) =>

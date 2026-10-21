@@ -55,6 +55,9 @@ HERMES_HOME = HOME / "hermes"
 SKILLS_DIR = HOME / "skills"
 # WorkBuddy 的技能目录：中枢下发的技能放在 hub-<技能 id>/ 下，并带标记文件，只管理这些，不碰员工自己装的技能
 WORKBUDDY_SKILLS = Path(os.environ.get("HUB_WORKBUDDY_SKILLS", Path.home() / ".workbuddy" / "skills"))
+# CodeBuddy CLI：中枢下发的模型写进它的 models.json，名字带这个前缀作为标记，只管理带标记的条目，不碰员工自己加的模型
+CODEBUDDY_HOME = Path(os.environ.get("HUB_CODEBUDDY_HOME", Path.home() / ".codebuddy"))
+CB_MODEL_PREFIX = "公司中枢 · "
 WB_PREFIX = "hub-"
 WB_MARKER = ".hub-managed"
 CALLBACK_PORT = 27891
@@ -233,6 +236,9 @@ def cmd_sync(_args=None, trace_id: str | None = None, task: str = "", session_ke
                   + yaml.safe_dump(conf, allow_unicode=True, sort_keys=False))
     write_private(HERMES_HOME / ".env", "".join(f"{k}={v}\n" for k, v in env.items()))
 
+    cb = sync_codebuddy_models(cfg)
+    if cb:
+        info(f"CodeBuddy CLI：{cb}")
     wb = sync_workbuddy_skills(cfg)
     if wb is not None:
         info(f"WorkBuddy：已同步岗位包技能 {wb} 个到 {WORKBUDDY_SKILLS}")
@@ -327,6 +333,74 @@ def sync_workbuddy_skills(cfg: dict, root: Path | None = None) -> int | None:
     return len(cfg["skills"])
 
 
+def _read_json_file(f: Path) -> dict | None:
+    """读 JSON 配置：不存在返回 {}，格式有误返回 None（调用方据此跳过，绝不覆盖员工的文件）。Windows 工具常带 BOM。"""
+    try:
+        raw = f.read_text(encoding="utf-8-sig") if f.exists() else ""
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _backup(f: Path) -> None:
+    if f.exists():
+        shutil.copy2(f, f.with_name(f"{f.name}.bak-hub-{time.strftime('%Y%m%d-%H%M%S')}"))
+
+
+def sync_codebuddy_models(cfg: dict, home: Path | None = None, state_file: Path | None = None) -> str | None:
+    """把中枢下发的模型写进 CodeBuddy CLI：models.json 加入带「公司中枢 · 」前缀的条目（OpenAI 接口格式，url 要写完整的
+    /chat/completions 路径），并在员工没有自己选过模型时把它设为默认。没装 CodeBuddy 返回 None；岗位包不下发模型时清掉旧条目。
+    密钥是员工本人的模型 key（按岗位包限定模型和额度），文件权限 600。"""
+    home = home or CODEBUDDY_HOME
+    state_file = state_file or HOME / "codebuddy-state.json"
+    if not home.is_dir():
+        return None
+    models_f, settings_f = home / "models.json", home / "settings.json"
+    models_doc, settings_doc = _read_json_file(models_f), _read_json_file(settings_f)
+    if models_doc is None or settings_doc is None:
+        return f"{models_f if models_doc is None else settings_f} 格式有误，已跳过，请手动检查"
+    prev = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
+    m = cfg.get("model")
+    ids = list(dict.fromkeys(m.get("models") or [m["model"]])) if m else []
+    mine = [{"id": i, "name": f"{CB_MODEL_PREFIX}{i}", "vendor": "OpenAI", "apiKey": m["api_key"],
+             "url": m["base_url"].rstrip("/") + "/chat/completions", "supportsToolCall": True} for i in ids]
+    kept = [x for x in models_doc.get("models", []) if not str(x.get("name", "")).startswith(CB_MODEL_PREFIX) and x.get("id") not in ids]
+    new_models = {**models_doc, "models": kept + mine}
+    if not mine and not models_doc.get("models") and "models" not in models_doc:
+        new_models = models_doc
+    changed = new_models != models_doc
+    if changed:
+        _backup(models_f)
+        write_private(models_f, json.dumps(new_models, ensure_ascii=False, indent=2) + "\n")
+    # 默认模型：员工没设过、或还是上次中枢设的那个，才改成中枢的默认模型，不覆盖员工自己的选择
+    current = settings_doc.get("model")
+    note = ""
+    if m and (not current or current == prev.get("default")) and current != m["model"]:
+        _backup(settings_f)
+        write_private(settings_f, json.dumps({**settings_doc, "model": m["model"]}, ensure_ascii=False, indent=2) + "\n")
+        note = f"，默认模型 {m['model']}"
+    elif not m and current and current == prev.get("default"):
+        rest = {k: v for k, v in settings_doc.items() if k != "model"}
+        _backup(settings_f)
+        write_private(settings_f, json.dumps(rest, ensure_ascii=False, indent=2) + "\n")
+    write_private(state_file, json.dumps({"default": m["model"] if m else None}, ensure_ascii=False))
+    return f"已同步中枢模型 {len(mine)} 个到 {models_f}{note}" if m else "中枢未下发模型（岗位包用自带模型），已清理中枢写入的条目"
+
+
+def codebuddy_mcp_file(home: Path) -> Path:
+    """CodeBuddy CLI 读取 MCP 配置的文件：按它的优先级取第一个已存在的（同一层级内不合并），都没有就新建推荐的 .mcp.json。
+    只有旧的 ~/.codebuddy.json 里已经有 MCP 服务器时才写它，避免新建 .mcp.json 把员工原有的服务器顶掉。"""
+    for name in (".mcp.json", "mcp.json"):
+        if (home / name).exists():
+            return home / name
+    legacy = home.parent / ".codebuddy.json"
+    data = _read_json_file(legacy) if legacy.exists() else {}
+    if data and data.get("mcpServers"):
+        return legacy
+    return home / ".mcp.json"
+
+
 # ---------------- 一键接入：自动配置桌面 agent ----------------
 
 MCP_SERVER_NAME = "enterprise-hub"
@@ -341,8 +415,12 @@ def agent_clients() -> list[dict]:
         claude = home / "Library" / "Application Support" / "Claude"
     else:
         claude = home / ".config" / "Claude"
+    cb = CODEBUDDY_HOME
+    if shutil.which("codebuddy") and not cb.exists():
+        cb.mkdir(parents=True, exist_ok=True)  # 装了命令行但还没运行过，目录还不存在
     return [
         {"name": "WorkBuddy", "detect": home / ".workbuddy", "config": home / ".workbuddy" / "mcp.json"},
+        {"name": "CodeBuddy CLI", "detect": cb, "config": codebuddy_mcp_file(cb)},
         {"name": "Cursor", "detect": home / ".cursor", "config": home / ".cursor" / "mcp.json"},
         {"name": "Claude 桌面版", "detect": claude, "config": claude / "claude_desktop_config.json"},
     ]
@@ -388,6 +466,7 @@ def find_uv() -> str:
 def cmd_setup(args) -> None:
     """一键接入：没登录（或换了中枢）就浏览器登录，然后同步，再自动配置本机装的桌面 agent。"""
     hub = args.hub.rstrip("/")
+    clients = agent_clients()  # 先探测：装了 CodeBuddy 命令行会在这里建好目录，下面的同步才会写入中枢模型
     creds = json.loads(CREDS.read_text(encoding="utf-8")) if CREDS.exists() else {}
     if creds.get("hub") != hub or not creds.get("refresh_token"):
         cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
@@ -396,7 +475,7 @@ def cmd_setup(args) -> None:
             cmd_sync()
         except SystemExit:  # 续期令牌过期：重新登录
             cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
-    results = configure_agents(agent_clients(), find_uv(), str(Path(__file__).resolve()))
+    results = configure_agents(clients, find_uv(), str(Path(__file__).resolve()))
     print()
     for name, status in results:
         info(f"{name}：{status}")
@@ -404,7 +483,7 @@ def cmd_setup(args) -> None:
     if done:
         info(f"接入完成。请完全退出并重新打开 {'、'.join(done)}，在里面就能直接使用公司知识库、技能和出图出视频。")
     else:
-        info("没有检测到 WorkBuddy、Cursor 或 Claude 桌面版。装好后重新运行这条命令即可；也可以用 chat 子命令启动 Hermes。")
+        info("没有检测到 WorkBuddy、CodeBuddy CLI、Cursor 或 Claude 桌面版。装好后重新运行这条命令即可；也可以用 chat 子命令启动 Hermes。")
 
 
 # ---------------- 应用：在员工本机打开中枢发布的应用 ----------------

@@ -70,6 +70,19 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 
 权限和审计与 Hermes 完全相同（同一个员工令牌、同一套岗位包）。区别是桌面智能体用它自己的大模型，不走中枢的 New API，所以这部分模型用量不会记到「用量与成本」里。超过 7 天没用、续期令牌也过期时，重新执行一次 `login`。
 
+## 接 CodeBuddy CLI（要让 agent 控制浏览器时用）
+
+小红书工作台这类应用对 WorkBuddy、Cursor 等桌面 agent 只开放「收件箱模式」：任务末尾会带「只处理本地文件与资料，不得打开浏览器、访问平台或发布」，agent 照此拒绝开浏览器是正常的。要自动采集、发布、回评论，工作台得用 **CLI 模式**：由工作台在后台启动一个命令行 agent（CodeBuddy CLI、Claude Code、Codex 等）并配合浏览器工具完成。
+
+一键接入（`setup`）会自动检测 CodeBuddy CLI（`~/.codebuddy` 存在，或 `codebuddy` 命令可用），并且：
+
+- 把中枢写进它的 MCP 配置 `~/.codebuddy/.mcp.json`（已有 `mcp.json` 或旧的 `~/.codebuddy.json` 里已有服务器时写那个文件，避免顶掉员工原有的服务器）
+- 把**岗位包允许的中枢模型**写进 `~/.codebuddy/models.json`：条目名带「公司中枢 · 」前缀，`url` 为完整的 `<模型网关>/v1/chat/completions`（CodeBuddy 要求写完整路径，只支持 OpenAI 接口格式），`apiKey` 是员工本人的模型 key（按岗位包限定模型和额度，调用记入「用量与成本」），文件权限 600
+- 员工没自己选过默认模型时，在 `~/.codebuddy/settings.json` 把 `model` 设为中枢的默认模型；员工之后自己改了就不再覆盖
+- 之后每次 `sync` 都会更新密钥和模型列表；岗位包改成「自带模型」时，会清掉中枢写入的条目
+
+改动前都会备份为 `*.bak-hub-<时间>`，格式有误的文件不覆盖。数据来自官方文档，**还没有在真实的 CodeBuddy CLI 上完整验证过**（已验证：生成的地址和密钥能直接调用模型网关）。
+
 ## 打开公司应用
 
 对桌面智能体说「打开小红书工作台」即可（MCP 桥自动完成下载、校验、启动）。不走 MCP 桥的客户端：

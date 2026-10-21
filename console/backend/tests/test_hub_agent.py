@@ -1,6 +1,7 @@
 """员工端接入器（agent/hub_agent.py）：岗位包技能同步到 WorkBuddy 的技能目录。"""
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -143,3 +144,65 @@ def test_chat_syncs_with_session_key_scope_but_plain_sync_does_not(monkeypatch):
     hub_agent.cmd_sync(trace_id="tr-plain")
     assert seen[0]["X-Hub-Key-Scope"] == "session" and seen[0]["X-Hub-Trace-Id"] == "tr-chat"
     assert "X-Hub-Key-Scope" not in seen[1]
+
+
+# ---- CodeBuddy CLI：中枢模型写进 models.json、MCP 写进 .mcp.json ----
+
+def model_cfg(models=("deepseek-v4", "qwen-max")):
+    return {"employee": {"name": "周一诺", "role_pack": "小红书运营"}, "skills": [],
+            "model": {"base_url": "http://hub:3000/v1", "api_key": "sk-employee-key", "model": models[0], "models": list(models)}}
+
+
+def test_codebuddy_models_written_with_full_chat_completions_url_and_default(tmp_path):
+    home, state = tmp_path / ".codebuddy", tmp_path / "state.json"
+    home.mkdir()
+    (home / "models.json").write_text(json.dumps({"models": [{"id": "mine", "name": "我的模型", "url": "http://x/v1/chat/completions"}],
+                                                  "availableModels": ["mine"]}), encoding="utf-8")
+    msg = hub_agent.sync_codebuddy_models(model_cfg(), home, state)
+    data = json.loads((home / "models.json").read_text(encoding="utf-8"))
+    ours = [m for m in data["models"] if m["name"].startswith(hub_agent.CB_MODEL_PREFIX)]
+    assert [m["id"] for m in ours] == ["deepseek-v4", "qwen-max"] and "2 个" in msg
+    assert all(m["url"] == "http://hub:3000/v1/chat/completions" and m["apiKey"] == "sk-employee-key" and m["supportsToolCall"] for m in ours)
+    assert data["availableModels"] == ["mine"] and any(m["id"] == "mine" for m in data["models"])   # 员工自己的模型和设置保留
+    assert json.loads((home / "settings.json").read_text(encoding="utf-8"))["model"] == "deepseek-v4"
+    assert list(home.glob("models.json.bak-hub-*"))                                                    # 改之前备份
+
+
+def test_codebuddy_sync_is_idempotent_updates_key_and_respects_user_default(tmp_path):
+    home, state = tmp_path / ".codebuddy", tmp_path / "state.json"
+    home.mkdir()
+    hub_agent.sync_codebuddy_models(model_cfg(), home, state)
+    c2 = model_cfg()
+    c2["model"]["api_key"] = "sk-rotated"
+    hub_agent.sync_codebuddy_models(c2, home, state)
+    data = json.loads((home / "models.json").read_text(encoding="utf-8"))
+    assert [m["apiKey"] for m in data["models"]] == ["sk-rotated", "sk-rotated"] and len(data["models"]) == 2   # 不重复追加
+    s = home / "settings.json"
+    s.write_text(json.dumps({"model": "my-own-choice", "env": {"A": "1"}}), encoding="utf-8")                 # 员工自己改了默认模型
+    hub_agent.sync_codebuddy_models(c2, home, state)
+    assert json.loads(s.read_text(encoding="utf-8")) == {"model": "my-own-choice", "env": {"A": "1"}}
+
+
+def test_codebuddy_cleanup_when_no_model_and_skip_when_not_installed_or_broken(tmp_path):
+    home, state = tmp_path / ".codebuddy", tmp_path / "state.json"
+    assert hub_agent.sync_codebuddy_models(model_cfg(), home, state) is None                                   # 没装
+    home.mkdir()
+    hub_agent.sync_codebuddy_models(model_cfg(), home, state)
+    msg = hub_agent.sync_codebuddy_models({"employee": {}, "skills": []}, home, state)                         # 岗位包改成自带模型
+    assert "清理" in msg and json.loads((home / "models.json").read_text(encoding="utf-8"))["models"] == []
+    assert "model" not in json.loads((home / "settings.json").read_text(encoding="utf-8"))
+    (home / "models.json").write_text("{broken", encoding="utf-8")
+    assert "格式有误" in hub_agent.sync_codebuddy_models(model_cfg(), home, state)
+    assert (home / "models.json").read_text(encoding="utf-8") == "{broken"                                      # 坏文件不覆盖
+
+
+def test_codebuddy_mcp_file_precedence(tmp_path):
+    home = tmp_path / ".codebuddy"
+    home.mkdir()
+    assert hub_agent.codebuddy_mcp_file(home) == home / ".mcp.json"                                            # 都没有：新建推荐文件
+    (tmp_path / ".codebuddy.json").write_text(json.dumps({"mcpServers": {"old": {"command": "x"}}}), encoding="utf-8")
+    assert hub_agent.codebuddy_mcp_file(home) == tmp_path / ".codebuddy.json"                                  # 旧文件里已有服务器：写它，避免顶掉
+    (home / "mcp.json").write_text("{}", encoding="utf-8")
+    assert hub_agent.codebuddy_mcp_file(home) == home / "mcp.json"
+    (home / ".mcp.json").write_text("{}", encoding="utf-8")
+    assert hub_agent.codebuddy_mcp_file(home) == home / ".mcp.json"

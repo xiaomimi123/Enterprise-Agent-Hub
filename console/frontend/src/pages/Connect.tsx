@@ -127,6 +127,17 @@ export default function Connect() {
           </div>
         </Panel>
 
+        <Panel title="要让 agent 控制浏览器（采集 / 发布 / 回评论）：用 CodeBuddy CLI" sub="WorkBuddy 等桌面 agent 在工作台里只能走「收件箱模式」，按设计不能开浏览器">
+          <div className="stack-sm">
+            <div>小红书工作台给桌面 agent 的任务会带「只处理本地文件，不得打开浏览器」的限制，WorkBuddy 拒绝开浏览器是正常的，不是故障。要自动操作浏览器，工作台必须用 <b>CLI 模式</b>：由它在后台启动命令行 agent 来做。</div>
+            <div><Pill tone="accent" dot={false}>第 1 步</Pill> 员工电脑装好 CodeBuddy CLI（命令 <span className="mono">codebuddy</span> 能用），再运行一次上面的一键接入——它会自动把中枢的 MCP 和<b>岗位包允许的模型</b>写进 CodeBuddy（<span className="mono">~/.codebuddy/.mcp.json</span>、<span className="mono">models.json</span>），模型调用走中枢的模型网关，按人计量。</div>
+            <div><Pill tone="accent" dot={false}>第 2 步</Pill> 在工作台「连接与设置」里选 <b>CLI 模式</b>，适配器选 CodeBuddy Code，并开启浏览器控制。</div>
+            <div><Pill tone="accent" dot={false}>第 3 步</Pill> 第一次打开小红书会停在登录页，请员工<b>本人</b>在弹出的浏览器里扫码登录（agent 不会碰密码和验证码）。</div>
+            <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
+            <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。命令行 agent 首次在后台运行时，可能因为工具权限提示而停住，遇到时请把现象反馈给管理员。</p>
+          </div>
+        </Panel>
+
         <Panel title="管理员检查：中枢这台机器" sub="员工连不上时先看这里">
           <div className="stack-sm">
             <div>防火墙放行端口 <span className="mono">8088</span>（控制台 / 登录入口）、<span className="mono">8200</span>（MCP）、<span className="mono">8000</span>（Casdoor 登录页），网络类型设为「专用网络」，只对局域网开放。</div>
@@ -210,6 +221,7 @@ export default function Connect() {
             <div><b>登录时提示「登录状态校验失败」</b>：登录页放了一会儿，或同时开了多个登录页。关掉它，回到 <span className="mono">{d.hub_url}</span> 重新进入再登录一次，不要用旧的登录页。</div>
             <div><b>密码输对了还是登录失败</b>：连续输错 5 次会被锁定 15 分钟，等一会儿再试；或请管理员在「成员与组织」页重置密码。</div>
             <div><b>提示「账号已被停用」</b>：账号被管理员停用了，请联系管理员启用。</div>
+            <div><b>让 WorkBuddy 开浏览器被拒绝</b>：工作台对桌面 agent 只开放收件箱模式，不允许开浏览器，这是设计。要自动操作浏览器，改用上面的 CodeBuddy CLI（CLI 模式）。</div>
             <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
             <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>

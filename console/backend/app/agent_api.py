@@ -186,7 +186,8 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
             if plan["model"]:
                 key = na.ensure_token(name, models=plan["models"], remain_quota=plan["remain_quota"], unlimited=plan["unlimited"],
                                       expires_in=SESSION_KEY_TTL if session else None)
-                model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": key, "model": plan["model"]}
+                model = {"base_url": f"{settings.newapi_public_url}/v1", "api_key": key, "model": plan["model"],
+                         "models": plan["models"] or [plan["model"]]}
         except NewApiError as e:
             raise HTTPException(502, str(e))
 

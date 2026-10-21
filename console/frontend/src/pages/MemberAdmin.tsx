@@ -2,6 +2,7 @@ import { Copy, Download } from 'lucide-react'
 import { App, Button, Drawer, Form, Input, Modal, Select, Table, Upload } from 'antd'
 import { useState } from 'react'
 import { api, type Department as Dept, type ImportResult, type Member } from '../api'
+import { copyText } from '../lib'
 import { Pill } from '../ui'
 
 const TEMPLATE = 'username,display_name,dept,title,phone,email,password\nzhangsan,张三,运营部,运营专员,13800000000,,\n'
@@ -11,29 +12,6 @@ function download(name: string, text: string) {
   const a = Object.assign(document.createElement('a'), { href: url, download: name })
   a.click()
   URL.revokeObjectURL(url)
-}
-
-/** 复制文本。navigator.clipboard 只在 HTTPS / localhost 可用，内网 http 访问时退回 execCommand。 */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (window.isSecureContext && navigator.clipboard) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // 退回下面的方式
-  }
-  const area = Object.assign(document.createElement('textarea'), { value: text })
-  area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'
-  document.body.appendChild(area)
-  area.select()
-  try {
-    return document.execCommand('copy')
-  } catch {
-    return false
-  } finally {
-    area.remove()
-  }
 }
 
 /** 创建 / 重置密码后展示初始密码，只显示这一次。 */

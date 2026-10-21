@@ -2,24 +2,22 @@ import { Check, Copy } from 'lucide-react'
 import { Input, Tabs } from 'antd'
 import { useState } from 'react'
 import { api, type ConnectInfo } from '../api'
-import { useRequest } from '../lib'
+import { copyText, useRequest } from '../lib'
 import { PageHeader, Panel, Pill, Seg } from '../ui'
 
 type OS = 'Windows' | 'macOS'
 
 function Code({ text, label }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false)
-  const copy = () => {
-    navigator.clipboard?.writeText(text).then(() => {
-      setDone(true)
-      setTimeout(() => setDone(false), 1500)
-    })
+  const [done, setDone] = useState<'ok' | 'fail'>()
+  const copy = async () => {
+    setDone((await copyText(text)) ? 'ok' : 'fail')
+    setTimeout(() => setDone(undefined), 1800)
   }
   return (
     <div className="code-block">
       <div className="code-head">
         <span className="muted">{label}</span>
-        <a onClick={copy}>{done ? <><Check /> 已复制</> : <><Copy /> 复制</>}</a>
+        <a onClick={copy}>{done === 'ok' ? <><Check /> 已复制</> : done === 'fail' ? '复制失败，请手动选中' : <><Copy /> 复制</>}</a>
       </div>
       <pre>{text}</pre>
     </div>
@@ -52,8 +50,15 @@ export default function Connect() {
   const quickCmd = quickOs === 'Windows'
     ? `powershell -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
     : `curl -fsSL ${d.hub_url}/api/agent/install.sh | sh`
+  const verifyPrompt = '请调用企业智能体中枢的 whoami，告诉我我是谁、在哪个部门、有哪些技能'
   const agentPrompt = `请帮我把这台电脑接入公司的企业智能体中枢：在${quickOs === 'Windows' ? ' PowerShell ' : '终端'}里执行下面这条命令。` +
     `它会打开浏览器让我用公司账号登录，请等我登录完成，然后把命令最后几行输出告诉我，并提醒我完全退出、重新打开你自己。\n\n${quickCmd}`
+
+  const welcome = `你好，公司「企业智能体中枢」账号已开通：\n账号：<账号>\n初始密码：<初始密码>（首次登录需要修改）\n\n接入步骤（在你的电脑上，需要和公司在同一个局域网）：\n` +
+    `1. 打开${quickOs === 'Windows' ? ' PowerShell ' : '终端'}，粘贴下面这条命令回车：\n${quickCmd}\n` +
+    `2. 弹出浏览器后，用上面的账号和初始密码登录，按提示修改成自己的新密码\n` +
+    `3. 命令执行完成后，完全退出并重新打开 WorkBuddy（或 Cursor / Claude）\n` +
+    `4. 对它说：${verifyPrompt}\n能说出你的姓名、部门和岗位包，就接通了。`
 
   const name = user.trim() || '<用户名>'
   const home = os === 'Windows' ? `C:\\Users\\${name}` : `/Users/${name}`
@@ -88,6 +93,17 @@ export default function Connect() {
         sub="员工的 agent 通过 MCP 连到中枢，使用知识库、技能和 GPU 出图出视频。权限按员工本人的岗位包执行，每次调用都记入审计。"
       />
       <div className="stack">
+        <Panel title="新员工入职三步" sub="管理员建账号 → 员工首次登录改密码 → 一键接入并验证">
+          <div className="stack-sm">
+            <div><Pill tone="accent" dot={false}>第 1 步 · 管理员</Pill> 在「成员与组织」页点「新建成员」（或「批量导入」），记下账号和初始密码——初始密码只显示一次。</div>
+            <div><Pill tone="accent" dot={false}>第 2 步 · 发给员工</Pill> 把账号、初始密码和接入步骤一起发给员工（把下面的 &lt;账号&gt;、&lt;初始密码&gt; 换成实际值）：</div>
+            <Code label="发给员工的话" text={welcome} />
+            <div><Pill tone="accent" dot={false}>第 3 步 · 员工</Pill> 按上面的步骤接入后，对 agent 说下面这句话验证；能说出姓名、部门和岗位包就接通了。</div>
+            <Code label="验证接通" text={verifyPrompt} />
+            <p className="muted">首次登录时，Casdoor 会要求先把初始密码改成自己的密码（至少 8 位），改完才能继续；员工不需要改防火墙。</p>
+          </div>
+        </Panel>
+
         <Panel
           title="一键接入"
           sub="同事电脑不用改防火墙，和中枢在同一个局域网即可"
@@ -102,6 +118,14 @@ export default function Connect() {
               命令会自动完成：安装运行环境 → 下载接入器 → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版并写好配置（原配置先备份）。
               完成后完全退出并重新打开 agent 即可使用。之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次这条命令。
             </p>
+          </div>
+        </Panel>
+
+        <Panel title="管理员检查：中枢这台机器" sub="员工连不上时先看这里">
+          <div className="stack-sm">
+            <div>防火墙放行端口 <span className="mono">8088</span>（控制台 / 登录入口）、<span className="mono">8200</span>（MCP）、<span className="mono">8000</span>（Casdoor 登录页），网络类型设为「专用网络」，只对局域网开放。</div>
+            <div>用 <span className="mono">{d.hub_url}</span> 访问的地址要和 <span className="mono">.env</span> 里的 <span className="mono">HUB_HOST</span> 一致；这台电脑换了网络或 IP，需要改 <span className="mono">.env</span> 后重新 <span className="mono">make up</span>。</div>
+            <Code label="在员工电脑上测试能否连通（PowerShell）" text={`Test-NetConnection ${new URL(d.hub_url).hostname} -Port 8088; Test-NetConnection ${new URL(d.hub_url).hostname} -Port 8200`} />
           </div>
         </Panel>
 
@@ -175,6 +199,16 @@ export default function Connect() {
           />
         </Panel>
         </>)}
+        <Panel title="常见问题">
+          <div className="stack-sm">
+            <div><b>登录时提示「登录状态校验失败」</b>：登录页放了一会儿，或同时开了多个登录页。关掉它，回到 <span className="mono">{d.hub_url}</span> 重新进入再登录一次，不要用旧的登录页。</div>
+            <div><b>密码输对了还是登录失败</b>：连续输错 5 次会被锁定 15 分钟，等一会儿再试；或请管理员在「成员与组织」页重置密码。</div>
+            <div><b>提示「账号已被停用」</b>：账号被管理员停用了，请联系管理员启用。</div>
+            <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
+            <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
+            <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>
+          </div>
+        </Panel>
       </div>
     </>
   )

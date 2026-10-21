@@ -73,3 +73,26 @@ export const TONE: Record<string, string> = {
   被拦截: 'red', 拒绝: 'red', 需二次确认: 'red', 机密: 'red', 异常: 'red',
   公开: 'teal', 内部: 'blue', 只读: 'green',
 }
+
+/** 复制文本。navigator.clipboard 只在 HTTPS / localhost 可用，内网 http 访问时退回 execCommand。 */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // 退回下面的方式
+  }
+  const area = Object.assign(document.createElement('textarea'), { value: text })
+  area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'
+  document.body.appendChild(area)
+  area.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    area.remove()
+  }
+}

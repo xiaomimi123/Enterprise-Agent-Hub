@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 import httpx
@@ -15,6 +16,14 @@ from .config import settings
 
 class NewApiError(RuntimeError):
     pass
+
+
+# ---- 模型价格（New API 的 ModelRatio / CompletionRatio 选项）----
+# 倍率 1 = 每百万输入 token 2 美元；输出价 = 输入价 × CompletionRatio。没有设置倍率的模型，New API 按默认 37.5 计费（= 每百万 75 美元），
+# 费用会虚高，额度很快被「花光」。
+USD_PER_M_AT_RATIO_1 = 2.0
+DEFAULT_MODEL_RATIO = 37.5
+MAX_PRICE_PER_M = 10000.0
 
 
 def token_name(org: str, user_name: str) -> str:
@@ -172,6 +181,60 @@ class NewApi:
         self._call("DELETE", f"/api/channel/{channel_id}")
 
     # ---- 模型与用量 ----
+    # ---- 模型价格 ----
+    def _price_options(self) -> tuple[dict, dict]:
+        opts = {o.get("key"): o.get("value") for o in (self._call("GET", "/api/option/") or [])}
+        def load(key: str) -> dict:
+            try:
+                data = json.loads(opts.get(key) or "{}")
+            except ValueError:
+                raise NewApiError(f"New API 的 {key} 选项不是合法 JSON，请先在 New API 后台修复") from None
+            return data if isinstance(data, dict) else {}
+        return load("ModelRatio"), load("CompletionRatio")
+
+    def _put_option(self, key: str, value: dict) -> None:
+        self._call("PUT", "/api/option/", json={"key": key, "value": json.dumps(value, ensure_ascii=False)})
+
+    @staticmethod
+    def _price_row(model: str, ratios: dict, completions: dict) -> dict:
+        ratio = ratios.get(model)
+        configured = ratio is not None
+        r = float(ratio) if configured else DEFAULT_MODEL_RATIO
+        c = float(completions.get(model) or 1) if configured else 1.0
+        return {"model": model, "configured": configured, "input_per_m": round(r * USD_PER_M_AT_RATIO_1, 6),
+                "output_per_m": round(r * c * USD_PER_M_AT_RATIO_1, 6)}
+
+    def get_pricing(self, models: list[str]) -> list[dict]:
+        """这些模型当前的价格（美元 / 百万 token）；configured=false 表示没设置，正按默认的虚高价格计费。"""
+        ratios, completions = self._price_options()
+        return [self._price_row(m, ratios, completions) for m in models]
+
+    def set_pricing(self, model: str, input_per_m: float, output_per_m: float | None = None) -> dict:
+        model = (model or "").strip()
+        if not model or len(model) > 100:
+            raise NewApiError("模型名不合法")
+        out = input_per_m if output_per_m is None else output_per_m
+        for label, v in (("输入价", input_per_m), ("输出价", out)):
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not (0 < v <= MAX_PRICE_PER_M):
+                raise NewApiError(f"{label}必须大于 0 且不超过每百万 token {MAX_PRICE_PER_M:g} 美元")
+        ratios, completions = self._price_options()
+        ratios[model] = round(input_per_m / USD_PER_M_AT_RATIO_1, 6)
+        completions[model] = round(out / input_per_m, 6)
+        self._put_option("ModelRatio", ratios)
+        self._put_option("CompletionRatio", completions)
+        return self._price_row(model, ratios, completions)
+
+    def clear_pricing(self, model: str) -> bool:
+        """去掉这个模型的自定义价格（恢复 New API 的默认）。本来就没设置返回 False。"""
+        ratios, completions = self._price_options()
+        if model not in ratios and model not in completions:
+            return False
+        ratios.pop(model, None)
+        completions.pop(model, None)
+        self._put_option("ModelRatio", ratios)
+        self._put_option("CompletionRatio", completions)
+        return True
+
     def available_models(self) -> list[str]:
         """模型网关里启用的渠道提供的全部模型（去重，保持顺序）。"""
         data = self._call("GET", "/api/channel/", params={"p": 0, "page_size": 100})

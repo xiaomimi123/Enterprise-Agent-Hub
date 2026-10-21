@@ -306,6 +306,19 @@ export interface ConnectInfo {
   script_url: string
 }
 
+export interface ModelPrice {
+  model: string
+  configured: boolean
+  input_per_m: number
+  output_per_m: number
+}
+
+export interface PricingInfo {
+  models: ModelPrice[]
+  default_input_per_m: number
+  usd_cny: number
+}
+
 export interface Upstream {
   id: number
   name: string
@@ -381,6 +394,10 @@ export const api = {
   trace: (id: string) => request<Trace>(`/audit/traces/${id}`),
   apps: () => request<PublishedApp[]>('/apps'),
   upstreams: () => request<Upstream[]>('/models/upstreams'),
+  modelPricing: () => request<PricingInfo>('/models/pricing'),
+  setModelPrice: (model: string, body: { input_per_m: number; output_per_m?: number }) =>
+    request<ModelPrice>(`/models/pricing/${encodeURIComponent(model)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  clearModelPrice: (model: string) => request<{ ok: boolean }>(`/models/pricing/${encodeURIComponent(model)}`, { method: 'DELETE' }),
   probeUpstream: (body: { base_url: string; key: string }) =>
     request<{ models: string[] }>('/models/upstreams/probe', { method: 'POST', body: JSON.stringify(body) }),
   addUpstream: (body: { name: string; base_url: string; key: string; models: string[] }) =>

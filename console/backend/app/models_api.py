@@ -8,9 +8,10 @@ from pydantic import BaseModel
 from . import auth, db, h3gateway, imageapi, model_upstreams
 from .config import settings
 from .model_upstreams import UpstreamError
-from .newapi import NewApi, NewApiError
+from .newapi import DEFAULT_MODEL_RATIO, USD_PER_M_AT_RATIO_1, NewApi, NewApiError
 
 router = APIRouter(prefix="/models", tags=["models"])
+NEW_API_DEFAULT_INPUT = DEFAULT_MODEL_RATIO * USD_PER_M_AT_RATIO_1
 
 
 def make_newapi() -> NewApi:
@@ -40,6 +41,39 @@ def _guard(fn):
         raise HTTPException(400, str(e)) from None
     except NewApiError as e:
         raise HTTPException(502, f"模型网关出错：{e}") from None
+
+
+class PriceBody(BaseModel):
+    input_per_m: float
+    output_per_m: float | None = None
+
+
+@router.get("/pricing")
+def get_pricing(user: dict = Depends(auth.current_user)):
+    """已开放模型的价格（美元 / 百万 token）。未设置价格的模型按 New API 默认的高倍率计费，费用虚高。"""
+    na = gateway()
+    rows = _guard(lambda: na.get_pricing(na.available_models()))
+    return {"models": rows, "default_input_per_m": NEW_API_DEFAULT_INPUT, "usd_cny": settings.usd_cny}
+
+
+@router.put("/pricing/{model}")
+def set_pricing(model: str, body: PriceBody, user: dict = Depends(auth.current_user)):
+    na = gateway()
+    try:
+        row = na.set_pricing(model, body.input_per_m, body.output_per_m)
+    except NewApiError as e:
+        raise HTTPException(400, str(e)) from None
+    _audit(user, "model.pricing.set", f"设置模型价格「{row['model']}」：输入 ${row['input_per_m']:g}、输出 ${row['output_per_m']:g} / 百万 token")
+    return row
+
+
+@router.delete("/pricing/{model}")
+def clear_pricing(model: str, user: dict = Depends(auth.current_user)):
+    na = gateway()
+    if not _guard(lambda: na.clear_pricing(model)):
+        raise HTTPException(404, "这个模型没有自定义价格")
+    _audit(user, "model.pricing.clear", f"清除模型价格「{model}」，恢复 New API 默认")
+    return {"ok": True}
 
 
 class ProbeBody(BaseModel):

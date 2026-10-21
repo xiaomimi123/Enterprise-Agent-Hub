@@ -1,7 +1,7 @@
 import { Cpu, ImageIcon, Plus } from 'lucide-react'
-import { App, Button, Drawer, Form, Input, Popconfirm, Select, Switch, Table } from 'antd'
+import { App, Button, Drawer, Form, Input, InputNumber, Popconfirm, Select, Switch, Table } from 'antd'
 import { useState } from 'react'
-import { api, type H3Gateway, type ImageProvider, type Upstream } from '../api'
+import { api, type H3Gateway, type ImageProvider, type ModelPrice, type Upstream } from '../api'
 import { useRequest } from '../lib'
 import { Empty, PageHeader, Panel, Pill, Seg, Token } from '../ui'
 
@@ -14,6 +14,7 @@ export default function Models() {
       />
       <div className="stack">
         <Upstreams />
+        <Pricing />
         <ImageChannel />
         <H3Channel />
       </div>
@@ -409,5 +410,108 @@ function H3Drawer({ current, onClose, onSaved }: { current: H3Gateway | null; on
         </Form.Item>
       </Form>
     </Drawer>
+  )
+}
+
+/* ---------------- 模型价格 ---------------- */
+
+type Draft = { input?: number | null; output?: number | null }
+
+function Pricing() {
+  const data = useRequest(api.modelPricing)
+  const { message } = App.useApp()
+  const [draft, setDraft] = useState<Record<string, Draft>>({})
+  const [saving, setSaving] = useState<string>()
+  const info = data.data
+  const rate = info?.usd_cny ?? 7.2
+
+  const shown = (p: ModelPrice) => ({
+    input: draft[p.model]?.input ?? p.input_per_m,
+    output: draft[p.model]?.output ?? p.output_per_m,
+  })
+  const dirty = (p: ModelPrice) => {
+    const d = draft[p.model]
+    return !!d && ((d.input !== undefined && d.input !== p.input_per_m) || (d.output !== undefined && d.output !== p.output_per_m))
+  }
+  const save = async (p: ModelPrice) => {
+    const v = shown(p)
+    if (!v.input || v.input <= 0) return message.error('请填写大于 0 的输入价')
+    setSaving(p.model)
+    try {
+      await api.setModelPrice(p.model, { input_per_m: v.input, output_per_m: v.output || v.input })
+      message.success(`已保存「${p.model}」的价格，立即生效`)
+      setDraft((x) => ({ ...x, [p.model]: {} }))
+      data.reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setSaving(undefined)
+    }
+  }
+  const clear = async (p: ModelPrice) => {
+    try {
+      await api.clearModelPrice(p.model)
+      message.success(`已恢复「${p.model}」的默认价格`)
+      setDraft((x) => ({ ...x, [p.model]: {} }))
+      data.reload()
+    } catch (e) {
+      message.error((e as Error).message)
+    }
+  }
+  const unset = (info?.models ?? []).filter((m) => !m.configured).length
+
+  return (
+    <Panel
+      tight
+      title={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Cpu size={16} />模型价格</span>}
+      sub="员工的用量费用和月度额度都按这里的价格计算。单位：美元 / 百万 token，按模型厂商的官方价格填写；输出价留空则与输入价相同。"
+    >
+      {data.error && <div className="muted" style={{ padding: 16 }}>{data.error}</div>}
+      {unset > 0 && info && (
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line-2)' }}>
+          <Pill tone="amber">{unset} 个模型还没设置价格</Pill>
+          <span className="muted" style={{ marginLeft: 8, fontSize: 12.5 }}>
+            没设置的模型按默认每百万 token ${info.default_input_per_m} 计费，费用会严重虚高，员工的月度额度很快被「花光」。
+          </span>
+        </div>
+      )}
+      <Table<ModelPrice>
+        rowKey="model" loading={data.loading && !data.data} dataSource={info?.models ?? []} pagination={false} scroll={{ x: 760 }}
+        locale={{ emptyText: <Empty>还没有开放的对话模型。先在上面接入上游并开放模型</Empty> }}
+        columns={[
+          { title: '模型', dataIndex: 'model', render: (v) => <Token>{v}</Token> },
+          { title: '状态', dataIndex: 'configured', width: 110, render: (v) => (v ? <Pill tone="green">已设置</Pill> : <Pill tone="amber">默认（虚高）</Pill>) },
+          {
+            title: '输入价 $/百万', width: 150, render: (_, p) => (
+              <InputNumber size="small" min={0} max={10000} step={0.01} style={{ width: 120 }} value={shown(p).input}
+                onChange={(v) => setDraft((x) => ({ ...x, [p.model]: { ...x[p.model], input: v } }))} />
+            ),
+          },
+          {
+            title: '输出价 $/百万', width: 150, render: (_, p) => (
+              <InputNumber size="small" min={0} max={10000} step={0.01} style={{ width: 120 }} value={shown(p).output}
+                onChange={(v) => setDraft((x) => ({ ...x, [p.model]: { ...x[p.model], output: v } }))} />
+            ),
+          },
+          {
+            title: '折合人民币 / 百万', width: 170, render: (_, p) => (
+              <span className="muted num">输入 ¥{((shown(p).input ?? 0) * rate).toFixed(2)} · 输出 ¥{((shown(p).output ?? 0) * rate).toFixed(2)}</span>
+            ),
+          },
+          {
+            title: '', width: 170, render: (_, p) => (
+              <span style={{ display: 'inline-flex', gap: 4 }}>
+                <Button size="small" type="primary" disabled={!dirty(p)} loading={saving === p.model} onClick={() => save(p)}>保存</Button>
+                {p.configured && (
+                  <Popconfirm title={`清除「${p.model}」的价格？`} description="会恢复为 New API 的默认虚高价格。" okText="清除" cancelText="取消" onConfirm={() => clear(p)}>
+                    <Button size="small" type="text">恢复默认</Button>
+                  </Popconfirm>
+                )}
+              </span>
+            ),
+          },
+        ]}
+      />
+    </Panel>
   )
 }

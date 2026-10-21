@@ -7,7 +7,7 @@
 | console-web | 控制台前端（nginx，并转发 /api，员工端接入接口也走这里） | **8088** | 自研，`console/frontend` |
 | console-api | 控制台后端 | 不对外 | 自研，`console/backend` |
 | hub-mcp | 中枢 MCP Server，员工端 agent 连这里 | **8200** | 自研，与 console-api 同一镜像 |
-| Casdoor 4.20.0 | 身份（钉钉登录、组织架构） | 8000 | 开源镜像 |
+| Casdoor 4.20.0 | 身份（自建账号、组织架构） | 8000 | 开源镜像 |
 | New API v0.13.2 | 模型网关（每个员工一个 key，按人计量） | 3000 | 开源镜像 |
 | hub-worker | GPU 调度：把生图任务派给 ComfyUI 节点、取回结果 | 不对外 | 自研，与 console-api 同一镜像 |
 | mock-llm / mock-comfyui | 开发用模拟大模型 / 模拟 GPU 节点，仅 demo 环境 | 不对外 | 自研，与 console-api 同一镜像 |
@@ -55,7 +55,7 @@ make kb-sync             # 把 vault 里的知识库同步到 RAGFlow
 - 中枢和 ComfyUI 同机时 `HUB_GPU_NODES` 填 `http://host.docker.internal:8188`，见 [docs/gpu.md](../docs/gpu.md)
 
 然后：
-1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），给企业组织配置钉钉登录和组织同步，并把管理员账号设为组织管理员
+1. 打开 Casdoor `http://<HUB_HOST>:8000`，用 `built-in/admin` 登录（密码是 `.env` 里的 `CASDOOR_ADMIN_PASSWORD`），并把管理员账号设为组织管理员；成员账号之后在控制台「成员与组织」页创建或批量导入，不需要钉钉
 2. 打开控制台 `http://<HUB_HOST>:8088`，用组织管理员登录
 3. 在控制台「模型」页添加真实对话模型上游并开放模型（也可到 New API 后台 `http://<HUB_HOST>:3000` 手动建渠道，管理员 `hubadmin`，密码见 `.env` 的 `NEWAPI_ADMIN_PASSWORD`），把 `.env` 的 `HUB_DEFAULT_MODEL` 设为开放的模型名，再执行 `make up`；需要第三方出图时在同一页添加出图 API 并切换通道，见 [docs/gpu.md](../docs/gpu.md)
 4. 在 `.env` 的 `HUB_GPU_NODES` 里登记 GPU 机器上的 ComfyUI（见 [docs/gpu.md](../docs/gpu.md)），再执行 `make up`

@@ -10,7 +10,7 @@
 - 方便自己看清产品形态，也方便给领导展示功能
 - 采用「真实项目 + 演示数据」：代码结构按正式项目写，数据层可替换，之后接真实服务时不用推倒重来
 
-最小链路验证（钉钉登录 → MCP 鉴权 → 知识库过滤 → GPU 出图 → 审计）仍然要做，控制台接入真实数据的过程本身就是在验证它。
+最小链路验证（Casdoor 登录 → MCP 鉴权 → 知识库过滤 → GPU 出图 → 审计）仍然要做，控制台接入真实数据的过程本身就是在验证它。
 
 ## 关键设计
 
@@ -18,7 +18,7 @@
 
 | 模块 | 演示数据 | 真实来源 |
 |---|---|---|
-| 组织与成员 | `demo_seed.py` | **已接入**：Casdoor（钉钉同步），`providers/casdoor.py` |
+| 组织与成员 | `demo_seed.py` | **已接入**：Casdoor 自建账号（控制台可管理），`providers/casdoor.py` |
 | 用量与成本 | `demo_seed.py` | **已接入**：New API 调用日志，按员工专属 key 归属到人和部门 |
 | 知识库 | `demo_seed.py` | **已接入**：`vault/` 目录（Obsidian），之后换 RAGFlow 检索 |
 | 技能 | `demo_seed.py` | **已接入**：`skills/` 目录下的 SKILL.md |
@@ -64,6 +64,6 @@
 ## 下一步
 
 1. ~~控制台登录接 Casdoor~~（已完成）
-2. ~~成员与组织接 Casdoor~~（已完成）；在客户环境配置 Casdoor 的钉钉登录提供方和组织同步
+2. ~~成员与组织接 Casdoor~~（已完成）；身份已决定直接用 Casdoor 自建账号，不接钉钉（成员管理见 [hub/README.md](../hub/README.md)「成员账号管理」）
 3. ~~岗位包落库（PostgreSQL）~~（已完成，见 [mcp-server.md](mcp-server.md)）
 4. ~~用量接 New API~~（已完成，见 [agent.md](agent.md)）；知识库检索换 RAGFlow

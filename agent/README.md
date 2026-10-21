@@ -94,6 +94,12 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 uv run hub_agent.py open-app xhs-workbench
 ```
 
+应用在 `app.json` 里声明依赖（CodeBuddy CLI、浏览器等）时，打开前会预检，缺什么会说明；应用照常打开，只有对应功能（如浏览器自动化）不可用。安装缺失项（会逐项询问，`--yes` 表示已同意）：
+
+```bash
+uv run hub_agent.py app-doctor xhs-workbench
+```
+
 ## 本机会生成的文件
 
 ```

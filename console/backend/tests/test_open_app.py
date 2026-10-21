@@ -90,7 +90,10 @@ def test_app_event_requires_token_and_writes_audit(monkeypatch):
     assert seen[-1]["trace_id"] == "tr-7" and seen[-1]["result"] == "拒绝" and "缺少 Node.js" in seen[-1]["detail"]
     client.post("/api/agent/app-event", headers={"Authorization": "Bearer x"},
                 json={"app_id": "xhs-workbench", "version": "0.6.1", "ok": True, "url": "http://127.0.0.1:17890/"})
-    assert seen[-1]["result"] == "通过" and "127.0.0.1:17890" in seen[-1]["detail"]
+    assert seen[-1]["result"] == "通过" and "127.0.0.1:17890" in seen[-1]["detail"] and "缺少能力" not in seen[-1]["detail"]
+    client.post("/api/agent/app-event", headers={"Authorization": "Bearer x"},
+                json={"app_id": "xhs-workbench", "version": "0.7.2", "ok": True, "url": "http://127.0.0.1:17890/", "missing": ["CodeBuddy CLI", "系统浏览器"]})
+    assert seen[-1]["result"] == "通过" and "缺少能力：CodeBuddy CLI、系统浏览器" in seen[-1]["detail"]   # 已打开，但缺的能力写进审计
 
 
 def test_role_pack_patch_accepts_registered_apps_only(env):

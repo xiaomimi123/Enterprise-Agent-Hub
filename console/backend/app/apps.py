@@ -21,6 +21,26 @@ from .config import settings
 
 log = logging.getLogger("hub.apps")
 APP_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+# app.json 的 requires：应用声明的运行条件。node 是版本要求；agent_cli 是应用背后的命令行 agent（接入器会检查它是否装好、是否走中枢模型）；
+# capabilities 是应用需要的能力（browser = 需要 agent 能控制浏览器：agent_cli + Playwright + 系统浏览器）；playwright_mcp 可选，指定版本。
+ALLOWED_AGENT_CLIS = {"codebuddy"}
+ALLOWED_CAPABILITIES = {"browser"}
+
+
+def _check_requires(r: dict) -> str | None:
+    """requires 不合法返回原因（应用会被跳过并写日志），合法返回 None。未知的键原样保留，方便以后扩展。"""
+    if "node" in r and not isinstance(r["node"], str):
+        return "node 必须是字符串，如 \">=18\""
+    if "agent_cli" in r and r["agent_cli"] not in ALLOWED_AGENT_CLIS:
+        return f"agent_cli 只支持 {sorted(ALLOWED_AGENT_CLIS)}"
+    caps = r.get("capabilities", [])
+    if not isinstance(caps, list) or any(c not in ALLOWED_CAPABILITIES for c in caps):
+        return f"capabilities 只支持 {sorted(ALLOWED_CAPABILITIES)}"
+    if "browser" in caps and "agent_cli" not in r:
+        return "声明了 browser 能力就必须同时声明 agent_cli（浏览器自动化靠命令行 agent 完成）"
+    if "playwright_mcp" in r and not (isinstance(r["playwright_mcp"], str) and re.fullmatch(r"\d+\.\d+\.\d+", r["playwright_mcp"])):
+        return "playwright_mcp 必须是形如 0.0.83 的版本号"
+    return None
 LINK_TTL = 600  # 下载链接有效期（秒）
 
 
@@ -47,6 +67,9 @@ def _load(d: Path) -> App | None:
                 zip_path=d / f"{meta['version']}.zip")
     except (OSError, ValueError, KeyError, TypeError) as e:
         log.warning("应用 %s 的 app.json 无效，已跳过：%s", d.name, e)
+        return None
+    if (bad := _check_requires(a.requires)):
+        log.warning("应用 %s 的 requires 不合法，已跳过：%s", d.name, bad)
         return None
     if a.id != d.name or not APP_ID.match(a.id) or not a.entry or not a.version or "/" in a.version or ".." in a.version:
         log.warning("应用 %s 的 id / 入口 / 版本不合法，已跳过", d.name)

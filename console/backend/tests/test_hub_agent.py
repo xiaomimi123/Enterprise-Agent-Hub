@@ -212,3 +212,176 @@ def test_codebuddy_mcp_file_precedence(tmp_path):
     assert hub_agent.codebuddy_mcp_file(home) == home / "mcp.json"
     (home / ".mcp.json").write_text("{}", encoding="utf-8")
     assert hub_agent.codebuddy_mcp_file(home) == home / ".mcp.json"
+
+
+# ---- 应用能力预检：缺什么说明并询问安装，只让对应能力不可用 ----
+
+REQ = {"node": ">=18", "agent_cli": "codebuddy", "capabilities": ["browser"]}
+PROFILE = {"model": {"model": "deepseek-v4-flash", "models": ["deepseek-v4-flash"]}}
+
+
+def pf(requires=REQ, tools=("codebuddy", "npm", "npx"), browser="C:/Edge/msedge.exe", warm=True, profile=PROFILE, cb_home=None):
+    return hub_agent.preflight(requires, which=lambda n: f"/bin/{n}" if n in tools else None, browser_finder=lambda: browser,
+                               cached=lambda v: warm, codebuddy_home=cb_home, profile=profile)
+
+
+def cb_home_with_model(base, default="deepseek-v4-flash", model_id="deepseek-v4-flash"):
+    home = base / ".codebuddy"
+    home.mkdir(parents=True)
+    (home / "models.json").write_text(json.dumps({"models": [{"id": model_id, "name": hub_agent.CB_MODEL_PREFIX + model_id}]}), encoding="utf-8")
+    (home / "settings.json").write_text(json.dumps({"model": default}), encoding="utf-8")
+    return home
+
+
+def ids(result):
+    return {c["id"]: c for c in result["checks"]}
+
+
+def test_preflight_all_satisfied(tmp_path):
+    r = pf(cb_home=cb_home_with_model(tmp_path))
+    assert r["missing"] == [] and r["capabilities"]["browser"]["ready"] and r["capabilities"]["agent_cli"]["ready"]
+    assert hub_agent.capability_notice("xhs-workbench", r) == ""
+
+
+def test_preflight_missing_cli_blocks_browser_with_install_command(tmp_path):
+    r = pf(tools=("npm", "npx"), cb_home=cb_home_with_model(tmp_path))
+    assert r["missing"] == ["CodeBuddy CLI"] and not r["capabilities"]["browser"]["ready"]
+    fix = ids(r)["agent_cli"]["fix"]
+    assert fix["argv"][:3] == ["npm", "install", "-g"] and fix["argv"][-1] == "@tencent-ai/codebuddy-code"
+    notice = hub_agent.capability_notice("xhs-workbench", r)
+    assert "已打开" in notice and "CodeBuddy CLI" in notice and "app-doctor xhs-workbench --yes" in notice and "是否同意" in notice
+
+
+def test_preflight_without_node_gives_manual_hint_not_an_auto_install(tmp_path):
+    r = pf(tools=(), cb_home=cb_home_with_model(tmp_path))
+    assert {"CodeBuddy CLI", "npx（运行 Playwright）"} <= set(r["missing"])
+    assert ids(r)["agent_cli"]["fix"]["argv"] is None and "Node.js" in ids(r)["agent_cli"]["fix"]["text"]    # 没有 npm 不能自动装
+    assert "app-doctor" not in hub_agent.capability_notice("x", r)                                           # 没有可自动装的项就不提示 --yes
+
+
+def test_preflight_missing_system_browser_is_manual(tmp_path):
+    r = pf(browser=None, cb_home=cb_home_with_model(tmp_path))
+    assert r["missing"] == ["系统浏览器"] and not r["capabilities"]["browser"]["ready"] and r["capabilities"]["agent_cli"]["ready"]
+    assert ids(r)["system_browser"]["fix"]["argv"] is None
+
+
+def test_preflight_hub_model_must_really_be_configured(tmp_path):
+    r = pf(cb_home=cb_home_with_model(tmp_path / "a", model_id="other-model"))     # models.json 里没有中枢下发的模型
+    assert "中枢模型" in r["missing"] and not r["capabilities"]["browser"]["ready"]
+    assert ids(r)["hub_model"]["fix"]["argv"][-1] == "sync"
+    # 默认模型被员工换掉：不拦，但提示可能不走中枢计量
+    r = pf(cb_home=cb_home_with_model(tmp_path / "b", default="my-own"))
+    assert r["capabilities"]["browser"]["ready"] and ids(r)["hub_model"]["warn"] and "不走中枢计量" in ids(r)["hub_model"]["detail"]
+    # 岗位包用自带模型：不检查
+    r = pf(profile={}, cb_home=tmp_path / "none")
+    assert ids(r)["hub_model"]["ok"] and "自带模型" in ids(r)["hub_model"]["detail"]
+
+
+def test_preflight_cold_playwright_is_only_a_hint(tmp_path):
+    r = pf(warm=False, cb_home=cb_home_with_model(tmp_path / "a"))
+    assert r["missing"] == [] and r["capabilities"]["browser"]["ready"] and ids(r)["playwright_mcp"]["warn"]
+    assert ids(r)["playwright_mcp"]["fix"]["argv"][:2] == ["npx", "-y"]
+    notice = hub_agent.capability_notice("x", r)
+    assert "提示" in notice and "首次使用要下载" in notice
+    pinned = pf(requires={**REQ, "playwright_mcp": "0.0.83"}, warm=False, cb_home=cb_home_with_model(tmp_path / "b"))
+    assert "@playwright/mcp@0.0.83" in ids(pinned)["playwright_mcp"]["fix"]["argv"][2]
+
+
+def test_apps_without_requirements_are_not_checked():
+    r = hub_agent.preflight({"node": ">=18"}, which=lambda n: None, profile={})
+    assert r == {"checks": [], "capabilities": {}, "missing": []}
+
+
+def test_capability_file_has_no_secrets_and_is_readable_by_the_app(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_agent, "CAPABILITIES_DIR", tmp_path / "capabilities")
+    f = hub_agent.write_capabilities("xhs-workbench", "0.7.2", pf(tools=("npm", "npx"), profile={"model": {"model": "m", "api_key": "sk-SECRET"}},
+                                                                    cb_home=tmp_path / "none"))
+    doc = json.loads(f.read_text(encoding="utf-8"))
+    assert doc["schema"] == 1 and doc["app_id"] == "xhs-workbench" and doc["version"] == "0.7.2"
+    assert doc["capabilities"]["browser"]["ready"] is False and "CodeBuddy CLI" in doc["capabilities"]["browser"]["missing"]
+    assert "sk-SECRET" not in f.read_text(encoding="utf-8")
+
+
+class FakeRun:
+    """假的子进程：记录要执行的命令；装 CodeBuddy 成功后，让 which 能找到它。"""
+
+    def __init__(self, tools, ok=True):
+        self.calls, self.tools, self.ok = [], tools, ok
+
+    def __call__(self, argv, **kw):
+        self.calls.append(list(argv))
+        if self.ok and any("@tencent-ai/codebuddy-code" in str(a) for a in argv):
+            self.tools.add("codebuddy")
+        return type("R", (), {"returncode": 0 if self.ok else 1, "stdout": "added 1 package", "stderr": ""})()
+
+
+def doctor_env(tmp_path, monkeypatch, requires=REQ, browser="C:/Edge", model=True):
+    import argparse
+    home = tmp_path / "home"
+    monkeypatch.setattr(hub_agent, "HOME", home)
+    monkeypatch.setattr(hub_agent, "CAPABILITIES_DIR", home / "capabilities")
+    (home / "apps" / "demo").mkdir(parents=True)
+    (home / "apps" / "demo" / ".requires.json").write_text(json.dumps({"requires": requires, "version": "1"}), encoding="utf-8")
+    if model:
+        (home / "profile.json").write_text(json.dumps(PROFILE), encoding="utf-8")
+        monkeypatch.setattr(hub_agent, "CODEBUDDY_HOME", cb_home_with_model(tmp_path))
+    tools = {"npm", "npx"}
+    monkeypatch.setattr(hub_agent.shutil, "which", lambda n: f"/bin/{n}" if n in tools else None)
+    monkeypatch.setattr(hub_agent, "find_system_browser", lambda *a, **k: browser)
+    monkeypatch.setattr(hub_agent, "playwright_cached", lambda v=None, **k: True)
+    ns = lambda yes=False: argparse.Namespace(app_id="demo", yes=yes)  # noqa: E731
+    cap = lambda: json.loads((home / "capabilities" / "demo.json").read_text(encoding="utf-8"))  # noqa: E731
+    return tools, ns, cap
+
+
+def test_doctor_asks_before_installing_and_respects_no(tmp_path, monkeypatch):
+    tools, ns, cap = doctor_env(tmp_path, monkeypatch)
+    asked, run = [], FakeRun(tools)
+    hub_agent.cmd_app_doctor(ns(), ask=lambda q: asked.append(q) or False, run=run)
+    assert run.calls == [] and len(asked) == 1 and "codebuddy-code" in asked[0]                 # 问了，员工说不，就不装
+    assert cap()["capabilities"]["browser"]["ready"] is False
+
+
+def test_doctor_installs_after_consent_and_refreshes_capability_file(tmp_path, monkeypatch):
+    tools, ns, cap = doctor_env(tmp_path, monkeypatch)
+    run = FakeRun(tools)
+    hub_agent.cmd_app_doctor(ns(), ask=lambda q: True, run=run)
+    assert any("@tencent-ai/codebuddy-code" in str(c) for c in run.calls)
+    assert cap()["capabilities"]["browser"]["ready"] is True and cap()["capabilities"]["browser"]["missing"] == []   # 装好后能力文件已刷新
+
+
+def test_doctor_yes_flag_means_consent_already_given(tmp_path, monkeypatch):
+    tools, ns, cap = doctor_env(tmp_path, monkeypatch)
+    asked, run = [], FakeRun(tools)
+    hub_agent.cmd_app_doctor(ns(yes=True), ask=lambda q: asked.append(q) or False, run=run)
+    assert asked == [] and any("@tencent-ai/codebuddy-code" in str(c) for c in run.calls)
+
+
+def test_doctor_failed_install_is_reported_not_hidden(tmp_path, monkeypatch, capsys):
+    tools, ns, cap = doctor_env(tmp_path, monkeypatch)
+    hub_agent.cmd_app_doctor(ns(yes=True), run=FakeRun(tools, ok=False))
+    assert "失败" in capsys.readouterr().out and cap()["capabilities"]["browser"]["ready"] is False
+
+
+def test_doctor_never_runs_manual_only_fixes_even_with_yes(tmp_path, monkeypatch):
+    tools, ns, cap = doctor_env(tmp_path, monkeypatch, browser=None)
+    tools.add("codebuddy")
+    run = FakeRun(tools)
+    hub_agent.cmd_app_doctor(ns(yes=True), run=run)
+    assert run.calls == []                                                                       # 系统浏览器只能手动装，不会被执行
+    assert cap()["capabilities"]["browser"]["missing"] == ["系统浏览器"]
+
+
+def test_doctor_needs_a_previous_open(tmp_path, monkeypatch):
+    import argparse
+    monkeypatch.setattr(hub_agent, "HOME", tmp_path / "empty")
+    with pytest.raises(SystemExit):
+        hub_agent.cmd_app_doctor(argparse.Namespace(app_id="never-opened", yes=True))
+
+
+def test_find_system_browser_per_platform():
+    assert hub_agent.find_system_browser("win32", exists=lambda p: p.endswith("msedge.exe"), env={"ProgramFiles(x86)": "C:/PF86"}).endswith("msedge.exe")
+    assert hub_agent.find_system_browser("win32", exists=lambda p: False, env={"ProgramFiles": "C:/PF"}) is None
+    assert hub_agent.find_system_browser("darwin", exists=lambda p: "Chrome" in p) == "/Applications/Google Chrome.app"
+    assert hub_agent.find_system_browser("linux", which=lambda n: "/usr/bin/chromium" if n == "chromium" else None) == "/usr/bin/chromium"
+    assert hub_agent.find_system_browser("linux", which=lambda n: None) is None

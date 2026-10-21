@@ -144,6 +144,7 @@ class AppEvent(BaseModel):
     ok: bool
     url: str = ""
     reason: str = ""
+    missing: list[str] = []  # 已打开但缺少的能力（如「CodeBuddy CLI」「系统浏览器」），对应功能会被应用按能力禁用
 
 
 @router.post("/app-event")
@@ -153,6 +154,9 @@ def app_event(body: AppEvent, authorization: str | None = Header(default=None), 
     dept = policy.dept_from_groups(c.get("groups"))
     detail = (f"应用「{body.app_id}」v{body.version} 已在本机启动：{body.url[:80]}" if body.ok
               else f"应用「{body.app_id}」v{body.version} 启动失败：{body.reason[:200]}")
+    missing = [m[:40] for m in body.missing[:8]]
+    if body.ok and missing:
+        detail += f"；缺少能力：{'、'.join(missing)}（对应功能不可用）"
     db.add_audit(trace_id=(x_hub_trace_id or "").strip()[:64] or f"app-{uuid.uuid4().hex[:10]}", org=c["owner"], user_name=c["name"],
                  display_name=c.get("displayName") or c["name"], dept=dept, channel=policy.OFFICIAL,
                  kind="应用", tool="app.launch", detail=detail, result="通过" if body.ok else "拒绝")

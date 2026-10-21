@@ -665,6 +665,188 @@ def _write_hub_mcp_config() -> Path:
     return f
 
 
+# ---------------- 应用能力预检：打开应用前检查它声明的依赖，缺什么说明并询问安装，只让对应功能不可用，不拦打开 ----------------
+# app.json 的 requires：agent_cli（应用背后的命令行 agent，如 codebuddy）、capabilities（如 browser）、playwright_mcp（可选版本）。
+# 预检是被动检查（不下载、不安装）；安装只在员工同意后做：交互终端里逐项询问，或由 agent 问过员工后运行 app-doctor --yes。
+# 结果写进 ~/.hub-agent/capabilities/<应用 id>.json，并通过环境变量 HUB_CAPABILITIES_FILE 交给应用；应用每次用到时重新读取，
+# 所以装好之后不用重启应用。文件里没有任何密钥。
+
+CAPABILITIES_DIR = HOME / "capabilities"
+CLI_PACKAGES = {"codebuddy": "@tencent-ai/codebuddy-code"}
+CLI_LABELS = {"codebuddy": "CodeBuddy CLI"}
+CLI_MIN_BROWSER_FIXES = "安装 Microsoft Edge（https://www.microsoft.com/edge）或 Google Chrome"
+
+
+def find_system_browser(platform: str | None = None, exists=os.path.exists, which=shutil.which, env=None) -> str | None:
+    """系统里的 Edge / Chrome（Playwright 优先用真实浏览器）。找到返回路径，没有返回 None。"""
+    platform, env = platform or sys.platform, env if env is not None else os.environ
+    if platform == "win32":
+        roots = [env.get(k) for k in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA") if env.get(k)]
+        rels = [r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe"]
+        cands = [os.path.join(r, rel) for r in roots for rel in rels]
+    elif platform == "darwin":
+        cands = ["/Applications/Microsoft Edge.app", "/Applications/Google Chrome.app"]
+    else:
+        return next((w for n in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge") if (w := which(n))), None)
+    return next((c for c in cands if exists(c)), None)
+
+
+def playwright_cached(version: str | None = None, home: Path | None = None, env=None) -> bool:
+    """npx 的缓存里是否已有 @playwright/mcp（有就不用首次下载，第一次任务不会卡在「仍在连接中」）。"""
+    env, home = env if env is not None else os.environ, home or Path.home()
+    roots = [Path(env["LOCALAPPDATA"]) / "npm-cache" / "_npx"] if sys.platform == "win32" and env.get("LOCALAPPDATA") else []
+    roots.append(home / ".npm" / "_npx")
+    for root in roots:
+        for pkg in root.glob("*/node_modules/@playwright/mcp/package.json") if root.is_dir() else []:
+            try:
+                if not version or json.loads(pkg.read_text(encoding="utf-8")).get("version") == version:
+                    return True
+            except (OSError, ValueError):
+                continue
+    return False
+
+
+def _cli_install_fix(cli: str, which) -> dict:
+    pkg = CLI_PACKAGES[cli]
+    if not which("npm"):
+        return {"text": f"先安装 Node.js，再执行：npm install -g {pkg}", "argv": None}
+    argv = ["npm", "install", "-g", pkg] if sys.platform == "win32" else ["npm", "install", "-g", "--prefix", str(Path.home() / ".local"), pkg]
+    return {"text": " ".join(argv), "argv": argv}
+
+
+def preflight(requires: dict, *, which=None, browser_finder=None, cached=None,
+              codebuddy_home: Path | None = None, profile: dict | None = None) -> dict:
+    """被动检查应用声明的依赖。返回 {checks, capabilities, missing}：
+    checks 每项 {id, label, ok, warn, detail, fix}；capabilities 里每个能力 {ready, missing, fixes}；missing 是没通过的检查名。"""
+    requires = requires or {}
+    which, browser_finder, cached = which or shutil.which, browser_finder or find_system_browser, cached or playwright_cached  # 调用时再取，便于测试替换
+    cli = requires.get("agent_cli")
+    wants_browser = "browser" in (requires.get("capabilities") or [])
+    home = codebuddy_home or CODEBUDDY_HOME
+    if profile is None:
+        try:
+            profile = json.loads((HOME / "profile.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            profile = {}
+    checks: list[dict] = []
+
+    def add(cid, label, ok, detail, fix=None, warn=False):
+        checks.append({"id": cid, "label": label, "ok": bool(ok), "warn": bool(warn), "detail": detail, "fix": fix})
+
+    if cli:
+        label = CLI_LABELS.get(cli, cli)
+        found = which(cli)
+        add("agent_cli", label, found, f"已安装：{found}" if found else "未安装", None if found else _cli_install_fix(cli, which))
+        # 中枢模型：岗位包选「中枢模型」时，命令行 agent 必须真的走中枢下发的模型（models.json 里有，且默认模型没被换掉）
+        hub_model = (profile.get("model") or {}).get("model")
+        if cli == "codebuddy" and hub_model:
+            try:
+                models = json.loads((home / "models.json").read_text(encoding="utf-8-sig")).get("models", [])
+            except (OSError, ValueError):
+                models = []
+            ours = [m for m in models if str(m.get("name", "")).startswith(CB_MODEL_PREFIX)]
+            try:
+                default = json.loads((home / "settings.json").read_text(encoding="utf-8-sig")).get("model")
+            except (OSError, ValueError):
+                default = None
+            if any(m.get("id") == hub_model for m in ours):
+                other = default and default != hub_model and default not in {m.get("id") for m in ours}
+                add("hub_model", "中枢模型", True,
+                    f"{label} 已配置中枢模型 {hub_model}" + (f"（默认模型当前是 {default}，不是中枢的，浏览器任务可能不走中枢计量）" if other else ""), warn=bool(other))
+            else:
+                add("hub_model", "中枢模型", False, f"{label} 里没有中枢下发的模型 {hub_model}",
+                    {"text": f"重新同步配置：uv run {Path(__file__).resolve()} sync（会写入 {home / 'models.json'}）",
+                     "argv": [find_uv(), "run", str(Path(__file__).resolve()), "sync"]})
+        else:
+            add("hub_model", "中枢模型", True, "岗位包用自带模型（或尚未领取配置），不检查")
+    if wants_browser:
+        npx = which("npx")
+        add("npx", "npx（运行 Playwright）", npx, f"已安装：{npx}" if npx else "未安装（随 Node.js 一起安装）",
+            None if npx else {"text": "先安装 Node.js：" + _install_hint(), "argv": None})
+        found = browser_finder()
+        add("system_browser", "系统浏览器", found, f"已找到：{found}" if found else "没有找到 Edge 或 Chrome",
+            None if found else {"text": CLI_MIN_BROWSER_FIXES, "argv": None})
+        ver = requires.get("playwright_mcp")
+        warm = bool(npx) and cached(ver)
+        add("playwright_mcp", "Playwright MCP", True,
+            "已在本机缓存" if warm else "首次使用要下载（约 1-2 分钟，期间浏览器任务会显示「仍在连接中」）",
+            None if warm or not npx else {"text": f"预热：npx -y @playwright/mcp{'@' + ver if ver else ''} --help",
+                                          "argv": ["npx", "-y", f"@playwright/mcp{'@' + ver if ver else ''}", "--help"]}, warn=not warm)
+
+    def cap(ids: list[str]) -> dict:
+        bad = [c for c in checks if c["id"] in ids and not c["ok"]]
+        return {"ready": not bad, "missing": [c["label"] for c in bad], "fixes": [c["fix"]["text"] for c in bad if c["fix"]]}
+    caps = {}
+    if cli:
+        caps["agent_cli"] = cap(["agent_cli", "hub_model"])
+    if wants_browser:
+        caps["browser"] = cap(["agent_cli", "hub_model", "npx", "system_browser"])
+    return {"checks": checks, "capabilities": caps, "missing": [c["label"] for c in checks if not c["ok"]]}
+
+
+def write_capabilities(app_id: str, version: str, pf: dict) -> Path:
+    f = CAPABILITIES_DIR / f"{app_id}.json"
+    doc = {"schema": 1, "app_id": app_id, "version": version, "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+           "capabilities": pf["capabilities"], "checks": [{k: c[k] for k in ("id", "label", "ok", "warn", "detail")} for c in pf["checks"]]}
+    write_private(f, json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
+    return f
+
+
+def capability_notice(app_id: str, pf: dict) -> str:
+    """给 agent / 员工看的说明：缺什么、对应功能为什么不可用、怎么装。没有缺失返回空串。"""
+    bad = [c for c in pf["checks"] if not c["ok"]]
+    if not bad:
+        warns = [c for c in pf["checks"] if c["warn"] and c["fix"] and c["fix"]["argv"]]
+        return ("提示：" + "；".join(f"{c['label']}：{c['detail']}" for c in warns)
+                + f"。想提前准备好，运行：uv run {Path(__file__).resolve()} app-doctor {app_id} --yes") if warns else ""
+    lines = ["⚠ 应用已打开，但缺少下面的能力，对应功能（如浏览器自动化）暂时不可用：",
+             *[f"- {c['label']}：{c['detail']}" + (f" → {c['fix']['text']}" if c["fix"] else "") for c in bad]]
+    fixable = [c for c in bad if c["fix"] and c["fix"]["argv"]]
+    if fixable:
+        lines.append(f"请先问员工是否同意安装；同意后执行：uv run {Path(__file__).resolve()} app-doctor {app_id} --yes ，装好后不用重启应用。")
+    return "\n".join(lines)
+
+
+def run_fix(fix: dict, run=subprocess.run) -> tuple[bool, str]:
+    argv = list(fix["argv"])
+    resolved = shutil.which(argv[0])
+    if resolved:
+        argv[0] = resolved
+    try:
+        r = run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+    return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()[-300:]
+
+
+def cmd_app_doctor(args, ask=None, run=subprocess.run) -> None:
+    """app-doctor <应用 id>：重新预检并（经询问）安装缺少的依赖，然后刷新能力文件。--yes 表示已征得员工同意，不再逐项询问。"""
+    cached = HOME / "apps" / args.app_id / ".requires.json"
+    try:
+        meta = json.loads(cached.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        fail(f"还没有打开过应用 {args.app_id}。请先对 agent 说「打开它」，再运行本命令。")
+    pf = preflight(meta.get("requires") or {})
+    interactive = sys.stdin.isatty() if ask is None else True
+    ask = ask or (lambda q: input(q).strip().lower() in ("y", "yes"))
+    for c in [c for c in pf["checks"] if not c["ok"] or (c["warn"] and c["fix"] and c["fix"]["argv"])]:
+        fix = c["fix"]
+        info(f"{c['label']}：{c['detail']}")
+        if not fix or not fix["argv"]:
+            info(f"  需要手动处理：{fix['text'] if fix else '（无）'}")
+            continue
+        if args.yes or (interactive and ask(f"  现在执行「{fix['text']}」吗？[y/N] ")):
+            ok, out = run_fix(fix, run)
+            info(f"  {'完成' if ok else '失败：' + out}")
+        else:
+            info(f"  已跳过。想自己装：{fix['text']}")
+    pf = preflight(meta.get("requires") or {})
+    f = write_capabilities(args.app_id, meta.get("version", ""), pf)
+    notice = capability_notice(args.app_id, pf)
+    info(notice or "所有能力都满足，应用里的对应功能已可用。")
+    info(f"能力文件：{f}")
+
+
 def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: httpx.Client | None = None) -> dict:
     """按中枢签发的凭证在本机打开应用：检查 Node → 下载校验解压（已有同版本同哈希则复用）→ 启动 → 取回网址。
     正在运行的实例绝不重启：应用的 start 是幂等的，已在运行时只返回同一个网址，新版本只给升级提示。"""
@@ -688,6 +870,11 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
                 return {"ok": False, "reason": f"应用入口不在应用包内或不存在：{ticket['entry']}"}
             env = {**os.environ, "HUB_MCP_SERVERS_FILE": str(_write_hub_mcp_config()),
                    "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID") or new_trace_id()}
+            requires = ticket.get("requires") or {}
+            pf = preflight(requires) if (requires.get("agent_cli") or requires.get("capabilities")) else None
+            if pf:  # 记下 requires 供 app-doctor 复核；能力文件交给应用，缺什么应用自己禁用对应功能
+                write_private(HOME / "apps" / app_id / ".requires.json", json.dumps({"requires": requires, "version": version}, ensure_ascii=False))
+                env["HUB_CAPABILITIES_FILE"] = str(write_capabilities(app_id, version, pf))
             base = {"cwd": str(target), "env": env, "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
             try:
                 setup_out = ""
@@ -717,7 +904,11 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             elif _STARTED in out or not old:
                 state_file.write_text(json.dumps({"version": version}), encoding="utf-8")
             prune_versions(app_id)
-            return {"ok": True, "url": url, "version": version, "dir": str(target), "message": message}
+            notice = capability_notice(app_id, pf) if pf else ""
+            if notice:
+                message += "\n" + notice
+            return {"ok": True, "url": url, "version": version, "dir": str(target), "message": message,
+                    "missing": pf["missing"] if pf else []}
     except ValueError as e:
         return {"ok": False, "reason": str(e)}
     except OSError as e:
@@ -730,7 +921,7 @@ def report_app_event(creds: dict, hub: str, ticket: dict, result: dict) -> None:
         httpx.post(f"{hub}/api/agent/app-event", timeout=10,
                    headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")},
                    json={"app_id": ticket["app_id"], "version": ticket.get("version", ""), "ok": bool(result.get("ok")),
-                         "url": result.get("url", ""), "reason": result.get("reason", "")})
+                         "url": result.get("url", ""), "reason": result.get("reason", ""), "missing": result.get("missing", [])})
     except Exception as e:  # noqa: BLE001
         print(f"hub-agent: 回报应用事件失败：{e}", file=sys.stderr, flush=True)
 
@@ -899,12 +1090,15 @@ def main() -> None:
     p.add_argument("--nested", action="store_true", help="嵌套模式：由应用里的 agent 启动，不同步技能、不报心跳")
     p = sub.add_parser("open-app", help="在本机打开中枢发布的应用（给不走 MCP 桥的客户端用）")
     p.add_argument("app_id", help="应用 id，如 xhs-workbench")
+    p = sub.add_parser("app-doctor", help="重新检查应用需要的依赖，并（经询问）安装缺少的部分")
+    p.add_argument("app_id", help="应用 id，如 xhs-workbench")
+    p.add_argument("--yes", action="store_true", help="已征得员工同意，不再逐项询问")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
     {"login": cmd_login, "setup": cmd_setup, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
-     "mcp": cmd_mcp, "open-app": cmd_open_app}[args.cmd](args)
+     "mcp": cmd_mcp, "open-app": cmd_open_app, "app-doctor": cmd_app_doctor}[args.cmd](args)
 
 
 if __name__ == "__main__":

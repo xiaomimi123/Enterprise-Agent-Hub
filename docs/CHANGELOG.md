@@ -6,6 +6,11 @@
 
 ## 2026-10-21
 
+**应用能力预检（工作台 0.7.2）**
+- `app.json` 的 `requires` 可声明 `agent_cli` / `capabilities` / `playwright_mcp`，中枢校验（写错则该应用不列出）。接入器打开应用前预检 Node、CodeBuddy CLI、中枢模型、系统浏览器、Playwright，缺什么在返回消息里说明并询问是否安装（`app-doctor <app_id> [--yes]`，只自动执行可自动的项），审计写「缺少能力」。结果写入 `~/.hub-agent/capabilities/<id>.json` 并设 `HUB_CAPABILITIES_FILE`；工作台只拦浏览器功能、不拦打开。
+- 验证：中枢后端测试 258 项通过；工作台新增 8 项（含桥层拦截）通过，全量仅 ffmpeg 相关用例因本机缺 ffmpeg 失败（与本次无关）；中枢已能读到 0.7.2 的 `requires`。**未验证**：真实环境里交互式安装提示、`app-doctor` 在真实员工机上的完整流程。
+- 代码：`apps.py`、`agent_api.py`、`agent/hub_agent.py`；文档见接入指南 4.2.1。
+
 **文档**
 - 新增 [app-integration-guide.md](app-integration-guide.md)《接入新应用指南》：把「应用托管 + 对接契约」模式沉淀成文档（适合接什么、三个接入层级、中枢与应用两侧契约、适配底层 agent 的经验、改造清单、发布流程）。同时记下接第二个应用前要处理的限制：接入器只会用 `node` 启动、`launch_app` 里还有工作台的特例、`HUB_MCP_SERVERS_FILE` 只对 Claude Code 生效、应用自带的模型密钥未统一到中枢。
 - 新增 `CLAUDE.md` 项目指南、`docs/README.md` 索引、本更新记录，重写根 `README.md`；清掉各文档里「钉钉」的旧说法。
@@ -26,7 +31,7 @@
 - 控制台「模型」页新增「模型价格」：按美元 / 百万 token 设置每个模型的输入价、输出价，写 New API 的 `ModelRatio` / `CompletionRatio`，立即生效（实测同一请求扣的额度便宜约 500 倍）。
 - **根因**：没设价格的模型按 New API 默认倍率 37.5（每百万 $75）计费，费用严重虚高（CodeBuddy 单次请求约 $2），岗位包月度额度几小时被「花光」，之后网关返回 403。上线前必须给所有开放模型设价格。
 
-**小红书运营工作台（独立仓库 `xhs-workbench1`，通过中枢 `apps/` 分发，当前 0.7.1）**
+**小红书运营工作台（独立仓库 `xhs-workbench1`，通过中枢 `apps/` 分发，当前 0.7.2）**
 - 适配 CodeBuddy CLI 的 CLI 模式；两档浏览器权限：**只读档**（默认，14 个写类 Playwright 工具全禁用）和**测试档**（放开点击 / 输入，仍禁上传和脚本并屏蔽创作者中心），命令 `browser-mode readonly|test`。用户硬性要求：**自动化只能只读分析，不能自动发布**。
 - 在真实环境测通：选题热点（浏览器只读查搜索页）、竞品对标采集 + 拆解、从对标生成选题、一句话让 agent 写 3 篇带封面的草稿。已知：后台采集组件会把登录页的「验证码登录」误判为风控而上锁；agent 采到的数据需先写 `verified` 检查点再写 `observation`，否则服务端拒收。
 - **每次重新上传工作台必须升版本号**，步骤见 `CLAUDE.md`「发布小红书工作台」。

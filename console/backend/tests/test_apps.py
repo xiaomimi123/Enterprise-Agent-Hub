@@ -101,3 +101,22 @@ def test_download_route(root):
     assert r.status_code == 200 and zipfile.ZipFile(__import__("io").BytesIO(r.content)).namelist() == ["demo/run.mjs"]
     assert client.get(path.replace("sig=", "sig=0")).status_code == 404
     assert client.get("/api/apps/demo/1.0.0.zip").status_code == 404                  # 没签名
+
+
+@pytest.mark.parametrize("requires,ok", [
+    ({"node": ">=18"}, True),
+    ({"node": ">=18", "agent_cli": "codebuddy", "capabilities": ["browser"], "playwright_mcp": "0.0.83"}, True),
+    ({"node": ">=18", "agent_cli": "codebuddy"}, True),                                  # 只要命令行 agent，不要浏览器
+    ({"node": ">=18", "futureKey": 1}, True),                                            # 未知的键保留，方便以后扩展
+    ({"capabilities": ["browser"]}, False),                                              # 要浏览器必须声明命令行 agent
+    ({"agent_cli": "unknown-cli"}, False),
+    ({"agent_cli": "codebuddy", "capabilities": ["browser", "camera"]}, False),
+    ({"agent_cli": "codebuddy", "capabilities": "browser"}, False),
+    ({"agent_cli": "codebuddy", "capabilities": ["browser"], "playwright_mcp": "latest"}, False),
+    ({"node": 18}, False),
+])
+def test_requires_capability_declaration_is_validated(root, requires, ok):
+    make_app(root, requires=requires)
+    assert [a.id for a in apps.list_apps()] == (["demo"] if ok else [])
+    if ok:
+        assert apps.list_apps()[0].requires == requires

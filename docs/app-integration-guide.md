@@ -54,18 +54,28 @@ apps/<应用 id>/
 {
   "id": "xhs-workbench",
   "name": "小红书运营工作台",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "一句话说明",
   "entry": "xhs-workbench/scripts/workbench.mjs",
-  "requires": {"node": ">=18"},
+  "requires": {"node": ">=18", "agent_cli": "codebuddy", "capabilities": ["browser"]},
   "setup_args": ["setup"],
   "start_args": ["start", "--open"]
 }
 ```
 
 - `id`：小写字母、数字、`.` `_` `-`，**必须等于目录名**；`entry` 是解压后包内相对路径，用 `node` 运行；`setup_args` 可省略，**每次打开都会先跑一遍，所以必须幂等**；`start_args` 是启动参数。
+- `requires`（可选，写错会让该应用不出现在列表里）：`node` 版本串；`agent_cli` 目前只允许 `codebuddy`；`capabilities` 目前只允许 `browser`，且必须同时声明 `agent_cli`；`playwright_mcp` 可钉版本（`x.y.z`）。
 - 校验用的 SHA-256 由中枢按文件内容计算（不用手填）；换 zip 即生效，**不需要重启中枢**。
 - 下载走签名链接（有效期 10 分钟）；包路径不安全、含符号链接、解压后超限会被接入器拒绝并丢弃。
+
+### 4.2.1 能力预检（声明依赖，缺什么只拦对应功能）
+
+接入器每次打开应用前按 `requires` 预检：Node/npx、CodeBuddy CLI、中枢模型（`~/.codebuddy/models.json` 里有中枢下发的模型）、系统浏览器（Edge/Chrome/Chromium）、Playwright MCP（未缓存只提示首次要下载）。
+
+- **只拦功能，不拦打开**：缺东西时应用照常启动，接入器把「缺什么、怎么装、是否同意安装」附在返回消息里，审计 `app.launch` 的详情写「缺少能力：…」。
+- **询问后才安装**：`hub_agent.py app-doctor <app_id>` 会逐项询问；`--yes` 表示员工已对 agent 同意，才自动执行。只有可自动的项（如 `npm install -g @tencent-ai/codebuddy-code`、同步中枢模型）会被执行，系统浏览器、Node.js 只给手动安装提示，永远不会被自动运行。
+- **交给应用**：结果写入 `~/.hub-agent/capabilities/<app_id>.json`（schema 1，不含密钥），并设置环境变量 `HUB_CAPABILITIES_FILE`。应用每次使用时重读；`capabilities.browser.ready === false` 时只拒绝浏览器类功能并说明原因；文件缺失或不合法时不拦。装好后重跑 `app-doctor` 即恢复，无需重启应用。
+- 工作台的实现见其仓库 `docs/hub-integration.md`「能力预检」。
 
 ### 4.3 权限与审计
 
@@ -136,7 +146,7 @@ node <entry> <start_args…>     # 启动，输出一行 URL
 
 ## 9. 当前的限制和待办（接第二个应用前先看）
 
-- **只支持 Node 应用**：`launch_app` 里写死用 `node` 启动，`requires` 也只检查 Node。要接 Python / 其他运行时的应用，需要扩展 `app.json`（如 `runtime` 字段）和接入器。
+- **只支持 Node 应用**：`launch_app` 里写死用 `node` 启动，`requires` 里只检查 Node（能力预检已支持 `agent_cli` / `capabilities`，但取值白名单目前只有 `codebuddy` / `browser`）。要接 Python / 其他运行时的应用，需要扩展 `app.json`（如 `runtime` 字段）和接入器。
 - **接入器里还有工作台的特例**：`launch_app` 里找 `xhs-workbench/SKILL.md`、判断输出里是否含「尚未配置」、提示文案写的是「工作台」。接第二个应用前要抽成应用自己声明的字段。
 - **`HUB_MCP_SERVERS_FILE` 只对 Claude Code 生效**：其他 agent 要另写适配（CodeBuddy 靠全局配置）。
 - **应用自带的模型密钥没统一**：工作台的生图、视频密钥（APIMart、视频网关）仍由应用自己管，额度和审计不在中枢；契约里的方向是逐步改走中枢的 `generate_image` / `generate_video`。

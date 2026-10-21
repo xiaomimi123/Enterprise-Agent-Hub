@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import accounts, app_access, content, db, policy
+from . import accounts, app_access, apps, content, db, policy, work
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -161,6 +161,22 @@ def app_event(body: AppEvent, authorization: str | None = Header(default=None), 
                  display_name=c.get("displayName") or c["name"], dept=dept, channel=policy.OFFICIAL,
                  kind="应用", tool="app.launch", detail=detail, result="通过" if body.ok else "拒绝")
     return {"ok": True}
+
+
+class WorkReportBody(BaseModel):
+    app_id: str
+    items: list[dict]
+
+
+@router.post("/work-report")
+def work_report(body: WorkReportBody, authorization: str | None = Header(default=None), x_hub_trace_id: str | None = Header(default=None)):
+    """接入器把应用写在本机 outbox 里的成果转发到中枢。按 (人, 应用, key) 幂等，重复转发是更新。"""
+    c = _verify_agent_token(authorization)
+    if apps.get_app(body.app_id) is None:
+        raise HTTPException(400, f"中枢没有注册应用「{body.app_id}」")
+    p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
+                         dept=policy.dept_from_groups(c.get("groups")), channel=policy.OFFICIAL)
+    return work.report_batch(p, (x_hub_trace_id or "").strip()[:64] or f"work-{uuid.uuid4().hex[:10]}", f"应用:{body.app_id}", body.items)
 
 
 @router.post("/enroll")

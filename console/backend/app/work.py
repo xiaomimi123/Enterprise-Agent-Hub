@@ -46,10 +46,18 @@ def _clean(report: dict) -> dict:
             "status": status, "progress": progress, "link": link[:MAX_LINK], "note": str(report.get("note") or "").strip()[:MAX_NOTE]}
 
 
+MAX_KEY = 80
+MAX_BATCH = 50
+
+
 def report_work(p: policy.Principal, trace_id: str, report: dict, item_id: int | None = None, source: str = "agent") -> dict:
-    """上报或更新一条成果。更新只能改自己的条目。"""
+    """上报或更新一条成果。更新只能改自己的条目；带 key（应用自动上报）时按 key 幂等写入。"""
     clean = _clean(report)
-    if item_id is not None:
+    key = str(report.get("key") or "").strip()[:MAX_KEY]
+    if key and item_id is None:
+        new_id = db.upsert_work_item({**clean, "org": p.org, "user_name": p.user_name, "display_name": p.display_name,
+                                      "dept": p.dept, "source": source[:40], "trace_id": trace_id, "ext_key": key})
+    elif item_id is not None:
         if not db.update_work_item(item_id, p.org, p.user_name, {**clean, "trace_id": trace_id}):
             raise BadReport(f"没有找到你的工作条目 {item_id}。")
         new_id = item_id
@@ -60,6 +68,21 @@ def report_work(p: policy.Principal, trace_id: str, report: dict, item_id: int |
                  channel=p.channel, kind="工作", tool="work.report",
                  detail=f"[{clean['kind']}] {clean['title']}（{clean['status']} {clean['progress']}%）", result="通过")
     return {"item_id": new_id, **clean}
+
+
+def report_batch(p: policy.Principal, trace_id: str, source: str, items: list) -> dict:
+    """应用自动上报：逐条校验，坏的跳过并说明原因，好的幂等写入。"""
+    accepted, rejected = 0, []
+    for i, it in enumerate(items[:MAX_BATCH]):
+        try:
+            if not isinstance(it, dict) or not str(it.get("key") or "").strip():
+                raise BadReport("自动上报的每一条都要有 key。")
+            report_work(p, trace_id, it, source=source)
+            accepted += 1
+        except BadReport as e:
+            rejected.append({"index": i, "reason": str(e)})
+    rejected += [{"index": i, "reason": f"一次最多 {MAX_BATCH} 条"} for i in range(MAX_BATCH, len(items))]
+    return {"accepted": accepted, "rejected": rejected}
 
 
 def period_start(days: int, now: datetime | None = None) -> datetime:

@@ -385,3 +385,87 @@ def test_find_system_browser_per_platform():
     assert hub_agent.find_system_browser("darwin", exists=lambda p: "Chrome" in p) == "/Applications/Google Chrome.app"
     assert hub_agent.find_system_browser("linux", which=lambda n: "/usr/bin/chromium" if n == "chromium" else None) == "/usr/bin/chromium"
     assert hub_agent.find_system_browser("linux", which=lambda n: None) is None
+
+
+# ---- 应用成果自动上报（outbox）----
+
+class FakePost:
+    def __init__(self, status=200):
+        self.calls, self.status = [], status
+
+    def __call__(self, app_id, items):
+        self.calls.append((app_id, items))
+        return type("R", (), {"status_code": self.status})()
+
+
+@pytest.fixture
+def outbox(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_agent, "OUTBOX_DIR", tmp_path / "outbox")
+    (tmp_path / "outbox").mkdir()
+    return tmp_path / "outbox"
+
+
+def line(key, title="笔记A", **kw):
+    return json.dumps({"key": key, "title": title, **kw}, ensure_ascii=False) + "\n"
+
+
+def test_outbox_forwards_new_lines_once_and_remembers_offset(outbox):
+    f = outbox / "xhs-workbench.jsonl"
+    f.write_text(line("note:1") + line("note:2", status="待审核"), encoding="utf-8")
+    post = FakePost()
+    assert hub_agent.flush_outbox({}, "h", post=post) == 2
+    assert [i["key"] for i in post.calls[0][1]] == ["note:1", "note:2"] and post.calls[0][0] == "xhs-workbench"
+    assert hub_agent.flush_outbox({}, "h", post=post) == 0 and len(post.calls) == 1            # 没有新内容不重复发
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(line("note:3"))
+    assert hub_agent.flush_outbox({}, "h", post=post) == 1 and post.calls[1][1][0]["key"] == "note:3"
+
+
+def test_outbox_leaves_a_half_written_last_line_for_next_time(outbox):
+    f = outbox / "demo.jsonl"
+    f.write_bytes((line("a") + '{"key": "b", "ti').encode("utf-8"))
+    post = FakePost()
+    assert hub_agent.flush_outbox({}, "h", post=post) == 1
+    with f.open("ab") as fh:
+        fh.write('tle": "写完了"}\n'.encode("utf-8"))
+    assert hub_agent.flush_outbox({}, "h", post=post) == 1 and post.calls[1][1][0]["title"] == "写完了"
+
+
+def test_outbox_drops_bad_lines_and_unknown_fields(outbox):
+    (outbox / "demo.jsonl").write_text("not json\n" + line("a", secret="x", token="t", status="已完成") + '{"title":"无key"}\n' + "x" * 5000 + "\n", encoding="utf-8")
+    post = FakePost()
+    assert hub_agent.flush_outbox({}, "h", post=post) == 1
+    assert post.calls[0][1] == [{"key": "a", "title": "笔记A", "status": "已完成"}]
+
+
+def test_outbox_retries_when_hub_is_down_but_skips_rejected_batches(outbox):
+    f = outbox / "demo.jsonl"
+    f.write_text(line("a"), encoding="utf-8")
+    assert hub_agent.flush_outbox({}, "h", post=FakePost(503)) == 0
+    assert hub_agent.flush_outbox({}, "h", post=FakePost(200)) == 1                            # 之前失败，偏移没动，这次补发
+    f.write_text(f.read_text(encoding="utf-8") + line("b"), encoding="utf-8")
+    assert hub_agent.flush_outbox({}, "h", post=FakePost(400)) == 0                            # 400：这批有问题，跳过不卡住
+    assert hub_agent.flush_outbox({}, "h", post=FakePost(200)) == 0
+
+    def boom(app_id, items):
+        raise OSError("断网")
+    f.write_text(f.read_text(encoding="utf-8") + line("c"), encoding="utf-8")
+    assert hub_agent.flush_outbox({}, "h", post=boom) == 0
+    assert hub_agent.flush_outbox({}, "h", post=FakePost(200)) == 1
+
+
+def test_outbox_restarts_from_the_top_if_file_was_replaced_and_ignores_bad_names(outbox):
+    f = outbox / "demo.jsonl"
+    f.write_text(line("a") + line("b"), encoding="utf-8")
+    hub_agent.flush_outbox({}, "h", post=FakePost())
+    f.write_text(line("c"), encoding="utf-8")                                                  # 比偏移短：当作被清空重写
+    post = FakePost()
+    assert hub_agent.flush_outbox({}, "h", post=post) == 1 and post.calls[0][1][0]["key"] == "c"
+    (outbox / "Bad Name.jsonl").write_text(line("x"), encoding="utf-8")
+    assert hub_agent.flush_outbox({}, "h", post=FakePost()) == 0
+
+
+def test_outbox_batches_of_fifty(outbox):
+    (outbox / "demo.jsonl").write_text("".join(line(f"k{i}") for i in range(120)), encoding="utf-8")
+    post = FakePost()
+    assert hub_agent.flush_outbox({}, "h", post=post) == 120 and [len(c[1]) for c in post.calls] == [50, 50, 20]

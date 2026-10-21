@@ -54,7 +54,7 @@ apps/<应用 id>/
 {
   "id": "xhs-workbench",
   "name": "小红书运营工作台",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "一句话说明",
   "entry": "xhs-workbench/scripts/workbench.mjs",
   "requires": {"node": ">=18", "agent_cli": "codebuddy", "capabilities": ["browser"]},
@@ -76,6 +76,10 @@ apps/<应用 id>/
 - **询问后才安装**：`hub_agent.py app-doctor <app_id>` 会逐项询问；`--yes` 表示员工已对 agent 同意，才自动执行。只有可自动的项（如 `npm install -g @tencent-ai/codebuddy-code`、同步中枢模型）会被执行，系统浏览器、Node.js 只给手动安装提示，永远不会被自动运行。
 - **交给应用**：结果写入 `~/.hub-agent/capabilities/<app_id>.json`（schema 1，不含密钥），并设置环境变量 `HUB_CAPABILITIES_FILE`。应用每次使用时重读；`capabilities.browser.ready === false` 时只拒绝浏览器类功能并说明原因；文件缺失或不合法时不拦。装好后重跑 `app-doctor` 即恢复，无需重启应用。
 - 工作台的实现见其仓库 `docs/hub-integration.md`「能力预检」。
+
+### 4.2.2 成果上报（让老板看板看到应用里做成了什么）
+
+应用把关键产出追加写到 `HUB_WORK_OUTBOX` 指向的文件，接入器转发到中枢，显示在控制台「工作看板」。契约（字段、幂等、转发规则）见 [work-report.md](work-report.md)「应用自动上报」。改造应用时要想清楚：哪些状态变化算「成果」（工作台选的是笔记状态变化、对标拆解完成），并只上报标题和状态，不上报正文。
 
 ### 4.3 权限与审计
 

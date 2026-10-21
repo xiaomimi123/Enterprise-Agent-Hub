@@ -217,6 +217,7 @@ def test_launch_happy_path(tmp_path, home):
     assert cmd[0] == "node" and cmd[1].endswith("workbench.mjs") and cmd[2:] == ["start", "--open"]
     assert kw["cwd"] == str(home / "apps" / "xhs-workbench" / "0.6.1")
     assert kw["env"]["HUB_MCP_SERVERS_FILE"] == str(home / "hub-mcp.json") and "HUB_TRACE_ID" in kw["env"]
+    assert kw["env"]["HUB_WORK_OUTBOX"] == str(home / "outbox" / "xhs-workbench.jsonl") and (home / "outbox").is_dir()   # 应用把成果写到这里
     assert any(c[2:] == ["setup"] for c, _ in run.calls)                      # 先 setup 再 start
     cfg = json.loads((home / "hub-mcp.json").read_text(encoding="utf-8"))["mcpServers"]["enterprise-hub"]
     assert cfg["command"] == "/usr/bin/uv" and "--nested" in cfg["args"] and cfg["args"][:1] == ["run"]
@@ -338,7 +339,7 @@ def test_nested_bridge_skips_sync_and_heartbeat(monkeypatch):
     ha.cmd_mcp(argparse.Namespace(client="工作台", nested=True))
     assert calls == {"sync": 0, "threads": 0}
     ha.cmd_mcp(argparse.Namespace(client="WorkBuddy", nested=False))
-    assert calls == {"sync": 1, "threads": 1}
+    assert calls == {"sync": 1, "threads": 2}  # 心跳 + 成果转发
 
 
 # ================= 桥拦截 open_app =================

@@ -150,6 +150,9 @@ CREATE TABLE IF NOT EXISTS work_items (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS work_items_updated ON work_items (org, updated_at DESC);
+-- 应用自动上报用的幂等键：同一个人、同一来源、同一个 key 只有一条，重复上报是更新
+ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ext_key TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS work_items_ext ON work_items (org, user_name, source, ext_key) WHERE ext_key <> '';
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -512,7 +515,7 @@ def gpu_task_stats() -> dict[str, dict]:
 
 
 # ---- 工作成果 ----
-WORK_KEYS = ("org", "user_name", "display_name", "dept", "kind", "title", "status", "progress", "link", "note", "source", "trace_id")
+WORK_KEYS = ("org", "user_name", "display_name", "dept", "kind", "title", "status", "progress", "link", "note", "source", "trace_id", "ext_key")
 
 
 def add_work_item(item: dict) -> int:
@@ -521,6 +524,18 @@ def add_work_item(item: dict) -> int:
         return conn.execute(
             f"INSERT INTO work_items ({', '.join(WORK_KEYS)}) VALUES ({', '.join(f'%({k})s' for k in WORK_KEYS)}) RETURNING id", row
         ).fetchone()["id"]
+
+
+def upsert_work_item(item: dict) -> int:
+    """按 (org, user_name, source, ext_key) 幂等写入：已有就更新内容，没有就新建。"""
+    row = {k: item.get(k, "" if k != "progress" else 0) for k in WORK_KEYS}
+    cols = ("kind", "title", "status", "progress", "link", "note", "trace_id")
+    with connect() as conn:
+        return conn.execute(
+            f"INSERT INTO work_items ({', '.join(WORK_KEYS)}) VALUES ({', '.join(f'%({k})s' for k in WORK_KEYS)}) "
+            "ON CONFLICT (org, user_name, source, ext_key) WHERE ext_key <> '' DO UPDATE SET "
+            + ", ".join(f"{c} = EXCLUDED.{c}" for c in cols) + ", display_name = EXCLUDED.display_name, dept = EXCLUDED.dept, updated_at = now() "
+            "RETURNING id", row).fetchone()["id"]
 
 
 def update_work_item(item_id: int, org: str, user_name: str, fields: dict) -> bool:

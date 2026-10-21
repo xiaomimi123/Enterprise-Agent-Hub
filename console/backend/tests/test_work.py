@@ -77,3 +77,17 @@ def test_demo_mode_report_endpoint_is_empty_not_an_error():
     from app.main import app
     r = TestClient(app).get("/api/work/report?days=7")
     assert r.status_code == 200 and r.json()["totals"]["items"]["total"] == 0
+
+
+def test_batch_reports_are_idempotent_by_key_and_bad_items_are_rejected(monkeypatch):
+    from app import db, policy
+    seen = []
+    monkeypatch.setattr(db, "upsert_work_item", lambda it: seen.append(it) or 7)
+    monkeypatch.setattr(db, "add_audit", lambda **k: None)
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL)
+    r = work.report_batch(p, "t", "应用:xhs-workbench", [{"key": "note:1", "title": "笔记", "status": "待审核"}, {"title": "没有key"},
+                                                       {"key": "n2", "title": "x", "status": "乱写"}, "不是对象"])
+    assert r["accepted"] == 1 and [x["index"] for x in r["rejected"]] == [1, 2, 3]
+    assert seen[0]["ext_key"] == "note:1" and seen[0]["source"] == "应用:xhs-workbench" and seen[0]["status"] == "待审核"
+    many = work.report_batch(p, "t", "应用:a", [{"key": f"k{i}", "title": "t"} for i in range(60)])
+    assert many["accepted"] == 50 and len(many["rejected"]) == 10

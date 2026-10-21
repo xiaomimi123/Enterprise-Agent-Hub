@@ -870,6 +870,8 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
                 return {"ok": False, "reason": f"应用入口不在应用包内或不存在：{ticket['entry']}"}
             env = {**os.environ, "HUB_MCP_SERVERS_FILE": str(_write_hub_mcp_config()),
                    "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID") or new_trace_id()}
+            env["HUB_WORK_OUTBOX"] = str(outbox_file(app_id))  # 应用把关键产出追加写到这里，接入器转发给中枢（中枢上的「工作看板」）
+            outbox_dir().mkdir(parents=True, exist_ok=True)
             requires = ticket.get("requires") or {}
             pf = preflight(requires) if (requires.get("agent_cli") or requires.get("capabilities")) else None
             if pf:  # 记下 requires 供 app-doctor 复核；能力文件交给应用，缺什么应用自己禁用对应功能
@@ -915,6 +917,115 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
         return {"ok": False, "reason": f"本机操作失败：{e}"}
 
 
+# ---------------- 应用成果自动上报（outbox） ----------------
+
+OUTBOX_DIR: Path | None = None  # 默认 HOME/outbox，测试里可替换
+OUTBOX_ALLOWED = ("key", "title", "kind", "status", "progress", "link", "note")
+OUTBOX_MAX_LINE = 4096
+OUTBOX_BATCH = 50
+OUTBOX_SECONDS = 20
+
+
+def outbox_dir() -> Path:
+    return OUTBOX_DIR or HOME / "outbox"
+
+
+def outbox_file(app_id: str) -> Path:
+    return outbox_dir() / f"{app_id}.jsonl"
+
+
+def _outbox_items(chunk: bytes) -> list[dict]:
+    """把一段完整的行解析成待上报条目：坏行、过长的行、缺 key / 标题的行直接丢掉，字段只保留白名单。"""
+    out = []
+    for line in chunk.splitlines():
+        if not line.strip() or len(line) > OUTBOX_MAX_LINE:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get("key") and d.get("title"):
+            out.append({k: d[k] for k in OUTBOX_ALLOWED if k in d})
+    return out
+
+
+def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) -> int:
+    """把应用写在本机 outbox 里的新成果转发给中枢，返回转发条数。
+    按字节偏移记进度（<app>.offset），只处理完整的行；网络 / 5xx 失败时不推进，下次重试；
+    中枢按 (人, 应用, key) 幂等，所以重复转发（比如两个桥同时在跑）只是更新。"""
+    if app_id:
+        files = [outbox_file(app_id)] if outbox_file(app_id).exists() else []
+    else:
+        files = sorted(outbox_dir().glob("*.jsonl")) if outbox_dir().is_dir() else []
+    post = post or (lambda aid, items: httpx.post(
+        f"{hub}/api/agent/work-report", timeout=15, json={"app_id": aid, "items": items},
+        headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")}))
+    sent = 0
+    for f in files:
+        aid = f.stem
+        if not APP_ID_RE.match(aid):
+            continue
+        off_file = f.with_suffix(".offset")
+        try:
+            offset = int(off_file.read_text().strip() or 0) if off_file.exists() else 0
+            size = f.stat().st_size
+            if size < offset:  # 文件被清空 / 换过：从头来
+                offset = 0
+            if size == offset:
+                continue
+            with f.open("rb") as fh:
+                fh.seek(offset)
+                data = fh.read(1024 * 1024)
+        except (OSError, ValueError):
+            continue
+        end = data.rfind(bytes([10])) + 1  # 只处理到最后一个换行：最后半行可能还没写完
+        if end == 0:
+            continue
+        lines = data[:end].splitlines(keepends=True)
+        pos = offset
+        batch, batch_bytes = [], 0
+        for ln in lines + [None]:
+            if ln is not None:
+                batch.extend(_outbox_items(ln))
+                batch_bytes += len(ln)
+            if ln is None or len(batch) >= OUTBOX_BATCH:
+                if batch:
+                    try:
+                        r = post(aid, batch[:OUTBOX_BATCH])
+                    except Exception as e:  # noqa: BLE001 网络不通：保持偏移，下次再试
+                        print(f"hub-agent: 转发成果失败：{e}", file=sys.stderr, flush=True)
+                        return sent
+                    if r.status_code >= 500 or r.status_code in (401, 429):
+                        print(f"hub-agent: 转发成果失败：HTTP {r.status_code}", file=sys.stderr, flush=True)
+                        return sent
+                    sent += len(batch) if r.status_code == 200 else 0  # 其他 4xx：这批有问题，跳过，不卡住后面的
+                    batch = batch[OUTBOX_BATCH:]
+                pos += batch_bytes
+                batch_bytes = 0
+                try:
+                    write_private(off_file, str(pos))
+                except OSError:
+                    return sent
+    return sent
+
+
+def cmd_flush_outbox(args) -> None:
+    """flush-outbox [应用 id]：立刻转发应用写在本机的成果（桥运行时会每 20 秒自动转发）。"""
+    creds = fresh_creds()
+    n = flush_outbox(creds, creds["hub"], getattr(args, "app_id", None))
+    info(f"已向中枢转发 {n} 条工作成果。")
+
+
+def _outbox_loop() -> None:
+    while True:
+        time.sleep(OUTBOX_SECONDS)
+        try:
+            creds = fresh_creds()
+            flush_outbox(creds, creds["hub"])
+        except (Exception, SystemExit) as e:  # noqa: BLE001 转发失败不影响桥
+            print(f"hub-agent mcp: 转发成果失败：{e}", file=sys.stderr, flush=True)
+
+
 def report_app_event(creds: dict, hub: str, ticket: dict, result: dict) -> None:
     """把启动结果回报给中枢写审计；失败只写 stderr，不影响使用。"""
     try:
@@ -940,6 +1051,7 @@ def cmd_open_app(args) -> None:
     if not result["ok"]:
         fail(result["reason"])
     info(result["message"])
+    info("提示：工作台产生的成果会由 `hub_agent.py flush-outbox` 转发到中枢；桥（MCP）运行时会自动转发。")
 
 
 # ---------------- 本地 MCP 桥 ----------------
@@ -1041,6 +1153,7 @@ def cmd_mcp(args=None) -> None:
         except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
             print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
         threading.Thread(target=_heartbeat_loop, args=(client,), daemon=True).start()
+        threading.Thread(target=_outbox_loop, daemon=True).start()
     creds = fresh_creds()
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
     headers = bridge_headers()
@@ -1093,12 +1206,14 @@ def main() -> None:
     p = sub.add_parser("app-doctor", help="重新检查应用需要的依赖，并（经询问）安装缺少的部分")
     p.add_argument("app_id", help="应用 id，如 xhs-workbench")
     p.add_argument("--yes", action="store_true", help="已征得员工同意，不再逐项询问")
+    p = sub.add_parser("flush-outbox", help="把应用写在本机的工作成果转发到中枢（桥运行时会自动转发）")
+    p.add_argument("app_id", nargs="?", default=None, help="只转发这个应用；省略则转发全部")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
     {"login": cmd_login, "setup": cmd_setup, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
-     "mcp": cmd_mcp, "open-app": cmd_open_app, "app-doctor": cmd_app_doctor}[args.cmd](args)
+     "mcp": cmd_mcp, "open-app": cmd_open_app, "app-doctor": cmd_app_doctor, "flush-outbox": cmd_flush_outbox}[args.cmd](args)
 
 
 if __name__ == "__main__":

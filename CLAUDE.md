@@ -81,6 +81,10 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
 4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.7.4）。
 
+## 开发与架构文档
+
+`docs/三年级六班集团-企业智能体中枢-开发与架构文档.docx / .pdf` 由 `docs/架构文档/*.md` 生成（`cd tools/docs && npm install && node build.mjs`，说明见 [tools/docs/README.md](tools/docs/README.md)）。**不要直接改 docx / pdf，改 Markdown 源文件再生成**；代码片段用 `{{code 路径::函数名}}` 从源码取。系统有重大变化后重新生成一次。
+
 ## 相关的外部项目
 
 - H3 生成网关：`D:\minimax h3\genapi`（FastAPI，端口 8100，经 frp 映射到云端），中枢在「模型」页配置地址和 Key。

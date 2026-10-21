@@ -27,6 +27,8 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 | `generate_video_from_image(image_url, prompt, seconds?)` | 图生视频，参考图只收中枢签发的链接 | 同上 |
 | `list_apps` | 当前岗位包能在本机打开的应用 | 官方 agent，岗位包 `apps` 列表 |
 | `open_app(app_id)` | 返回带签名下载链接和 SHA-256 的启动凭证；本机接入器的 MCP 桥拦截后下载、校验、启动并回报网址，见 [app-launcher](superpowers/specs/2026-10-19-app-launcher-design.md) | 官方 agent，岗位包 `apps` 含该应用 |
+| `propose_improvement(kind, target, summary, …)` | 对技能 / 知识库文档提改进建议（只是建议，人审核后才生效） | 能读到该技能 / 知识库的员工；外部入口不可用；每天最多 10 条 |
+| `my_proposals(days)` | 查看自己的建议和处理结果 | 只看自己 |
 | `report_work(title, kind, status, progress, link, note, item_id)` | 上报工作成果 / 进度 | 所有人；只能改自己的条目 |
 | `my_work(days)` | 查看自己上报的成果 | 只看自己 |
 | `team_report(days, person)` | 团队成果与进度汇总（日报素材） | 老板 / 管理员看全公司，部门主管只看自己部门，其他人和外部入口不可用 |

@@ -21,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import accounts, app_access, content, db, generation, gpu, kbmeta, policy, roles, skillstore, work
+from . import accounts, app_access, content, db, generation, gpu, kbmeta, policy, proposals, roles, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -36,6 +36,7 @@ INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公�
 - generate_cover / generate_image / generate_video / generate_video_from_image：派发到公司 GPU 节点生成封面图、图片、带声音的短视频、图生视频（排队执行）
 - get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
 - report_work：做完一项有交付物的工作（笔记草稿、对标报告、选题、封面、视频等）、或工作状态变化（待审核、受阻）时上报，老板和主管在看板上看的就是这些；my_work 查看自己已上报的
+- propose_improvement：发现公司技能或知识库文档有错、过时、缺步骤，或用户反复手动纠正同一处时，提交修改建议（只是建议，由主管审核后才生效）；my_proposals 查看自己建议的处理结果。不要每次任务都提，只在确有把握时提
 - team_report：（老板 / 部门主管）查看各岗位、各成员的工作成果与进度，可用来写日报；主管只看自己的部门
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
@@ -266,6 +267,46 @@ def my_work(ctx: Context, days: int = 7) -> str:
     items = db.work_items_since(p.org, work.period_start(days), p.user_name)
     return json.dumps([{"item_id": i["id"], "kind": i["kind"], "title": i["title"], "status": i["status"], "progress": i["progress"],
                         "link": i["link"], "updated_at": i["updated_at"].isoformat()} for i in items], ensure_ascii=False)
+
+
+@mcp.tool(description="对公司的技能或知识库文档提出修改建议。只在你确有把握时提：技能的步骤缺失 / 过时 / 有错，知识库内容不准确，或用户反复手动纠正同一处。"
+                      "这只是建议：由负责的主管（全公司内容由老板或管理员）审核后才会生效，你不能直接修改。"
+                      "kind：skill（改技能，target 填技能 id）、doc（改知识库里已有的文档，target 填文档名，knowledge_base 填知识库名称）、new_doc（新增文档，必须带 proposed_content）。"
+                      "summary 一句话说想改什么；rationale 说明为什么（遇到了什么问题）；proposed_content 最好带上修改后的完整内容（技能要含开头的 name / description 部分），审核人才能直接看到差异；"
+                      "evidence 可补一句依据。不要在建议里放密码、密钥、个人隐私。每人每天最多 10 条，同一项同时只能有一条待处理的建议")
+def propose_improvement(kind: str, target: str, summary: str, ctx: Context, rationale: str = "", proposed_content: str | None = None,
+                        knowledge_base: str | None = None, evidence: str = "") -> str:
+    p = _principal()
+    trace_id, _ = _trace(ctx)
+    kb_id = ""
+    if p.is_external:
+        _audit(ctx, p, "拦截", "proposal.create", "外部智能体不能提交改进建议", "拒绝")
+        return "无权提交改进建议。"
+    if kind == "skill":
+        if target not in p.pack["skills"] or not policy.can_use_tool(p, "skill.read"):
+            _audit(ctx, p, "拦截", "proposal.create", f"技能「{target}」不在岗位包「{p.pack['name']}」内", "拒绝")
+            return f"无权对技能 {target} 提建议（它不在你的岗位包里）。"
+    elif kind in ("doc", "new_doc"):
+        allowed = policy.allowed_kbs(p)
+        kb_id = content.KB_BY_NAME.get(knowledge_base or "") or (knowledge_base if knowledge_base in content.KB_REGISTRY else "")
+        if not kb_id or kb_id not in allowed:
+            _audit(ctx, p, "拦截", "proposal.create", f"知识库「{knowledge_base}」不在可访问范围内", "拒绝")
+            return f"请用 knowledge_base 指定你有权访问的知识库名称。可选：{'、'.join(content.KB_REGISTRY[k]['name'] for k in allowed) or '（无）'}"
+    try:
+        r = proposals.create(p, trace_id, kind, target, summary, rationale, evidence, kb_id, proposed_content)
+    except proposals.ProposalError as e:
+        return str(e)
+    return json.dumps({**r, "message": f"建议已提交（编号 {r['proposal_id']}），等待{r['reviewer']}审核。审核结果可用 my_proposals 查看。"}, ensure_ascii=False)
+
+
+@mcp.tool(description="查看你提交过的改进建议和处理结果（已采纳 / 已驳回及原因 / 待处理）")
+def my_proposals(ctx: Context, days: int = 30) -> str:
+    p = _principal()
+    rows = proposals.mine(p.user_name, max(1, min(days, 90)))
+    names = {"open": "待处理", "accepted": "已采纳", "rejected": "已驳回"}
+    return json.dumps([{"proposal_id": r["id"], "kind": r["kind"], "target": r["target"], "knowledge_base": content.KB_REGISTRY.get(r["kb_id"], {}).get("name", ""),
+                        "summary": r["summary"], "status": names.get(r["status"], r["status"]), "review_note": r["review_note"],
+                        "created_at": r["created_at"].isoformat()} for r in rows], ensure_ascii=False)
 
 
 @mcp.tool(description="（老板 / 部门主管）查看团队的工作成果与进度：按岗位、按成员汇总已上报的成果（已完成 / 待审核 / 进行中 / 受阻）和活动（出图出视频数、调用数、期间无活动的人）。"

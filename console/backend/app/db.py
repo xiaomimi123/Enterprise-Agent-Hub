@@ -217,6 +217,32 @@ CREATE TABLE IF NOT EXISTS kbs (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 改进建议：员工的 agent 对技能 / 知识库文档提出的修改建议，由负责的主管（全公司内容由老板 / 管理员）审核后才会生效
+CREATE TABLE IF NOT EXISTS proposals (
+    id               BIGSERIAL PRIMARY KEY,
+    kind             TEXT NOT NULL,                -- skill | doc | new_doc
+    kb_id            TEXT NOT NULL DEFAULT '',     -- 知识库 id（kind 为 doc / new_doc 时）
+    target           TEXT NOT NULL,                -- 技能 id 或文档名
+    dept_id          TEXT NOT NULL,                -- 目标所属部门（all = 全公司），决定谁来审核
+    proposer         TEXT NOT NULL,
+    proposer_name    TEXT NOT NULL DEFAULT '',
+    proposer_dept    TEXT NOT NULL DEFAULT '',
+    summary          TEXT NOT NULL,
+    rationale        TEXT NOT NULL DEFAULT '',
+    evidence         TEXT NOT NULL DEFAULT '',
+    trace_id         TEXT NOT NULL DEFAULT '',
+    proposed_content TEXT,
+    base_version     INTEGER NOT NULL DEFAULT 0,   -- 提出建议时目标的版本
+    status           TEXT NOT NULL DEFAULT 'open', -- open | accepted | rejected
+    result_version   INTEGER,
+    reviewer         TEXT NOT NULL DEFAULT '',
+    review_note      TEXT NOT NULL DEFAULT '',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_at      TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS proposals_one_open ON proposals (proposer, kind, kb_id, target) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS proposals_status ON proposals (status, created_at DESC);
+
 -- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
 CREATE TABLE IF NOT EXISTS work_items (
     id           BIGSERIAL PRIMARY KEY,

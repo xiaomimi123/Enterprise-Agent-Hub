@@ -222,6 +222,15 @@ def kb_overdue(depts: list[str] | None, now: datetime | None = None) -> list[dic
     return sorted(out, key=lambda k: -k["overdue_days"])
 
 
+def _open_proposals(depts: list[str] | None) -> int:
+    from . import proposals, roles
+    scope = {"role": roles.ADMIN, "depts": None} if depts is None else {"role": roles.MANAGER, "depts": depts}
+    try:
+        return len(proposals.list_for(scope, "open"))
+    except Exception:  # noqa: BLE001 没有这张表（旧库）时不影响日报
+        return 0
+
+
 def load_report(org: str, days: int, members: list[dict] | None = None, person: str | None = None, depts: list[str] | None = None) -> dict:
     """从库里取数据并汇总。"""
     days = max(1, min(int(days), 30))
@@ -230,6 +239,9 @@ def load_report(org: str, days: int, members: list[dict] | None = None, person: 
                      tasks=db.gpu_tasks_since(org, days + 1), assignments=db.assignments(org),
                      packs={p["id"]: p for p in db.role_packs()}, members=members, person=person, depts=depts, dept_defaults=db.dept_defaults(org))
     r["kb_overdue"] = kb_overdue(depts)
+    r["proposals_open"] = _open_proposals(depts)
+    if r["proposals_open"]:
+        r["digest"] += f"\n- 待处理的改进建议：{r['proposals_open']} 条（控制台「改进建议」页）"
     if r["kb_overdue"]:
         r["digest"] += "\n- 知识库逾期未复核：" + "、".join(f"{k['name']}（{k['overdue_days']} 天）" for k in r["kb_overdue"][:8])
     return r

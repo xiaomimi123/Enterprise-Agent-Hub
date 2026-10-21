@@ -18,6 +18,8 @@
 | &nbsp;&nbsp;`policy.py` | 岗位包权限；`db.py` 数据库（审计、岗位包、GPU 任务队列）；`providers/casdoor.py` 成员与组织 |
 | &nbsp;&nbsp;`members_admin.py` / `accounts.py` | 成员管理 / 账号状态检查（停用即失效） |
 | &nbsp;&nbsp;`roles.py` / `depts_api.py` | 控制台角色（管理员 / 老板 / 部门主管，默认拒绝的接口白名单在 `auth.py`）/ 部门与角色管理，见 [docs/console-roles.md](docs/console-roles.md) |
+| &nbsp;&nbsp;`proposals.py` / `proposals_api.py` | agent 提交的改进建议与审核（采纳走 skillstore / kbstore），见 [docs/proposals.md](docs/proposals.md) |
+| &nbsp;&nbsp;`kbmeta.py` | 知识库元数据（类型、负责人、复核周期），`content.KB_REGISTRY` 原地刷新 |
 | &nbsp;&nbsp;`kbstore.py` / `kb_api.py` | 知识库文档（数据库里带版本，同步到 RAGFlow），见 [docs/knowledge.md](docs/knowledge.md) |
 | &nbsp;&nbsp;`skillstore.py` / `skills_api.py` | 技能库（数据库里带版本，主管本部门直接生效、全公司审核），见 [docs/skills.md](docs/skills.md) |
 | &nbsp;&nbsp;`work.py` | 工作成果上报与汇总（看板、`team_report`），见 [docs/work-report.md](docs/work-report.md) |
@@ -29,6 +31,10 @@
 | `hub/` | `docker-compose.yml`、`Makefile`、`.env` 生成、Casdoor 静态资源 `casdoor-static/` |
 | `apps/` | 应用发布目录（zip 和 `app.json` 被 `.gitignore`，只在部署机上） |
 | `gpu-node/workflows/` | ComfyUI 工作流模板；`skills/`、`vault/` 岗位技能与知识库 |
+
+## 测试要走真实路径
+
+只调内部函数会漏掉接口层的问题（曾经因此漏掉过被覆盖的方法）。验证功能时要**走真实登录 + 真实接口 / MCP**：参考 `console/backend/scripts/e2e_proposals.py`（里面有控制台和 agent 两种登录的写法）；测试账号和数据用完要删，只还原自己改过的版本，不要动用户真实的编辑。
 
 ## 常用命令
 

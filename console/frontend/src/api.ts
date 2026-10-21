@@ -206,6 +206,15 @@ export interface KnowledgeBase {
   due_in_days: number | null // 距下次复核还有几天；负数 = 已逾期几天；null = 不需要复核
   description: string
 }
+export interface Proposal {
+  id: number; kind: 'skill' | 'doc' | 'new_doc'; kb_id: string; kb_name: string; target: string; target_name: string
+  dept: string; dept_name: string; proposer: string; proposer_name: string; summary: string
+  status: 'open' | 'accepted' | 'rejected'; has_content: boolean; created_at: string; stale: boolean; review_note: string; reviewer: string
+}
+export interface ProposalDetail extends Proposal {
+  rationale: string; evidence: string; trace_id: string; proposed_content: string; current_content: string
+  current_version: number; base_version: number; result_version: number | null
+}
 export interface KbFields {
   name?: string; dept?: string; classification?: string; external_access?: boolean
   category?: string; owner?: string; review_every_days?: number; description?: string
@@ -464,6 +473,11 @@ export const api = {
   skills: () => request<Skill[]>('/skills'),
   skill: (id: string) => request<Skill>(`/skills/${id}`),
   knowledgeBases: () => request<KnowledgeBase[]>('/knowledge-bases'),
+  proposals: (status: 'open' | 'closed' = 'open') => request<Proposal[]>(`/proposals?status=${status}`),
+  proposal: (id: number) => request<ProposalDetail>(`/proposals/${id}`),
+  acceptProposal: (id: number, body: { content?: string; note?: string; confirm_stale?: boolean }) =>
+    request<{ version: number; published: boolean; synced: boolean | null }>(`/proposals/${id}/accept`, { method: 'POST', body: JSON.stringify(body) }),
+  rejectProposal: (id: number, note: string) => request<{ status: string }>(`/proposals/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
   createKb: (body: KbFields & { name: string; dept: string; classification: string }) =>
     request<KnowledgeBase>('/knowledge-bases', { method: 'POST', body: JSON.stringify(body) }),
   patchKb: (id: string, body: KbFields) => request<KnowledgeBase>(`/knowledge-bases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

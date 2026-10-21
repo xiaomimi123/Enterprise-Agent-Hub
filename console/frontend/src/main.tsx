@@ -18,6 +18,7 @@ import Tasks from './pages/Tasks'
 import UsagePage from './pages/Usage'
 import WorkPage from './pages/Work'
 import OrgPage from './pages/Org'
+import ProposalsPage from './pages/Proposals'
 import { ThemeProvider } from './theme'
 
 createRoot(document.getElementById('root')!).render(
@@ -39,6 +40,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="audit" element={<Audit />} />
               <Route path="tasks" element={<Tasks />} />
               <Route path="org" element={<OrgPage />} />
+              <Route path="proposals" element={<ProposalsPage />} />
               <Route path="work" element={<WorkPage />} />
               <Route path="usage" element={<UsagePage />} />
             </Route>

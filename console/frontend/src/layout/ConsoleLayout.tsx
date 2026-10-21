@@ -1,5 +1,5 @@
 import {
-  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, Network, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, Lightbulb, Network, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
 } from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
@@ -29,6 +29,7 @@ const NAV = [
     group: '能力', items: [
       { path: '/skills', icon: <NotebookPen />, label: '技能库', roles: ALL },
       { path: '/knowledge', icon: <Library />, label: '知识库', roles: ALL },
+      { path: '/proposals', icon: <Lightbulb />, label: '改进建议', roles: ALL },
       { path: '/models', icon: <Cpu />, label: '模型', roles: ['admin'] as Role[] },
       { path: '/apps', icon: <AppWindow />, label: '应用', roles: ADMIN_BOSS },
       { path: '/connect', icon: <Plug />, label: '接入方式', roles: ['admin'] as Role[] },
@@ -55,6 +56,7 @@ const TITLES: Record<string, [string, string]> = {
   '/connect': ['能力', '接入方式'],
   '/work': ['监管', '工作看板'],
   '/org': ['组织与权限', '部门与角色'],
+  '/proposals': ['能力', '改进建议'],
   '/audit': ['监管', '审计日志'],
   '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],

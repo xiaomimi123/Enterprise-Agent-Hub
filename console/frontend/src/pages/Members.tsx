@@ -9,7 +9,9 @@ import { ImportModal, MemberDrawer, PasswordNotice } from './MemberAdmin'
 
 export default function Members() {
   const { message } = App.useApp()
-  const live = useSession().mode !== 'demo'
+  const session = useSession()
+  const live = session.mode !== 'demo'
+  const isAdmin = session.user.role === 'admin' // 老板 / 部门主管只能看
   const [dept, setDept] = useState<string>()
   const [q, setQ] = useState<string>()
   const [status, setStatus] = useState('全部')
@@ -60,8 +62,8 @@ export default function Members() {
         extra={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className="chip"><RefreshCw />{live ? '数据来自 Casdoor · 30 秒缓存' : '演示数据'}</span>
-            {live && <Button icon={<UploadIcon size={14} />} onClick={() => setImporting(true)}>批量导入</Button>}
-            {live && <Button type="primary" icon={<UserPlus size={14} />} onClick={() => setEditing('new')}>新建成员</Button>}
+            {live && isAdmin && <Button icon={<UploadIcon size={14} />} onClick={() => setImporting(true)}>批量导入</Button>}
+            {live && isAdmin && <Button type="primary" icon={<UserPlus size={14} />} onClick={() => setEditing('new')}>新建成员</Button>}
           </div>
         }
       />
@@ -125,7 +127,7 @@ export default function Members() {
               },
               {
                 title: '岗位包', dataIndex: 'role_pack', width: 190, render: (v, m) => (
-                  <Select size="small" value={v} variant="filled" style={{ width: 168 }} popupMatchSelectWidth={false}
+                  <Select size="small" value={v} variant="filled" disabled={!isAdmin} style={{ width: 168 }} popupMatchSelectWidth={false}
                     options={packs.data?.map((p) => ({ value: p.id, label: p.name }))}
                     onChange={(val) => assign(m, val)} />
                 ),
@@ -139,7 +141,7 @@ export default function Members() {
                 ),
               },
               { title: '最近活跃', dataIndex: 'last_active', align: 'right', render: (v) => <span className="muted">{fromNow(v)}</span> },
-              ...(live ? [{
+              ...(live && isAdmin ? [{
                 title: '', width: 230, render: (_: unknown, m: Member) => (
                   <span style={{ display: 'inline-flex', gap: 2, whiteSpace: 'nowrap' }}>
                     <Button size="small" type="text" onClick={() => setEditing(m)}>编辑</Button>

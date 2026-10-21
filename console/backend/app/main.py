@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, db, gpu, members_api, models_api, public_api, work
+from . import agent_api, apps, auth, db, depts_api, gpu, members_api, models_api, public_api, roles, work
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -41,7 +41,7 @@ app.include_router(auth.router)
 app.include_router(agent_api.router)
 app.include_router(public_api.router)
 # 除健康检查和登录接口外，所有接口都要求管理员登录
-api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.console_user)])
 
 
 @app.exception_handler(NotFound)
@@ -106,14 +106,20 @@ def overview():
     return provider.overview()
 
 
+def _visible(user: dict, dept: str) -> bool:
+    return roles.can_see_dept(user, dept)
+
+
 @api.get("/departments")
-def departments():
-    return provider.departments()
+def departments(user: dict = Depends(auth.console_user)):
+    return [d for d in provider.departments() if _visible(user, d["id"])]
 
 
 @api.get("/members")
-def members(dept: str | None = None, q: str | None = None):
-    return provider.members(dept=dept, q=q)
+def members(dept: str | None = None, q: str | None = None, user: dict = Depends(auth.console_user)):
+    if dept and not _visible(user, dept):
+        raise HTTPException(403, "你只能查看自己负责的部门")
+    return [m for m in provider.members(dept=dept, q=q) if _visible(user, m["dept"])]
 
 
 @api.put("/members/{member_id}/role-pack")
@@ -157,23 +163,34 @@ def catalog():
     return data
 
 
+def _shared_or_visible(user: dict, dept: str) -> bool:
+    """技能、知识库：全公司的人人可读，部门的只有该部门主管（和老板、管理员）能读。"""
+    return dept in ("all", "") or _visible(user, dept)
+
+
 @api.get("/skills")
-def skills():
-    return provider.skills()
+def skills(user: dict = Depends(auth.console_user)):
+    return [s for s in provider.skills() if _shared_or_visible(user, s["dept"])]
 
 
 @api.get("/skills/{skill_id}")
-def skill(skill_id: str):
-    return provider.skill(skill_id)
+def skill(skill_id: str, user: dict = Depends(auth.console_user)):
+    data = provider.skill(skill_id)
+    if not _shared_or_visible(user, data["dept"]):
+        raise HTTPException(403, "你只能查看自己部门和全公司的技能")
+    return data
 
 
 @api.get("/knowledge-bases")
-def knowledge_bases():
-    return provider.knowledge_bases()
+def knowledge_bases(user: dict = Depends(auth.console_user)):
+    return [k for k in provider.knowledge_bases() if _shared_or_visible(user, k["dept"])]
 
 
 @api.get("/knowledge-bases/{kb_id}/documents")
-def kb_documents(kb_id: str):
+def kb_documents(kb_id: str, user: dict = Depends(auth.console_user)):
+    kb = next((k for k in provider.knowledge_bases() if k["id"] == kb_id), None)
+    if kb is not None and not _shared_or_visible(user, kb["dept"]):
+        raise HTTPException(403, "你只能查看自己部门和全公司的知识库")
     return provider.kb_documents(kb_id)
 
 
@@ -218,12 +235,12 @@ def list_published_apps():
 
 
 @api.get("/work/report")
-def work_report(days: int = 7, person: str | None = None):
+def work_report(days: int = 7, person: str | None = None, user: dict = Depends(auth.console_user)):
     """控制台「工作看板」：按岗位、按个人汇总已上报的成果和自动统计的活动。演示模式没有数据库，返回空看板。"""
     if not settings.database_url:
         return work.build_report(days=days, events=[], items=[], tasks=[], assignments={}, packs={})
     members = [{"user_name": m.get("id"), "name": m.get("name", ""), "dept": m.get("dept", "")} for m in provider.members()]
-    return work.load_report(settings.casdoor_org, days, members=members, person=person)
+    return work.load_report(settings.casdoor_org, days, members=members, person=person, depts=user["depts"])
 
 
 @api.get("/connect")
@@ -240,4 +257,5 @@ def usage(days: int = 30):
 
 api.include_router(models_api.router)
 api.include_router(members_api.router)
+api.include_router(depts_api.router)
 app.include_router(api)

@@ -10,7 +10,7 @@
 | 用量与成本 | New API 的调用日志（每个员工一个 key，按 key 名归属到人和部门）；未配置 New API 时为演示数据 |
 | GPU 节点 | 中枢数据库 gpu_nodes / gpu_tasks（由 GPU 调度服务维护）；未配置节点时为演示数据 |
 
-成员没有分配记录时，按部门的默认岗位包（policy.DEFAULT_ROLE_PACKS），都没有时用「通用办公」。
+成员没有分配记录时，按部门的默认岗位包（控制台「部门与角色」配置，其次 policy.DEFAULT_ROLE_PACKS），都没有时用「通用办公」。
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import httpx
 from .. import content, db, metering, presence
 from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
-from ..policy import DEFAULT_ROLE_PACKS, FALLBACK_ROLE_PACK
+from ..policy import default_pack_id
 from .demo import DemoProvider, NotFound
 
 UNASSIGNED = "unassigned"
@@ -80,6 +80,7 @@ class CasdoorProvider(DemoProvider):
         packs = db.role_packs()
         pack_ids = {p["id"] for p in packs}
         assigned = db.assignments(self.org)
+        defaults = db.dept_defaults(self.org)
 
         members = []
         seen, now = db.presence_rows(self.org), datetime.now().astimezone()
@@ -92,7 +93,7 @@ class CasdoorProvider(DemoProvider):
                 "dept": group,
                 "dept_name": dept_names[group],
                 "title": u.get("title") or "",
-                "role_pack": pack if pack in pack_ids else DEFAULT_ROLE_PACKS.get(group, FALLBACK_ROLE_PACK),
+                "role_pack": pack if pack in pack_ids else default_pack_id(group, defaults),
                 **presence.member_agent(seen.get(u["name"]), now),
                 "dingtalk_bound": bool(u.get("dingtalk")),
                 "enabled": not u.get("isForbidden"),
@@ -111,7 +112,7 @@ class CasdoorProvider(DemoProvider):
             departments.append({
                 "id": g["name"], "name": dept_names[g["name"]], "member_count": len(dm),
                 "leader": dm[0]["name"] if dm else "", "online": sum(1 for m in dm if m["agent_status"] == "在线"),
-                "role_pack": DEFAULT_ROLE_PACKS.get(g["name"], FALLBACK_ROLE_PACK),
+                "role_pack": default_pack_id(g["name"], defaults),
             })
         departments.sort(key=lambda x: (x["id"] == UNASSIGNED, -x["member_count"], x["name"]))
 

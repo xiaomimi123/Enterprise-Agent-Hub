@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -16,7 +17,7 @@ import jwt
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from . import accounts
+from . import accounts, roles
 from .config import settings
 
 SESSION_COOKIE = "hub_session"
@@ -52,8 +53,8 @@ def user_from_claims(c: dict) -> dict:
     }
 
 
-def current_user(request: Request) -> dict:
-    """依赖项：返回当前登录的管理员。演示模式下返回固定的演示管理员。"""
+def _authenticate(request: Request) -> dict:
+    """校验登录会话（签名、有效期、本企业、账号未停用），返回用户。不判断角色。"""
     if not settings.auth_enabled:
         return DEMO_USER
     token = request.cookies.get(SESSION_COOKIE)
@@ -70,14 +71,47 @@ def current_user(request: Request) -> dict:
         raise HTTPException(403, "不属于本企业组织")
     if not accounts.is_active(user["org"], user["name"]):
         raise HTTPException(401, "账号已被停用")
-    if not user["is_admin"]:
-        raise HTTPException(403, "只有组织管理员可以访问控制台")
     return user
+
+
+def current_user(request: Request) -> dict:
+    """依赖项：只有管理员能过。成员、模型等管理接口显式用它，主管和老板进不去（默认拒绝）。"""
+    user = _authenticate(request)
+    if not user["is_admin"]:
+        raise HTTPException(403, "只有组织管理员可以访问这个功能")
+    return {**user, "role": roles.ADMIN, "depts": None}
+
+
+# 老板 / 主管能访问的接口白名单（只读）；不在名单里的一律拒绝，新增接口默认只有管理员能用
+_MANAGER_READ = (r"departments", r"members", r"role-packs", r"skills(?:/[^/]+)?", r"knowledge-bases(?:/[^/]+/documents)?", r"work/report")
+_BOSS_READ = _MANAGER_READ + (r"overview", r"audit/traces(?:/[^/]+)?", r"usage", r"gpu/tasks", r"apps", r"catalog")
+ROLE_ALLOWED = {roles.MANAGER: re.compile(r"^/api/(?:" + "|".join(_MANAGER_READ) + r")$"),
+                roles.BOSS: re.compile(r"^/api/(?:" + "|".join(_BOSS_READ) + r")$")}
+
+
+def console_user(request: Request) -> dict:
+    """依赖项：管理员 / 老板 / 部门主管都能登录控制台，但老板和主管只能读白名单里的接口，且主管只看自己的部门。"""
+    user = _authenticate(request)
+    scope = roles.resolve(user["org"], user["name"], user["is_admin"]) if settings.auth_enabled else {"role": roles.ADMIN, "depts": None}
+    if scope["role"] is None:
+        raise HTTPException(403, "只有管理员、老板和部门主管可以访问控制台")
+    if scope["role"] != roles.ADMIN and not (request.method == "GET" and ROLE_ALLOWED[scope["role"]].match(request.url.path)):
+        raise HTTPException(403, "你的角色没有这个功能的权限")
+    return {**user, **scope}
+
+
+def console_user_for_me(request: Request) -> dict:
+    """/me 不受白名单限制，只要有控制台角色就返回（带 role / depts，前端据此显示菜单）。"""
+    user = _authenticate(request)
+    scope = roles.resolve(user["org"], user["name"], user["is_admin"]) if settings.auth_enabled else {"role": roles.ADMIN, "depts": None}
+    if scope["role"] is None:
+        raise HTTPException(403, "只有管理员、老板和部门主管可以访问控制台")
+    return {**user, **scope}
 
 
 @router.get("/me")
 def me(request: Request):
-    return {"mode": settings.mode, "user": current_user(request)}
+    return {"mode": settings.mode, "user": console_user_for_me(request)}
 
 
 @router.get("/login")

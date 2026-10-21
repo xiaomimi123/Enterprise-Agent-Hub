@@ -1,38 +1,45 @@
 import {
-  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, Network, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
 } from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useSession } from '../auth'
 import { useRequest } from '../lib'
 import { useTheme } from '../theme'
 import { Avatar } from '../ui'
 
+type Role = 'admin' | 'boss' | 'manager'
+const ROLE_LABEL: Record<Role, string> = { admin: '系统管理员', boss: '老板', manager: '部门主管' }
+const ALL: Role[] = ['admin', 'boss', 'manager']
+const ADMIN_BOSS: Role[] = ['admin', 'boss']
+
+// roles：哪些角色能看到这一项。服务端对老板 / 主管做了白名单限制，这里只是不显示进不去的菜单
 const NAV = [
-  { group: '工作台', items: [{ path: '/', icon: <LayoutDashboard />, label: '总览' }] },
+  { group: '工作台', items: [{ path: '/', icon: <LayoutDashboard />, label: '总览', roles: ADMIN_BOSS }] },
   {
     group: '组织与权限', items: [
-      { path: '/members', icon: <Users />, label: '成员与组织' },
-      { path: '/role-packs', icon: <Backpack />, label: '岗位包' },
+      { path: '/members', icon: <Users />, label: '成员与组织', roles: ALL },
+      { path: '/org', icon: <Network />, label: '部门与角色', roles: ['admin'] as Role[] },
+      { path: '/role-packs', icon: <Backpack />, label: '岗位包', roles: ['admin'] as Role[] },
     ],
   },
   {
     group: '能力', items: [
-      { path: '/skills', icon: <NotebookPen />, label: '技能库' },
-      { path: '/knowledge', icon: <Library />, label: '知识库' },
-      { path: '/models', icon: <Cpu />, label: '模型' },
-      { path: '/apps', icon: <AppWindow />, label: '应用' },
-      { path: '/connect', icon: <Plug />, label: '接入方式' },
+      { path: '/skills', icon: <NotebookPen />, label: '技能库', roles: ALL },
+      { path: '/knowledge', icon: <Library />, label: '知识库', roles: ALL },
+      { path: '/models', icon: <Cpu />, label: '模型', roles: ['admin'] as Role[] },
+      { path: '/apps', icon: <AppWindow />, label: '应用', roles: ADMIN_BOSS },
+      { path: '/connect', icon: <Plug />, label: '接入方式', roles: ['admin'] as Role[] },
     ],
   },
   {
     group: '监管', items: [
-      { path: '/work', icon: <ClipboardList />, label: '工作看板' },
-      { path: '/audit', icon: <ClipboardCheck />, label: '审计日志', badge: true },
-      { path: '/tasks', icon: <Palette />, label: '生成任务' },
-      { path: '/usage', icon: <ChartPie />, label: '用量与成本' },
+      { path: '/work', icon: <ClipboardList />, label: '工作看板', roles: ALL },
+      { path: '/audit', icon: <ClipboardCheck />, label: '审计日志', badge: true, roles: ADMIN_BOSS },
+      { path: '/tasks', icon: <Palette />, label: '生成任务', roles: ADMIN_BOSS },
+      { path: '/usage', icon: <ChartPie />, label: '用量与成本', roles: ADMIN_BOSS },
     ],
   },
 ]
@@ -47,6 +54,7 @@ const TITLES: Record<string, [string, string]> = {
   '/apps': ['能力', '应用'],
   '/connect': ['能力', '接入方式'],
   '/work': ['监管', '工作看板'],
+  '/org': ['组织与权限', '部门与角色'],
   '/audit': ['监管', '审计日志'],
   '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],
@@ -58,8 +66,9 @@ export default function ConsoleLayout() {
   const selected = '/' + (pathname.split('/')[1] ?? '')
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const ov = useRequest(api.overview)
   const session = useSession()
+  const role = session.user.role
+  const ov = useRequest(() => (role === 'manager' ? Promise.resolve(undefined) : api.overview()), [role])
   const live = session.mode !== 'demo'
   const theme = useTheme()
 
@@ -75,6 +84,9 @@ export default function ConsoleLayout() {
   const services = ov.data?.services ?? []
   const healthy = services.filter((s) => s.status === '正常').length
   const [group, title] = TITLES[selected] ?? ['', '']
+  const paths = NAV.flatMap((g) => g.items).filter((it) => it.roles.includes(role)).map((it) => it.path)
+  const allowed = paths.includes(selected)
+  const home = paths[0] ?? '/work'
   const go = (path: string) => {
     setMenuOpen(false)
     nav(path)
@@ -90,7 +102,7 @@ export default function ConsoleLayout() {
         </div>
       </div>
 
-      {NAV.map((g) => (
+      {NAV.map((g) => ({ ...g, items: g.items.filter((it) => it.roles.includes(role)) })).filter((g) => g.items.length).map((g) => (
         <div className="nav-group" key={g.group}>
           <div className="nav-label">{g.group}</div>
           {g.items.map((it) => (
@@ -108,7 +120,7 @@ export default function ConsoleLayout() {
       ))}
 
       <div className="side-foot">
-        <div className="health">
+        {role !== 'manager' && <div className="health">
           <div className="health-row" style={{ justifyContent: 'space-between' }}>
             <span className="health-row">
               <span className={`dot ${healthy === services.length ? 'green' : 'amber'} pulse`} />
@@ -119,7 +131,7 @@ export default function ConsoleLayout() {
           <div className="muted" style={{ marginTop: 6, lineHeight: 1.5 }}>
             私有化部署 · v0.1.0
           </div>
-        </div>
+        </div>}
         <Dropdown
           trigger={['click']}
           placement="topLeft"
@@ -133,7 +145,7 @@ export default function ConsoleLayout() {
             <div style={{ lineHeight: 1.3, minWidth: 0 }}>
               <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{session.user.display_name}</div>
               <div className="muted" style={{ fontSize: 11.5, fontWeight: 400 }}>
-                {live ? `${session.user.org} · ${session.user.title || '管理员'}` : '演示账号'}
+                {live ? `${session.user.org} · ${ROLE_LABEL[role]}` : '演示账号'}
               </div>
             </div>
           </div>
@@ -181,7 +193,7 @@ export default function ConsoleLayout() {
           <div className="sidebar in-drawer">{sidebar}</div>
         </Drawer>
         <main className="content">
-          <Outlet />
+          {allowed ? <Outlet /> : <Navigate to={home} replace />}
         </main>
       </div>
     </div>

@@ -21,7 +21,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import accounts, app_access, content, db, generation, gpu, policy, work
+from . import accounts, app_access, content, db, generation, gpu, policy, roles, work
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
@@ -36,7 +36,7 @@ INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公�
 - generate_cover / generate_image / generate_video / generate_video_from_image：派发到公司 GPU 节点生成封面图、图片、带声音的短视频、图生视频（排队执行）
 - get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
 - report_work：做完一项有交付物的工作（笔记草稿、对标报告、选题、封面、视频等）、或工作状态变化（待审核、受阻）时上报，老板和主管在看板上看的就是这些；my_work 查看自己已上报的
-- team_report：（仅管理层）查看各岗位、各成员的工作成果与进度，可用来写日报
+- team_report：（老板 / 部门主管）查看各岗位、各成员的工作成果与进度，可用来写日报；主管只看自己的部门
 权限由中枢按员工岗位包强制执行，被拒绝时请如实告知员工，不要尝试绕过。"""
 
 
@@ -85,6 +85,7 @@ def _principal() -> policy.Principal:
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
                          dept=dept, channel=channel)
     p.pack = policy.resolve_pack(p.org, p.user_name, dept)
+    p.is_admin = bool(c.get("isAdmin"))
     if channel == policy.OFFICIAL:  # 官方 agent 调用工具也算在线（直连的 Hermes 不经过接入器报到）
         try:
             db.touch_presence(p.org, p.user_name)
@@ -266,16 +267,17 @@ def my_work(ctx: Context, days: int = 7) -> str:
                         "link": i["link"], "updated_at": i["updated_at"].isoformat()} for i in items], ensure_ascii=False)
 
 
-@mcp.tool(description="（管理层）查看团队的工作成果与进度：按岗位、按成员汇总已上报的成果（已完成 / 待审核 / 进行中 / 受阻）和活动（出图出视频数、调用数、期间无活动的人）。"
+@mcp.tool(description="（老板 / 部门主管）查看团队的工作成果与进度：按岗位、按成员汇总已上报的成果（已完成 / 待审核 / 进行中 / 受阻）和活动（出图出视频数、调用数、期间无活动的人）。"
                       "days=1 是今天，7 是近一周；person 可只看某个人（用户名或姓名）。返回里的 digest 是事实摘要，可据此写日报，数据以 roles / people / items 为准，不要编造。"
-                      "只有岗位包开放了「查看团队工作汇报」的员工能用")
+                      "老板和管理员看全公司，部门主管只看自己负责的部门，其他员工不能用")
 def team_report(ctx: Context, days: int = 1, person: str | None = None) -> str:
     p = _principal()
     trace_id, _ = _trace(ctx)
-    if p.is_external or not policy.can_use_tool(p, work.REPORT_TOOL):
-        _audit(ctx, p, "拦截", "work.team_report", f"岗位包「{p.pack['name']}」没有查看团队工作汇报的权限", "拒绝")
-        return "无权查看团队工作汇报。"
-    r = work.load_report(p.org, days, person=person)
+    scope = roles.resolve(p.org, p.user_name, p.is_admin)
+    if p.is_external or scope["role"] is None:
+        _audit(ctx, p, "拦截", "work.team_report", "不是老板、部门主管或管理员，不能查看团队工作汇报", "拒绝")
+        return "无权查看团队工作汇报：只有老板、部门主管和管理员可以。"
+    r = work.load_report(p.org, days, person=person, depts=scope["depts"])
     _audit(ctx, p, "工具", "work.team_report", f"查看团队工作汇报（近 {r['days']} 天{'，' + person if person else ''}）", "通过")
     return json.dumps(r, ensure_ascii=False)
 

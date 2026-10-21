@@ -9,6 +9,7 @@
 | [console.md](console.md) | 控制台各页面（成员、岗位包、模型、应用、接入方式、审计、用量……）与数据来源 |
 | [agent.md](agent.md) | 员工端接入器：登录、一键接入、MCP 桥、CodeBuddy / WorkBuddy / Hermes、在线状态、应用启动 |
 | [mcp-server.md](mcp-server.md) | 中枢 MCP Server：工具、权限、审计、知识库、对话模型上游与**模型价格** |
+| [console-roles.md](console-roles.md) | **控制台角色与部门**：管理员 / 老板 / 部门主管的权限、默认拒绝、部门配置、分期 |
 | [work-report.md](work-report.md) | **工作成果与进度**：员工上报、控制台看板、老板 agent 日报、口径和限制 |
 | [app-integration-guide.md](app-integration-guide.md) | **接入新应用指南**：把开源工作台 / 智能体改造成中枢应用的模式、判断标准、契约、改造清单、已知限制 |
 | [gpu.md](gpu.md) | 出图出视频：本机 GPU、第三方出图 API、H3 网关三条线，调度容错，通道切换 |

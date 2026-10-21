@@ -29,7 +29,7 @@ uv run uvicorn app.mcp_server:app --reload --port 8200
 | `open_app(app_id)` | 返回带签名下载链接和 SHA-256 的启动凭证；本机接入器的 MCP 桥拦截后下载、校验、启动并回报网址，见 [app-launcher](superpowers/specs/2026-10-19-app-launcher-design.md) | 官方 agent，岗位包 `apps` 含该应用 |
 | `report_work(title, kind, status, progress, link, note, item_id)` | 上报工作成果 / 进度 | 所有人；只能改自己的条目 |
 | `my_work(days)` | 查看自己上报的成果 | 只看自己 |
-| `team_report(days, person)` | 团队成果与进度汇总（日报素材） | 岗位包开放 `report.view`，外部入口不可用 |
+| `team_report(days, person)` | 团队成果与进度汇总（日报素材） | 老板 / 管理员看全公司，部门主管只看自己部门，其他人和外部入口不可用 |
 | `get_task(task_id)`（旧名 `get_cover_task`） | 查询生成任务进度和结果链接 | 只能查自己的任务 |
 
 生成类工具每人最多同时 3 个未完成任务（`HUB_GPU_MAX_PENDING_PER_USER`）。

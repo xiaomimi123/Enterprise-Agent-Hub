@@ -226,6 +226,15 @@ export interface WorkReport {
   roles: WorkRole[]; people: WorkPerson[]; items: WorkItem[]; inactive: string[]; blocked: WorkItem[]
 }
 
+export interface OrgDept {
+  id: string; name: string; member_count: number; managers: string[]
+  default_pack: string | null; effective_pack: string; effective_pack_name: string
+}
+export interface OrgOverview {
+  departments: OrgDept[]; bosses: string[]
+  members: { id: string; name: string }[]; role_packs: { id: string; name: string }[]
+}
+
 export interface HubMemberUsage {
   member_id: string
   member: string
@@ -265,6 +274,8 @@ export interface AuthUser {
   title: string
   avatar?: string
   is_admin: boolean
+  role: 'admin' | 'boss' | 'manager'
+  depts: string[] | null // 部门主管负责的部门；管理员和老板为 null（全部）
 }
 
 export class ApiError extends Error {
@@ -442,6 +453,15 @@ export const api = {
     request<{ ok: boolean; seconds: number; error: string; preview?: string }>(`/models/image/providers/${id}/test`, { method: 'POST' }),
   connect: () => request<ConnectInfo>('/connect'),
   gpuTasks: () => request<GpuTasks>('/gpu/tasks'),
+  org: () => request<OrgOverview>('/org'),
+  createDept: (name: string) => request<{ id: string; name: string }>('/org/departments', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameDept: (id: string, name: string) => request<{ id: string }>(`/org/departments/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteDept: (id: string) => request<{ ok: boolean }>(`/org/departments/${id}`, { method: 'DELETE' }),
+  setDeptManagers: (id: string, users: string[]) =>
+    request<{ managers: string[] }>(`/org/departments/${id}/managers`, { method: 'PUT', body: JSON.stringify({ users }) }),
+  setDeptPack: (id: string, role_pack_id: string | null) =>
+    request<{ default_pack: string | null }>(`/org/departments/${id}/default-pack`, { method: 'PUT', body: JSON.stringify({ role_pack_id }) }),
+  setBosses: (users: string[]) => request<{ bosses: string[] }>('/org/bosses', { method: 'PUT', body: JSON.stringify({ users }) }),
   workReport: (days = 7) => request<WorkReport>(`/work/report?days=${days}`),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),
 }

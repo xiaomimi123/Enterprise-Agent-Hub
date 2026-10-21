@@ -30,10 +30,16 @@ class Principal:
     dept: str
     channel: str
     pack: dict = field(default_factory=dict)
+    is_admin: bool = False  # Casdoor 管理员（令牌里的 isAdmin）；老板 / 主管身份见 roles.resolve
 
     @property
     def is_external(self) -> bool:
         return self.channel != OFFICIAL
+
+
+def default_pack_id(dept: str, configured: dict[str, str] | None = None) -> str:
+    """部门的默认岗位包：控制台「部门与角色」里配置的优先，其次是内置映射，最后是通用岗位包。"""
+    return (configured or {}).get(dept) or DEFAULT_ROLE_PACKS.get(dept) or FALLBACK_ROLE_PACK
 
 
 def dept_from_groups(groups: list[str] | None) -> str:
@@ -44,7 +50,7 @@ def dept_from_groups(groups: list[str] | None) -> str:
 
 def resolve_pack(org: str, user_name: str, dept: str) -> dict:
     packs = {p["id"]: p for p in db.role_packs()}
-    pack_id = db.assignments(org).get(user_name) or DEFAULT_ROLE_PACKS.get(dept) or FALLBACK_ROLE_PACK
+    pack_id = db.assignments(org).get(user_name) or default_pack_id(dept, db.dept_defaults(org))
     return packs.get(pack_id) or packs[FALLBACK_ROLE_PACK]
 
 

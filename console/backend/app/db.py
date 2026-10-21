@@ -131,6 +131,22 @@ CREATE TABLE IF NOT EXISTS agent_presence (
     PRIMARY KEY (org, user_name)
 );
 
+-- 控制台角色：老板（看全公司）、部门主管（只看和管自己部门）。管理员仍是 Casdoor 的 isAdmin
+CREATE TABLE IF NOT EXISTS console_roles (
+    org       TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    role      TEXT NOT NULL,               -- boss | manager
+    dept_id   TEXT NOT NULL DEFAULT '',    -- manager 时是部门（Casdoor 分组名），boss 时为空
+    PRIMARY KEY (org, user_name, role, dept_id)
+);
+-- 部门配置：默认岗位包（没有分配记录的成员按它走）
+CREATE TABLE IF NOT EXISTS dept_config (
+    org          TEXT NOT NULL,
+    dept_id      TEXT NOT NULL,
+    role_pack_id TEXT NOT NULL REFERENCES role_packs(id),
+    PRIMARY KEY (org, dept_id)
+);
+
 -- 工作成果：应用 / agent 通过 report_work 上报「做成了什么」，看板据此展示产出与进度
 CREATE TABLE IF NOT EXISTS work_items (
     id           BIGSERIAL PRIMARY KEY,
@@ -554,3 +570,48 @@ def work_items_since(org: str, since: datetime, user_name: str | None = None) ->
         return conn.execute(
             "SELECT * FROM work_items WHERE org = %s AND updated_at >= %s AND (%s::text IS NULL OR user_name = %s) "
             "ORDER BY updated_at DESC", (org, since, user_name, user_name)).fetchall()
+
+
+# ---- 控制台角色与部门配置 ----
+def console_roles(org: str) -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT user_name, role, dept_id FROM console_roles WHERE org = %s ORDER BY role, dept_id, user_name", (org,)).fetchall()
+
+
+def roles_of(org: str, user_name: str) -> list[dict]:
+    with connect() as conn:
+        return conn.execute("SELECT role, dept_id FROM console_roles WHERE org = %s AND user_name = %s", (org, user_name)).fetchall()
+
+
+def set_dept_managers(org: str, dept_id: str, users: list[str]) -> None:
+    """整体替换某个部门的主管名单。"""
+    with connect() as conn:
+        conn.execute("DELETE FROM console_roles WHERE org = %s AND role = 'manager' AND dept_id = %s", (org, dept_id))
+        for u in dict.fromkeys(users):
+            conn.execute("INSERT INTO console_roles (org, user_name, role, dept_id) VALUES (%s, %s, 'manager', %s)", (org, u, dept_id))
+
+
+def set_bosses(org: str, users: list[str]) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM console_roles WHERE org = %s AND role = 'boss'", (org,))
+        for u in dict.fromkeys(users):
+            conn.execute("INSERT INTO console_roles (org, user_name, role, dept_id) VALUES (%s, %s, 'boss', '')", (org, u))
+
+
+def drop_user_roles(org: str, user_name: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM console_roles WHERE org = %s AND user_name = %s", (org, user_name))
+
+
+def dept_defaults(org: str) -> dict[str, str]:
+    with connect() as conn:
+        return {r["dept_id"]: r["role_pack_id"] for r in conn.execute("SELECT dept_id, role_pack_id FROM dept_config WHERE org = %s", (org,)).fetchall()}
+
+
+def set_dept_default(org: str, dept_id: str, role_pack_id: str | None) -> None:
+    with connect() as conn:
+        if role_pack_id:
+            conn.execute("INSERT INTO dept_config (org, dept_id, role_pack_id) VALUES (%s, %s, %s) "
+                         "ON CONFLICT (org, dept_id) DO UPDATE SET role_pack_id = EXCLUDED.role_pack_id", (org, dept_id, role_pack_id))
+        else:
+            conn.execute("DELETE FROM dept_config WHERE org = %s AND dept_id = %s", (org, dept_id))

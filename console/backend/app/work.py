@@ -16,7 +16,6 @@ from . import db, policy
 
 STATUSES = ("进行中", "待审核", "已完成", "受阻")
 MAX_TITLE, MAX_KIND, MAX_NOTE, MAX_LINK = 120, 20, 300, 300
-REPORT_TOOL = "report.view"  # 岗位包里有这个工具，才能看全员的汇报（管理层）
 
 
 class BadReport(ValueError):
@@ -101,13 +100,14 @@ def _is_image(w: str) -> bool:
 
 def build_report(*, days: int, events: list[dict], items: list[dict], tasks: list[dict], assignments: dict[str, str],
                  packs: dict[str, dict], members: list[dict] | None = None, now: datetime | None = None,
-                 person: str | None = None) -> dict:
+                 person: str | None = None, depts: list[str] | None = None, dept_defaults: dict[str, str] | None = None) -> dict:
+    """depts 不为 None 时只汇总这些部门的人（部门主管的视角）。"""
     now = now or datetime.now().astimezone()
     since = period_start(days, now)
     people: dict[str, dict] = {}
 
     def who(user_name: str, display: str = "", dept: str = "") -> dict:
-        pack_id = assignments.get(user_name) or policy.DEFAULT_ROLE_PACKS.get(dept) or policy.FALLBACK_ROLE_PACK
+        pack_id = assignments.get(user_name) or policy.default_pack_id(dept, dept_defaults)
         pack = packs.get(pack_id) or packs.get(policy.FALLBACK_ROLE_PACK) or {"name": "未分配"}
         pr = people.setdefault(user_name, {
             "user_name": user_name, "display_name": display or user_name, "dept": dept, "role": pack["name"],
@@ -146,7 +146,8 @@ def build_report(*, days: int, events: list[dict], items: list[dict], tasks: lis
         pr["items"]["total"] += 1
         pr["kinds"][it["kind"]] += 1
 
-    rows = [pr for u, pr in people.items() if not person or u == person or pr["display_name"] == person]
+    rows = [pr for u, pr in people.items() if (not person or u == person or pr["display_name"] == person)
+            and (depts is None or pr["dept"] in depts)]
     for pr in rows:
         pr["active_days"] = len(pr.pop("days"))
         pr["kinds"] = dict(pr["kinds"])
@@ -207,10 +208,10 @@ def digest(days: int, totals: dict, roles: list[dict], inactive: list[str], rece
     return "\n".join(lines)
 
 
-def load_report(org: str, days: int, members: list[dict] | None = None, person: str | None = None) -> dict:
+def load_report(org: str, days: int, members: list[dict] | None = None, person: str | None = None, depts: list[str] | None = None) -> dict:
     """从库里取数据并汇总。"""
     days = max(1, min(int(days), 30))
     since = period_start(days)
     return build_report(days=days, events=db.recent_audit(org, days + 1), items=db.work_items_since(org, since),
                         tasks=db.gpu_tasks_since(org, days + 1), assignments=db.assignments(org),
-                        packs={p["id"]: p for p in db.role_packs()}, members=members, person=person)
+                        packs={p["id"]: p for p in db.role_packs()}, members=members, person=person, depts=depts, dept_defaults=db.dept_defaults(org))

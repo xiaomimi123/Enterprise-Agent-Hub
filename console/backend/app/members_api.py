@@ -97,6 +97,8 @@ def set_enabled(member_id: str, body: EnabledBody, user: dict = Depends(auth.cur
 @router.delete("/{member_id}")
 def delete_member(member_id: str, user: dict = Depends(auth.current_user)):
     out = _guard(lambda: make_admin().remove(member_id, acting=user.get("name") or ""))
+    if settings.database_url:
+        db.drop_user_roles(user.get("org") or "", member_id)  # 删除的人不能再留着老板 / 主管身份
     _audit(user, "member.delete", f"删除成员 {member_id}，回收 {out['revoked_keys']} 个模型 key")
     return out
 

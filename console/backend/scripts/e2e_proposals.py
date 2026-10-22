@@ -121,6 +121,8 @@ try:
     pid2 = json.loads(r)["proposal_id"]
     r = emp.call("propose_improvement", kind="new_doc", target="zz测试新文档", knowledge_base="品牌调性与人设", summary="新增话术文档")
     check("新增文档必须带内容", "必须带上" in r, r)
+    r = emp.call("propose_improvement", kind="new_doc", target="标题结构：数字 + 人群/场景", knowledge_base="品牌调性与人设", summary="x", proposed_content="# t\n\n内容\n")
+    check("文档名含 / 时给出明确原因（不是没有说明的工具错误）", "文档名不合规" in r and "Error" not in r, r)
     r = emp.call("propose_improvement", kind="new_doc", target="zz测试新文档", knowledge_base="品牌调性与人设", summary="新增话术文档", proposed_content="# 新文档\n\n测试专用口号：银河骑士。\n")
     check("员工提交新增文档建议", "proposal_id" in r, r)
     pid3 = json.loads(r)["proposal_id"]
@@ -147,7 +149,7 @@ try:
 
     # 3. 采纳
     r = mgr.post(f"/api/proposals/{pid1}/accept", json={"note": "好建议"})
-    check("主管采纳技能建议", r.status_code == 200 and r.json()["version"] == 2 and r.json()["published"], r.text)
+    check("主管采纳技能建议", r.status_code == 200 and r.json()["version"] == snap_skills[own_dept_skill][0] + 1 and r.json()["published"], r.text)
     check("员工的 agent 马上读到新版本", "【测试追加】" in emp.call("read_skill", skill_id=own_dept_skill))
     check("再次采纳被拒", mgr.post(f"/api/proposals/{pid1}/accept", json={}).status_code == 400)
     wk = boss.get("/api/work/report?days=1").json()

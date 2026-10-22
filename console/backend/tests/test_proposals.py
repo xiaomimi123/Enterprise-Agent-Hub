@@ -48,3 +48,19 @@ def test_console_routes_are_allowlisted_for_boss_and_manager_only():
         assert allowed(role, "POST", "/api/proposals/12/accept") and allowed(role, "POST", "/api/proposals/12/reject")
         assert not allowed(role, "DELETE", "/api/proposals/12") and not allowed(role, "POST", "/api/proposals")
     assert not allowed("manager", "GET", "/api/proposals/abc")
+
+
+def test_doc_name_with_slash_gives_a_clear_reason_instead_of_a_bare_tool_error():
+    """回归：真实 CodeBuddy 提交的文档名含「/」（如「人群/场景」），KbError 没被捕获，agent 只看到「Error executing tool」，
+    误以为是内容太长而改成了测试内容，留下一条垃圾建议。"""
+    for kind in ("doc", "new_doc"):
+        with pytest.raises(pr.ProposalError, match="文档名不合规"):
+            pr.create(P(), "t", kind, "标题结构：数字 + 人群/场景", "summary", kb_id="kb-brand")
+
+
+def test_mcp_tool_catches_every_validation_error():
+    import inspect
+
+    from app import mcp_server
+    src = inspect.getsource(mcp_server.propose_improvement)
+    assert "except SkillError" in src and "except proposals.ProposalError" not in src

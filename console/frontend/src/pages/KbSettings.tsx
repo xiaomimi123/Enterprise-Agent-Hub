@@ -4,7 +4,7 @@ import { api, type KbFields, type KnowledgeBase } from '../api'
 import { useSession } from '../auth'
 import { useRequest } from '../lib'
 
-export const CATEGORIES = ['制度', '产品', '品牌', '案例素材', '话术', '合规', '其他']
+export const CATEGORIES = ['制度', '产品', '品牌', '案例素材', '话术', '合规', '复盘', '其他']
 export const CLASSIFICATIONS = ['公开', '内部', '机密']
 
 /** 复核状态的简短文字：还剩几天 / 已逾期几天 / 不需要复核。 */

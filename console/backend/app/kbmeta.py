@@ -19,7 +19,7 @@ from .content import KB_BY_NAME, KB_REGISTRY
 
 log = logging.getLogger("hub.kbmeta")
 
-CATEGORIES = ("制度", "产品", "品牌", "案例素材", "话术", "合规", "其他")
+CATEGORIES = ("制度", "产品", "品牌", "案例素材", "话术", "合规", "复盘", "其他")
 CLASSIFICATIONS = ("公开", "内部", "机密")
 DEFAULT_REVIEW_DAYS = 90
 TTL = 30.0

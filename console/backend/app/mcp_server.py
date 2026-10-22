@@ -25,6 +25,7 @@ from . import accounts, app_access, content, db, generation, gpu, kbmeta, policy
 from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
+from .skillstore import SkillError
 
 INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公司内部的资料、规范和算力。
 凡是和本公司有关的问题（产品、品牌、制度、违禁词、售后、历史爆款等），先用 search_knowledge 查公司资料，不要联网搜索或凭常识回答；
@@ -294,7 +295,7 @@ def propose_improvement(kind: str, target: str, summary: str, ctx: Context, rati
             return f"请用 knowledge_base 指定你有权访问的知识库名称。可选：{'、'.join(content.KB_REGISTRY[k]['name'] for k in allowed) or '（无）'}"
     try:
         r = proposals.create(p, trace_id, kind, target, summary, rationale, evidence, kb_id, proposed_content)
-    except proposals.ProposalError as e:
+    except SkillError as e:  # ProposalError 及其他校验错误：把原因告诉 agent，不要变成没有说明的工具错误
         return str(e)
     return json.dumps({**r, "message": f"建议已提交（编号 {r['proposal_id']}），等待{r['reviewer']}审核。审核结果可用 my_proposals 查看。"}, ensure_ascii=False)
 

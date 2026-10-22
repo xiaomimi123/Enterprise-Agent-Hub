@@ -9,29 +9,29 @@ hub-mcp 是员工 agent 使用公司能力的唯一入口，基于 MCP Python SD
 - **会话与追踪**：同一 MCP 会话共用一个追踪 ID；客户端也可用请求头 `X-Hub-Trace-Id` 显式指定，`X-Hub-Task`（URL 编码）带上任务描述，显示在审计里。
 - **服务端说明**：`initialize` 响应里的 `instructions` 告诉 agent 这是「本公司」的中枢、什么时候用哪个工具（先查知识库、先读技能、何时提改进建议），这是让通用 agent 稳定使用中枢的关键。
 
-{{code console/backend/app/mcp_server.py::_trace | console/backend/app/mcp_server.py — 追踪 ID 来源（显式 → 会话 → 请求）}}
+{{code console/backend/app/mcp_server.py::\_trace | console/backend/app/mcp_server.py — 追踪 ID 来源（显式 → 会话 → 请求）}}
 
 每次调用先解析出 `Principal`（用户、部门、入口、是否管理员、岗位包），后续所有判断都基于它：
 
-{{code console/backend/app/mcp_server.py::_principal | console/backend/app/mcp_server.py}}
+{{code console/backend/app/mcp_server.py::\_principal | console/backend/app/mcp_server.py}}
 
 ## 5.2 工具清单与权限
 
-| 工具 | 作用 | 权限要求 |
-|---|---|---|
-| `whoami` | 当前身份、部门、入口、岗位包、可用技能与知识库 | 有效令牌 |
-| `list_skills` / `read_skill` | 岗位包内技能列表 / SKILL.md 全文（当前已生效的版本） | 官方 agent，岗位包含 `skill.read`，技能在岗位包内 |
-| `search_knowledge` | 检索公司知识库，可指定库名 | 岗位包含 `kb.search`；外部智能体另需双重开放 |
-| `generate_cover` | 小红书封面，3:4 × 3 张 | 官方 agent，`image.cover` |
-| `generate_image` | 文生图，5 种画幅，1–4 张 | 官方 agent，`image.generate` |
-| `generate_video` | 文生视频（带声音），2–10 秒 | 官方 agent，`video.generate` |
-| `generate_video_from_image` | 图生视频，参考图只收中枢签发链接 | 同上 |
-| `get_task`（旧名 `get_cover_task`） | 生成任务进度与结果链接 | 只能查自己的任务 |
-| `list_apps` / `open_app` | 当前岗位包能在本机打开的应用 / 返回带签名下载链接的启动凭证 | 官方 agent，岗位包 `apps` 含该应用 |
-| `propose_improvement` | 对技能 / 知识库文档提改进建议（只是建议，人审核后才生效） | 能读到该技能 / 知识库的员工；外部入口不可用；每天最多 10 条 |
-| `my_proposals` | 查看自己提交的建议和处理结果 | 只看自己 |
-| `report_work` / `my_work` | 上报工作成果与进度 / 查看自己上报的 | 所有人；只能改自己的条目 |
-| `team_report` | 团队成果与进度汇总（日报素材），含逾期复核的知识库和待处理建议数 | 老板 / 管理员看全公司，部门主管只看自己部门，其他人和外部入口不可用 |
+| 工具                              | 作用                               | 权限要求                                |
+| ------------------------------- | -------------------------------- | ----------------------------------- |
+| `whoami`                        | 当前身份、部门、入口、岗位包、可用技能与知识库          | 有效令牌                                |
+| `list_skills` / `read_skill`    | 岗位包内技能列表 / SKILL.md 全文（当前已生效的版本） | 官方 agent，岗位包含 `skill.read`，技能在岗位包内  |
+| `search_knowledge`              | 检索公司知识库，可指定库名                    | 岗位包含 `kb.search`；外部智能体另需双重开放        |
+| `generate_cover`                | 小红书封面，3:4 × 3 张                  | 官方 agent，`image.cover`              |
+| `generate_image`                | 文生图，5 种画幅，1–4 张                  | 官方 agent，`image.generate`           |
+| `generate_video`                | 文生视频（带声音），2–10 秒                 | 官方 agent，`video.generate`           |
+| `generate_video_from_image`     | 图生视频，参考图只收中枢签发链接                 | 同上                                  |
+| `get_task`（旧名 `get_cover_task`） | 生成任务进度与结果链接                      | 只能查自己的任务                            |
+| `list_apps` / `open_app`        | 当前岗位包能在本机打开的应用 / 返回带签名下载链接的启动凭证  | 官方 agent，岗位包 `apps` 含该应用            |
+| `propose_improvement`           | 对技能 / 知识库文档提改进建议（只是建议，人审核后才生效）   | 能读到该技能 / 知识库的员工；外部入口不可用；每天最多 10 条   |
+| `my_proposals`                  | 查看自己提交的建议和处理结果                   | 只看自己                                |
+| `report_work` / `my_work`       | 上报工作成果与进度 / 查看自己上报的              | 所有人；只能改自己的条目                        |
+| `team_report`                   | 团队成果与进度汇总（日报素材），含逾期复核的知识库和待处理建议数 | 老板 / 管理员看全公司，部门主管只看自己部门，其他人和外部入口不可用 |
 
 生成类工具每人最多同时 3 个未完成任务（`HUB_GPU_MAX_PENDING_PER_USER`）。外部智能体只能使用 `search_knowledge`（且只能查开放给外部的知识库）。
 

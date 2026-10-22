@@ -66,7 +66,10 @@ def create(p, trace_id: str, kind: str, target: str, summary: str, rationale: st
         raise ProposalError("summary（一句话说明想改什么）不能为空。")
     target = (target or "").strip()
     if kind != "skill":
-        target = kbstore.clean_name(target)
+        try:
+            target = kbstore.clean_name(target)
+        except SkillError as e:  # 文档名里有 / 等符号时给出明确原因，而不是让工具抛出没有说明的错误
+            raise ProposalError(f"文档名不合规：{e}") from None
     dept, base = _target_info(kind, kb_id, target)
     try:
         content = _clean_content(kind, proposed_content)

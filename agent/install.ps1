@@ -8,6 +8,8 @@
 #   HUB_INSTALL_TOOLS=no    never install them (no questions)
 #   HUB_INSTALL_DRYRUN=1    only print what would be installed
 # When there is no interactive console (for example an agent runs this script), nothing is installed and the commands are printed.
+# No winget? Node.js is installed from the official portable zip (SHA-256 verified, no admin rights, user PATH only).
+# Easiest way for an employee: press Win+R, paste the command, press Enter (runs outside any agent sandbox).
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page.)
 $ErrorActionPreference = 'Stop'
 $Hub = '__HUB_URL__'
@@ -17,9 +19,53 @@ $DryRun = ($env:HUB_INSTALL_DRYRUN -eq '1')
 
 function Test-Cmd($Name) { return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
 function Update-SessionPath {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
-    $npmBin = Join-Path $env:APPDATA 'npm'
-    if ((Test-Path $npmBin) -and ($env:Path -notlike "*$npmBin*")) { $env:Path = "$env:Path;$npmBin" }
+    # Merge, never replace: hosts such as agent sandboxes put their own runtimes on the session PATH, and replacing it hides them.
+    $have = @{}
+    $parts = New-Object System.Collections.ArrayList
+    foreach ($p in ($env:Path -split ';')) { if ($p -and -not $have.ContainsKey($p.ToLower())) { $have[$p.ToLower()] = 1; [void]$parts.Add($p) } }
+    foreach ($scope in 'Machine', 'User') {
+        foreach ($p in ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';')) {
+            if ($p -and -not $have.ContainsKey($p.ToLower())) { $have[$p.ToLower()] = 1; [void]$parts.Add($p) }
+        }
+    }
+    # Places where per-user (no admin) installs end up.
+    foreach ($p in (Join-Path $env:APPDATA 'npm'), (Join-Path $env:LOCALAPPDATA 'Programs\nodejs'), (Join-Path $env:LOCALAPPDATA 'nodejs')) {
+        if ((Test-Path $p) -and -not $have.ContainsKey($p.ToLower())) { $have[$p.ToLower()] = 1; [void]$parts.Add($p) }
+    }
+    $env:Path = ($parts -join ';')
+}
+function Add-UserPath($Dir) {
+    $cur = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($null -eq $cur) { $cur = '' }
+    if (($cur -split ';') -notcontains $Dir) {
+        [Environment]::SetEnvironmentVariable('Path', (($cur.TrimEnd(';') + ';' + $Dir).TrimStart(';')), 'User')
+    }
+}
+function Install-NodePortable {
+    # No admin rights and no winget needed: official portable zip -> %LOCALAPPDATA%\Programs\nodejs, SHA-256 verified, user PATH only.
+    $arch = 'x64'
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+    $dest = Join-Path $env:LOCALAPPDATA 'Programs\nodejs'
+    $index = Invoke-RestMethod -UseBasicParsing 'https://nodejs.org/dist/index.json'
+    $ver = ($index | Where-Object { $_.lts } | Select-Object -First 1).version
+    if (-not $ver) { throw 'Could not find the latest Node.js LTS version.' }
+    $name = "node-$ver-win-$arch.zip"
+    $zip = Join-Path $env:TEMP $name
+    Write-Host "      Downloading $name ..."
+    Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/$ver/$name" -OutFile $zip
+    $sums = (Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/$ver/SHASUMS256.txt").Content
+    $line = ($sums -split "`n" | Where-Object { $_ -match [regex]::Escape($name) } | Select-Object -First 1)
+    $want = ''
+    if ($line) { $want = (($line.Trim() -split '\s+')[0]).ToLower() }
+    $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+    if (-not $want -or $got -ne $want) { Remove-Item $zip -Force -ErrorAction SilentlyContinue; throw "SHA-256 check failed for $name; nothing was installed." }
+    $tmp = Join-Path $env:TEMP ('node-extract-' + [guid]::NewGuid().ToString('N'))
+    Expand-Archive $zip -DestinationPath $tmp -Force
+    New-Item -ItemType Directory -Force $dest | Out-Null
+    Copy-Item (Join-Path $tmp "node-$ver-win-$arch\*") $dest -Recurse -Force
+    Remove-Item $tmp, $zip -Recurse -Force -ErrorAction SilentlyContinue
+    Add-UserPath $dest
+    Update-SessionPath
 }
 function Confirm-Install($What) {
     if ($env:HUB_INSTALL_TOOLS -eq 'yes') { return $true }
@@ -56,10 +102,12 @@ if (Test-Cmd node) {
             Invoke-Step 'winget install -e --id OpenJS.NodeJS.LTS' { winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements }
             Update-SessionPath
         } else {
-            Write-Host '      winget is not available. Please install Node.js LTS from https://nodejs.org and run this command again.'
+            Write-Host '      winget is not available: using the official portable Node.js (no admin rights needed, installed for your user only).'
+            Invoke-Step 'download and unpack the official portable Node.js LTS' { Install-NodePortable }
         }
+        if (-not $DryRun -and -not (Test-Cmd node)) { Write-Host '      Node.js was installed but is not on PATH yet. Reopen the terminal and run this command again.' }
     } else {
-        Write-Host '      To install it yourself:  winget install -e --id OpenJS.NodeJS.LTS   (or https://nodejs.org)'
+        Write-Host '      To install it yourself:  winget install -e --id OpenJS.NodeJS.LTS   (or download the Windows zip from https://nodejs.org)'
     }
 }
 # CodeBuddy CLI: only needed for automated browser tasks in the workbench (the workbench runs it in the background).
@@ -67,9 +115,10 @@ if (Test-Cmd codebuddy) {
     Write-Host '      CodeBuddy CLI: installed.'
 } else {
     Write-Host '      CodeBuddy CLI: NOT installed (only needed for automated browser tasks in the workbench; skip it if you only use WorkBuddy).'
-    if (Test-Cmd npm) {
+    if (Test-Cmd npm.cmd) {
         if (Confirm-Install 'CodeBuddy CLI') {
-            Invoke-Step 'npm install -g @tencent-ai/codebuddy-code' { npm install -g '@tencent-ai/codebuddy-code' }
+            # npm.cmd on purpose: with a Restricted execution policy PowerShell refuses to run npm.ps1.
+            Invoke-Step 'npm install -g @tencent-ai/codebuddy-code' { & npm.cmd install -g '@tencent-ai/codebuddy-code' }
             Update-SessionPath
             if (-not $DryRun -and -not (Test-Cmd codebuddy)) { Write-Host '      CodeBuddy CLI was installed but is not on PATH yet. Reopen the terminal and run this command again.' }
         } else {
@@ -87,4 +136,10 @@ Invoke-WebRequest -UseBasicParsing "$Hub/api/agent/hub_agent.py" -OutFile (Join-
 if ($DryRun) { Write-Host '[4/4] [dry-run] stopping before sign-in.'; exit 0 }
 Write-Host '[4/4] Signing in (a browser window will open) and configuring your agents...'
 $env:PYTHONUTF8 = '1'
+$env:PYTHONUNBUFFERED = '1'
 & $Uv run (Join-Path $Dir 'hub_agent.py') setup --hub $Hub
+if ($LASTEXITCODE -eq 0 -and (Test-Cmd codebuddy)) {
+    Write-Host ''
+    Write-Host 'CodeBuddy CLI note: for automated browser tasks it needs its own account sign-in, once:'
+    Write-Host '  open a terminal, run:  codebuddy   then type  /login  and finish the sign-in in the browser, then /exit.'
+}

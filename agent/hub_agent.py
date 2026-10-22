@@ -61,6 +61,7 @@ CB_MODEL_PREFIX = "公司中枢 · "
 WB_PREFIX = "hub-"
 WB_MARKER = ".hub-managed"
 CALLBACK_PORT = 27891
+LOGIN_WAIT_SECONDS = 600  # 员工要在浏览器里登录、首次还要改密码，5 分钟不够
 
 
 _LOG = {"stream": None}
@@ -103,7 +104,7 @@ def save_creds(hub: str, cfg: dict, tok: dict) -> dict:
 
 
 def browser_login(hub: str, cfg: dict) -> dict:
-    """授权码 + PKCE：本机起一个只接收一次回调的小服务，浏览器登录完成后自动拿到授权码。"""
+    """授权码 + PKCE：本机起一个只接收回调的小服务（多线程，收到授权码就结束），浏览器登录完成后自动拿到授权码。"""
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(16)
@@ -112,7 +113,8 @@ def browser_login(hub: str, cfg: dict) -> dict:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            result.update({k: v[0] for k, v in q.items()})
+            if "code" in q or "error" in q:  # 浏览器的 favicon、预连接请求不算回调
+                result.update({k: v[0] for k, v in q.items()})
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -121,16 +123,28 @@ def browser_login(hub: str, cfg: dict) -> dict:
         def log_message(self, *_):
             pass
 
-    server = http.server.HTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
-    threading.Thread(target=server.handle_request, daemon=True).start()
+    # 必须多线程并循环服务：Edge / Chrome 打开授权页时会预连接回调地址，空闲连接会占住唯一的处理线程；
+    # 如果只用单线程服务一次，真正的回调排在后面永远得不到应答，页面一直转圈（真实员工电脑上踩过）
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", CALLBACK_PORT), Handler)
+    server.daemon_threads = True
+
+    def serve_until_done() -> None:
+        while "code" not in result and "error" not in result:
+            try:
+                server.handle_request()
+            except Exception:  # noqa: BLE001 服务被关闭时退出
+                break
+
+    threading.Thread(target=serve_until_done, daemon=True).start()
     url = f"{cfg['casdoor_url']}/login/oauth/authorize?" + urllib.parse.urlencode({
         "client_id": cfg["client_id"], "response_type": "code", "redirect_uri": cfg["redirect_uri"],
         "scope": "openid profile", "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
     })
-    info("正在打开浏览器登录；如果没有自动打开，请手动访问：")
-    print(f"  {url}")
+    info("正在打开浏览器登录；如果没有自动打开（比如在 agent 的沙箱里运行），请把下面这行链接完整复制到浏览器地址栏：")
+    print(f"\n{url}\n", flush=True)
     webbrowser.open(url)
-    deadline = time.time() + 300
+    info(f"等待登录完成（最多 {LOGIN_WAIT_SECONDS // 60} 分钟）；登录页可能开在后台标签里，请留意浏览器。")
+    deadline = time.time() + LOGIN_WAIT_SECONDS
     while "code" not in result and "error" not in result and time.time() < deadline:
         time.sleep(0.3)
     server.server_close()
@@ -1185,7 +1199,7 @@ def cmd_mcp(args=None) -> None:
 def main() -> None:
     # Windows 老控制台是 GBK：打印不了的符号替换掉，不让程序因为一个提示符崩溃
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(errors="replace")
+        stream.reconfigure(errors="replace", line_buffering=True)
     ap = argparse.ArgumentParser(description="企业智能体中枢 · 员工端接入器")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("login", help="登录中枢")

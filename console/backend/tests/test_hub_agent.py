@@ -469,3 +469,41 @@ def test_outbox_batches_of_fifty(outbox):
     (outbox / "demo.jsonl").write_text("".join(line(f"k{i}") for i in range(120)), encoding="utf-8")
     post = FakePost()
     assert hub_agent.flush_outbox({}, "h", post=post) == 120 and [len(c[1]) for c in post.calls] == [50, 50, 20]
+
+
+def test_browser_login_survives_browser_preconnects(monkeypatch):
+    """回归：Edge / Chrome 打开授权页时会预连接回调地址。旧实现是单线程只服务一次，空闲的预连接占住唯一的处理线程，
+    真正的回调排在后面永远得不到应答，页面一直转圈（真实员工电脑上踩过）。"""
+    import socket
+    import threading
+    import urllib.parse as up
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    monkeypatch.setattr(hub_agent, "CALLBACK_PORT", port)
+    monkeypatch.setattr(hub_agent, "LOGIN_WAIT_SECONDS", 8)
+    seen = {}
+
+    def fake_open(url):
+        state = up.parse_qs(up.urlparse(url).query)["state"][0]
+
+        def run():
+            idle = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(4)]  # 只连不发请求
+            import httpx
+            seen["favicon"] = httpx.get(f"http://127.0.0.1:{port}/favicon.ico", timeout=10).status_code
+            seen["callback"] = httpx.get(f"http://127.0.0.1:{port}/callback?code=C1&state={state}", timeout=10).status_code
+            for c in idle:
+                c.close()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    class Resp:
+        def json(self):
+            return {"access_token": "tok"}
+
+    monkeypatch.setattr(hub_agent.webbrowser, "open", fake_open)
+    monkeypatch.setattr(hub_agent.httpx, "post", lambda *a, **k: Resp())
+    tok = hub_agent.browser_login("http://hub", {"casdoor_url": "http://cas", "client_id": "cid", "redirect_uri": f"http://127.0.0.1:{port}/callback"})
+    assert tok["access_token"] == "tok" and seen["callback"] == 200 and seen["favicon"] == 200   # favicon 不会被当成回调结果

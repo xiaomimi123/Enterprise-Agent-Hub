@@ -63,6 +63,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **Windows**：控制台默认 GBK，脚本要加 `PYTHONUTF8=1`；脚本里写文件别用会把 `\n` 转成真换行的方式；`navigator.clipboard` 在 http 下不可用，复制用 `lib.ts` 的 `copyText`。
 - **不要对真实 `%APPDATA%` 跑接入器 `setup`**：它会往 Claude 桌面版配置里加 `enterprise-hub`。测试时用隔离的 `USERPROFILE` / `APPDATA`，或用 `HUB_INSTALL_DRYRUN=1`。
 - **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
+- **员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦**（`iex`、启动进程、计划任务、`reg.exe` 被拒，agent 退出时还会结束它拉起的后台程序）：首选让员工 Win+R 粘贴一行命令自己跑。接入器登录回调必须多线程（浏览器会预连接，单线程会卡死）；安装脚本刷新 PATH 只能合并不能覆盖，npm 用 `npm.cmd`，无 winget 走 Node.js 便携版。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
 ## 接入新应用
@@ -79,7 +80,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.7.4）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.7.6）。
 
 ## 开发与架构文档
 

@@ -44,6 +44,8 @@ export default function Connect() {
   const [user, setUser] = useState('')
   const [quickOs, setQuickOs] = useState<OS>(navigator.userAgent.includes('Mac') ? 'macOS' : 'Windows')
   const [manual, setManual] = useState(false)
+  const [account, setAccount] = useState('')
+  const [initPw, setInitPw] = useState('')
   const d: ConnectInfo | undefined = info.data
   if (!d) return <PageHeader title="接入方式" sub="加载中…" />
 
@@ -58,8 +60,9 @@ export default function Connect() {
     `1. 看一下我电脑的系统，在终端里执行对应的那一条命令（Windows 用 PowerShell 那条，macOS / Linux 用 curl 那条）：\n` +
     `Windows：${winCmd}\nmacOS / Linux：${macCmd}\n` +
     `2. 命令会打开浏览器让我登录公司账号，请等我自己登录完成（首次登录需要先修改初始密码），不要替我输入密码。\n` +
-    `3. 命令执行结束后，把最后几行输出告诉我，并提醒我完全退出、重新打开你自己。`
-  const welcome = `你好，公司「企业智能体中枢」账号已开通：\n账号：<账号>\n初始密码：<初始密码>（首次登录需要修改）\n\n` +
+    `3. 如果输出提示缺少 Node.js 或 CodeBuddy CLI（你在终端里运行时它不会自己询问），先问我要不要装；我同意后，Windows 先执行 $env:HUB_INSTALL_TOOLS="yes"、macOS / Linux 先执行 export HUB_INSTALL_TOOLS=yes，再重新运行一遍同一条命令。\n` +
+    `4. 命令执行结束后，把最后几行输出告诉我，并提醒我完全退出、重新打开你自己。`
+  const welcome = `你好，公司「企业智能体中枢」账号已开通：\n账号：${account.trim() || '<账号>'}\n初始密码：${initPw.trim() || '<初始密码>'}（首次登录需要修改）\n\n` +
     `接入方法（不需要自己敲命令，需要和公司在同一个局域网）：\n` +
     `1. 打开你的 WorkBuddy，把下面横线之间的整段话粘贴给它，发送：\n----------\n${agentPrompt}\n----------\n` +
     `2. 它会弹出浏览器，用上面的账号和初始密码登录，按提示改成自己的新密码\n` +
@@ -96,52 +99,49 @@ export default function Connect() {
     <>
       <PageHeader
         title="接入方式"
-        sub="员工的 agent 通过 MCP 连到中枢，使用知识库、技能和 GPU 出图出视频。权限按员工本人的岗位包执行，每次调用都记入审计。"
+        sub="新员工接入只要两步：管理员建账号，把一段话发给员工。剩下的由员工的 agent 和一键脚本自动完成，包括检测并询问安装 Node.js 和 CodeBuddy CLI，不需要单独去装。"
       />
       <div className="stack">
-        <Panel title="新员工入职三步" sub="管理员建账号 → 把一段话发给员工 → 员工粘贴给自己的 agent，全程不用敲命令">
+        <Panel title="给新员工接入" sub="管理员建账号 → 把下面这段话发给员工 → 员工粘贴给自己的 agent，全程不用敲命令">
           <div className="stack-sm">
-            <div><Pill tone="accent" dot={false}>第 1 步 · 管理员</Pill> 在「成员与组织」页点「新建成员」（或「批量导入」），记下账号和初始密码——初始密码只显示一次。</div>
-            <div><Pill tone="accent" dot={false}>第 2 步 · 发给员工</Pill> 复制下面这段话，把 &lt;账号&gt;、&lt;初始密码&gt; 换成实际值，发给员工（钉钉 / 微信 / 邮件都行）。员工只需要把其中一段话粘贴给自己的 WorkBuddy，剩下的由 agent 自己完成。</div>
+            <div><Pill tone="accent" dot={false}>1</Pill> 在「成员与组织」页点「新建成员」（或「批量导入」），记下账号和初始密码，初始密码只显示一次。</div>
+            <div><Pill tone="accent" dot={false}>2</Pill> 填入账号和初始密码，复制生成的话发给员工（钉钉 / 微信 / 邮件都行）。员工和公司在同一个局域网即可，不用改防火墙。</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input size="small" variant="filled" placeholder="账号" value={account} onChange={(e) => setAccount(e.target.value)} style={{ width: 180 }} />
+              <Input size="small" variant="filled" placeholder="初始密码" value={initPw} onChange={(e) => setInitPw(e.target.value)} style={{ width: 180 }} />
+            </div>
             <Code label="发给员工的话" text={welcome} />
-            <div><Pill tone="accent" dot={false}>第 3 步 · 员工</Pill> 在浏览器里用账号登录并改新密码，重启 WorkBuddy 后对它说下面这句话验证；能说出姓名、部门和岗位包就接通了。</div>
+            <div><Pill tone="accent" dot={false}>3</Pill> 员工按话里的步骤做完后，对 agent 说下面这句话验证；能说出姓名、部门和岗位包就接通了。</div>
             <Code label="验证接通" text={verifyPrompt} />
-            <p className="muted">首次登录时，Casdoor 会要求先把初始密码改成自己的密码（至少 8 位），改完才能继续；员工不需要改防火墙。</p>
           </div>
         </Panel>
 
-        <Panel
-          title="一键接入"
-          sub="同事电脑不用改防火墙，和中枢在同一个局域网即可"
-          extra={<Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />}
-        >
+        <Panel title="一键脚本会自动做什么">
           <div className="stack-sm">
-            <div><Pill tone="accent" dot={false}>方式一（推荐）</Pill> 把这段话发给员工的 agent（WorkBuddy 等能执行命令的），让它自己接入——员工不用打开命令行</div>
-            <Code label="发给 agent" text={agentPrompt} />
-            <div><Pill tone="accent" dot={false}>方式二</Pill> 熟悉命令行的人：复制这条命令，粘贴到{quickOs === 'Windows' ? ' PowerShell ' : '终端'}里回车</div>
+            <div>① 检测 <b>Node.js</b> 和 <b>CodeBuddy CLI</b>：缺哪个就<b>询问是否安装</b>，不会静默安装（没有交互终端时只打印命令）。</div>
+            <div>② 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
+            <div>③ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
+            <div>④ 之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次。</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+              <span className="muted">不想让 agent 代跑？直接复制命令：</span>
+              <Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />
+            </div>
             <Code label={quickOs === 'Windows' ? 'PowerShell' : '终端'} text={quickCmd} />
-            <p className="muted">
-              命令会自动完成：安装运行环境 → 下载接入器 → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版并写好配置（原配置先备份）。
-              完成后完全退出并重新打开 agent 即可使用。之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次这条命令。
-            </p>
           </div>
         </Panel>
 
-        <Panel title="要让 agent 控制浏览器（采集 / 发布 / 回评论）：用 CodeBuddy CLI" sub="WorkBuddy 等桌面 agent 在工作台里只能走「收件箱模式」，按设计不能开浏览器">
+        <Panel title="需要 agent 自动操作浏览器（采集 / 对标）" sub="WorkBuddy 等桌面 agent 在工作台里按设计只能「收件箱模式」，不开浏览器；要自动操作浏览器，用 CodeBuddy CLI">
           <div className="stack-sm">
-            <div>小红书工作台给桌面 agent 的任务会带「只处理本地文件，不得打开浏览器」的限制，WorkBuddy 拒绝开浏览器是正常的，不是故障。要自动操作浏览器，工作台必须用 <b>CLI 模式</b>：由它在后台启动命令行 agent 来做。</div>
-            <div><Pill tone="accent" dot={false}>第 1 步</Pill> 员工电脑上要有 <b>Node.js</b> 和 <b>CodeBuddy CLI</b>（命令 <span className="mono">codebuddy</span> 能用）。上面的一键接入会检测，缺哪个就<b>询问是否安装</b>（不会静默安装）；在没有交互终端的环境里（比如让 agent 代跑）不会装，只打印安装命令。想自己装，按下面的命令：</div>
-            <Code label={quickOs === 'Windows' ? '安装 Node.js（PowerShell）' : '安装 Node.js（macOS 用 Homebrew；Linux 用系统包管理器或 nodejs.org）'} text={quickOs === 'Windows' ? 'winget install -e --id OpenJS.NodeJS.LTS' : 'brew install node'} />
-            <Code label="安装 CodeBuddy CLI（装好 Node.js 后；Windows 装完要重新打开终端）" text={quickOs === 'Windows' ? 'npm install -g @tencent-ai/codebuddy-code' : 'npm install -g --prefix ~/.local @tencent-ai/codebuddy-code'} />
-            <Code label="想让一键接入不再询问、直接装好（PowerShell 先设环境变量，再运行一键接入命令）" text={quickOs === 'Windows' ? '$env:HUB_INSTALL_TOOLS = "yes"' : 'export HUB_INSTALL_TOOLS=yes'} />
-            <div>装好后<b>再运行一次上面的一键接入</b>——它会自动把中枢的 MCP 和<b>岗位包允许的模型</b>写进 CodeBuddy（<span className="mono">~/.codebuddy/.mcp.json</span>、<span className="mono">models.json</span>），模型调用走中枢的模型网关，按人计量。</div>
-            <div><Pill tone="accent" dot={false}>第 2 步</Pill> 在工作台「连接与设置」里选 <b>CLI 模式</b>，适配器选 CodeBuddy Code，并开启浏览器控制。</div>
-            <div><Pill tone="accent" dot={false}>第 3 步</Pill> 第一次打开小红书会停在登录页，请员工<b>本人</b>在弹出的浏览器里扫码登录（agent 不会碰密码和验证码）。</div>
-            <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
-            <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。接入时会在 CodeBuddy 的设置里放行中枢工具的无人值守调用（否则后台运行没有权限弹窗会被拒绝）。CodeBuddy 每次请求带的上下文很大，岗位包的月度模型额度会消耗得比较快，额度不足时调用会被模型网关拒绝，请在「岗位包」页按需调高。</p>
+            <div><Pill tone="accent" dot={false}>1</Pill> 上面的一键脚本装好 Node.js 和 CodeBuddy CLI（询问时选「是」）；装好后<b>再运行一次</b>脚本，写好中枢的 MCP 和岗位包允许的模型。</div>
+            <div><Pill tone="accent" dot={false}>2</Pill> 打开小红书工作台，在「连接与设置」里点 CodeBuddy 旁边的「测试并使用」。</div>
+            <div><Pill tone="accent" dot={false}>3</Pill> 回到 WorkBuddy，对它说「为小红书工作台开启浏览器控制」。第一次打开小红书会停在登录页，请员工<b>本人</b>扫码登录（agent 不碰密码和验证码）。</div>
           </div>
         </Panel>
 
+        <a onClick={() => setManual(!manual)} style={{ alignSelf: 'flex-start' }}>
+          {manual ? '收起' : '管理员排错与手动配置（员工连不上、一键命令用不了、要接 Hermes 或 HTTP 接口时展开）'}
+        </a>
+        {manual && (<>
         <Panel title="管理员检查：中枢这台机器" sub="员工连不上时先看这里">
           <div className="stack-sm">
             <div>防火墙放行端口 <span className="mono">8088</span>（控制台 / 登录入口）、<span className="mono">8200</span>（MCP）、<span className="mono">8000</span>（Casdoor 登录页），网络类型设为「专用网络」，只对局域网开放。</div>
@@ -159,10 +159,15 @@ export default function Connect() {
           </div>
         </Panel>
 
-        <a onClick={() => setManual(!manual)} style={{ alignSelf: 'flex-start' }}>
-          {manual ? '收起手动配置' : '手动配置（一键命令用不了时，或要接 Hermes、HTTP 接口）'}
-        </a>
-        {manual && (<>
+        <Panel title="手动安装 Node.js 和 CodeBuddy CLI（一键脚本没装成功时）" extra={<Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />}>
+          <div className="stack-sm">
+            <Code label={quickOs === 'Windows' ? '安装 Node.js（PowerShell）' : '安装 Node.js（macOS 用 Homebrew；Linux 用系统包管理器或 nodejs.org）'} text={quickOs === 'Windows' ? 'winget install -e --id OpenJS.NodeJS.LTS' : 'brew install node'} />
+            <Code label="安装 CodeBuddy CLI（装好 Node.js 后；Windows 装完要重新打开终端）" text={quickOs === 'Windows' ? 'npm install -g @tencent-ai/codebuddy-code' : 'npm install -g --prefix ~/.local @tencent-ai/codebuddy-code'} />
+            <Code label="想让一键脚本不再询问、直接装好（先设环境变量，再运行一键命令）" text={quickOs === 'Windows' ? '$env:HUB_INSTALL_TOOLS = "yes"' : 'export HUB_INSTALL_TOOLS=yes'} />
+            <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
+            <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。CodeBuddy 每次请求带的上下文很大，月度模型额度会消耗得比较快，额度不足时请在「岗位包」页调高。</p>
+          </div>
+        </Panel>
         <Panel
           title="员工电脑上的准备（一次）"
           extra={
@@ -175,7 +180,7 @@ export default function Connect() {
           <div className="stack-sm">
             <div><Pill tone="accent" dot={false}>1</Pill> 安装 uv（Python 运行器），下载接入器</div>
             <Code label={os === 'Windows' ? 'PowerShell' : '终端'} text={install} />
-            <div><Pill tone="accent" dot={false}>2</Pill> 登录：会打开浏览器，用员工本人的账号登录（生产环境为钉钉扫码）</div>
+            <div><Pill tone="accent" dot={false}>2</Pill> 登录：会打开浏览器，用员工本人的账号登录</div>
             <Code label={os === 'Windows' ? 'PowerShell' : '终端'} text={login} />
           </div>
         </Panel>
@@ -225,8 +230,6 @@ export default function Connect() {
             <div><b>登录时提示「登录状态校验失败」</b>：登录页放了一会儿，或同时开了多个登录页。关掉它，回到 <span className="mono">{d.hub_url}</span> 重新进入再登录一次，不要用旧的登录页。</div>
             <div><b>密码输对了还是登录失败</b>：连续输错 5 次会被锁定 15 分钟，等一会儿再试；或请管理员在「成员与组织」页重置密码。</div>
             <div><b>提示「账号已被停用」</b>：账号被管理员停用了，请联系管理员启用。</div>
-            <div><b>让 WorkBuddy 开浏览器被拒绝</b>：工作台对桌面 agent 只开放收件箱模式，不允许开浏览器，这是设计。要自动操作浏览器，改用上面的 CodeBuddy CLI（CLI 模式）。</div>
-            <div><b>一键接入提示 Node.js / CodeBuddy CLI 未安装</b>：Node.js 用来打开公司应用（如小红书工作台），CodeBuddy CLI 只有工作台里的浏览器自动化需要，只用 WorkBuddy 的话可以不装。按上面「要让 agent 控制浏览器」那一节的命令安装即可。</div>
             <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
             <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>

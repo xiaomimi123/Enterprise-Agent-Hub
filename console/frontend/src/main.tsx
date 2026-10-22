@@ -19,6 +19,7 @@ import UsagePage from './pages/Usage'
 import WorkPage from './pages/Work'
 import OrgPage from './pages/Org'
 import ProposalsPage from './pages/Proposals'
+import HealthPage from './pages/Health'
 import { ThemeProvider } from './theme'
 
 createRoot(document.getElementById('root')!).render(
@@ -43,6 +44,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="proposals" element={<ProposalsPage />} />
               <Route path="work" element={<WorkPage />} />
               <Route path="usage" element={<UsagePage />} />
+              <Route path="health" element={<HealthPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

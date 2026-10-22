@@ -275,6 +275,30 @@ export interface WorkItem {
   id: number; user_name: string; display_name: string; role: string; kind: string; title: string
   status: string; progress: number; link: string; note: string; source: string; updated_at: string
 }
+// 应用健康（控制台「应用健康」页，只有管理员能看）
+export interface HealthRate { total: number; ok: number; rate: number | null }
+export interface HealthCode {
+  code: string; label: string; fix: string; count: number; people: number; devices: number
+  stages: Record<string, number>; os: Record<string, number>; agents: Record<string, number>; versions: Record<string, number>
+  last_at: string; sample: string
+}
+export interface HealthDevice {
+  user_name: string; display_name: string; device_id: string; os: string; os_version: string; arch: string
+  agent: string; agent_version: string; connector_version: string; app_version: string
+  last_at: string; last_ok_at: string | null; last_fail_at: string | null; last_code: string; fails: number; failing: boolean
+}
+export interface HealthSummary {
+  days: number
+  totals: { events: number; fails: number; people: number; devices: number; fail_people: number; install: HealthRate; login: HealthRate; launch: HealthRate }
+  codes: HealthCode[]
+  devices: HealthDevice[]
+  catalog: Record<string, { label: string; fix: string }>
+  apps?: [string, string][]
+}
+export interface HealthEvent {
+  stage: string; stage_label: string; ok: boolean; code: string; label: string; fix: string; message: string
+  app_id: string; app_version: string; agent: string; agent_version: string; os: string; at: string
+}
 export interface WorkReport {
   days: number; since: string; generated_at: string; digest: string
   totals: { people: number; active_people: number; items: WorkCounts; images: number; videos: number; calls: number; denied: number }
@@ -558,4 +582,10 @@ export const api = {
   setBosses: (users: string[]) => request<{ bosses: string[] }>('/org/bosses', { method: 'PUT', body: JSON.stringify({ users }) }),
   workReport: (days = 7) => request<WorkReport>(`/work/report?days=${days}`),
   usage: (days = 30) => request<Usage>(`/usage?days=${days}`),
+  healthSummary: (days = 7, app = '') => {
+    const [appId, ver] = app ? app.split('@') : ['', '']
+    return request<HealthSummary>(`/health/summary?days=${days}${appId ? `&app_id=${encodeURIComponent(appId)}` : ''}${ver ? `&app_version=${encodeURIComponent(ver)}` : ''}`)
+  },
+  healthDevice: (user: string, device: string, days = 7) =>
+    request<{ events: HealthEvent[] }>(`/health/device?user_name=${encodeURIComponent(user)}&device_id=${encodeURIComponent(device)}&days=${days}`),
 }

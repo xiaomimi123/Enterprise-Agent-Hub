@@ -41,6 +41,24 @@
         "8200"
       ],
       "port": 8200
+    },
+    {
+      "name": "console-api-demo",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "cd /d console\\backend&& set HUB_CONSOLE_MODE=demo&& set PYTHONUTF8=1&& .venv\\Scripts\\python -m uvicorn app.main:app --port 8110"
+      ],
+      "port": 8110
+    },
+    {
+      "name": "console-web-demo",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set HUB_API=http://localhost:8110&& npm --prefix console/frontend run dev -- --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

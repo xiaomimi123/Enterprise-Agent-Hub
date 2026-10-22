@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import accounts, app_access, apps, content, db, policy, skillstore, work
+from . import accounts, app_access, apps, content, db, health, policy, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -177,6 +177,26 @@ def work_report(body: WorkReportBody, authorization: str | None = Header(default
     p = policy.Principal(org=c["owner"], user_name=c["name"], display_name=c.get("displayName") or c["name"],
                          dept=policy.dept_from_groups(c.get("groups")), channel=policy.OFFICIAL)
     return work.report_batch(p, (x_hub_trace_id or "").strip()[:64] or f"work-{uuid.uuid4().hex[:10]}", f"应用:{body.app_id}", body.items)
+
+
+class HealthBody(BaseModel):
+    events: list  # 不限定元素类型：一条坏数据只跳过它自己，不让整批 422（接入器遇到 4xx 会丢掉整批）
+
+
+@router.post("/health")
+def app_health(body: HealthBody, authorization: str | None = Header(default=None)):
+    """接入器转发本机记下的安装 / 登录 / 打开应用 / 运行结果（应用健康）。单批 ≤ 50 条，格式不对的条目跳过；每人每小时有上限。"""
+    c = _verify_agent_token(authorization)
+    if len(body.events) > health.MAX_BATCH:
+        raise HTTPException(413, f"单批最多 {health.MAX_BATCH} 条")
+    if not health.allow(c["owner"], c["name"], len(body.events)):
+        raise HTTPException(429, "上报太频繁，稍后再试")
+    events = [e for e in (health.clean(x) for x in body.events) if e]
+    if not settings.database_url:
+        return {"ok": True, "saved": 0, "skipped": len(body.events)}
+    saved = db.add_health_events(c["owner"], c["name"], c.get("displayName") or c["name"], policy.dept_from_groups(c.get("groups")),
+                                 events, health.RETENTION_DAYS)
+    return {"ok": True, "saved": saved, "skipped": len(body.events) - saved}
 
 
 @router.post("/enroll")

@@ -23,6 +23,7 @@
 | &nbsp;&nbsp;`kbstore.py` / `kb_api.py` | 知识库文档（数据库里带版本，同步到 RAGFlow），见 [docs/knowledge.md](docs/knowledge.md) |
 | &nbsp;&nbsp;`skillstore.py` / `skills_api.py` | 技能库（数据库里带版本，主管本部门直接生效、全公司审核），见 [docs/skills.md](docs/skills.md) |
 | &nbsp;&nbsp;`work.py` | 工作成果上报与汇总（看板、`team_report`），见 [docs/work-report.md](docs/work-report.md) |
+| &nbsp;&nbsp;`health.py` / `health_api.py` | 应用健康：员工电脑上的报错自动回传、错误码目录、去隐私、管理员看板，见 [docs/app-health.md](docs/app-health.md) |
 | &nbsp;&nbsp;`newapi.py` / `model_upstreams.py` | 模型网关客户端（员工 key、渠道、模型价格）/ 对话模型上游 |
 | &nbsp;&nbsp;`generation.py` / `gpu.py` | 出图出视频统一入口 / 任务队列与调度（本机 ComfyUI、第三方 API、H3 网关三个分支） |
 | &nbsp;&nbsp;`imageapi.py` / `h3gateway.py` | 第三方出图 API / H3 生成网关（配置存数据库，密钥加密） |
@@ -64,6 +65,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **不要对真实 `%APPDATA%` 跑接入器 `setup`**：它会往 Claude 桌面版配置里加 `enterprise-hub`。测试时用隔离的 `USERPROFILE` / `APPDATA`，或用 `HUB_INSTALL_DRYRUN=1`。
 - **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
 - **员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦**（`iex`、启动进程、计划任务、`reg.exe` 被拒，agent 退出时还会结束它拉起的后台程序）：首选让员工 Win+R 粘贴一行命令自己跑。接入器登录回调必须多线程（浏览器会预连接，单线程会卡死）；安装脚本刷新 PATH 只能合并不能覆盖，npm 用 `npm.cmd`，无 winget 走 Node.js 便携版。
+- **测试不要写员工真实的 `~/HubApps`**：接入器的应用根目录由 `HUB_APPS_ROOT` 指定，`tests/conftest.py` 已指向临时目录；新测试里涉及 `record_health` 的同样要隔离 `HOME` 和 `HUB_APPS`。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
 ## 接入新应用

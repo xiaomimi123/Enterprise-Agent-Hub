@@ -1,5 +1,5 @@
 import {
-  AppWindow, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, Lightbulb, Network, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
+  AppWindow, Activity, Backpack, Cpu, ChartPie, ChevronRight, ClipboardCheck, ClipboardList, Lightbulb, Network, LayoutDashboard, Library, LogOut, Menu, Moon, NotebookPen, Palette, Plug, Sun, Users,
 } from 'lucide-react'
 import { Drawer, Dropdown, Tooltip } from 'antd'
 import { useEffect, useState } from 'react'
@@ -41,6 +41,7 @@ const NAV = [
       { path: '/audit', icon: <ClipboardCheck />, label: '审计日志', badge: true, roles: ADMIN_BOSS },
       { path: '/tasks', icon: <Palette />, label: '生成任务', roles: ADMIN_BOSS },
       { path: '/usage', icon: <ChartPie />, label: '用量与成本', roles: ADMIN_BOSS },
+      { path: '/health', icon: <Activity />, label: '应用健康', roles: ['admin'] as Role[] },
     ],
   },
 ]
@@ -60,6 +61,7 @@ const TITLES: Record<string, [string, string]> = {
   '/audit': ['监管', '审计日志'],
   '/tasks': ['监管', '生成任务'],
   '/usage': ['监管', '用量与成本'],
+  '/health': ['监管', '应用健康'],
 }
 
 export default function ConsoleLayout() {

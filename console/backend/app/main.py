@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import agent_api, apps, auth, db, depts_api, gpu, kb_api, proposals_api, members_api, models_api, public_api, roles, skills_api, work
+from . import agent_api, apps, auth, db, depts_api, gpu, health_api, kb_api, proposals_api, members_api, models_api, public_api, roles, skills_api, work
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
@@ -261,4 +261,5 @@ api.include_router(depts_api.router)
 api.include_router(skills_api.router)
 api.include_router(kb_api.router)
 api.include_router(proposals_api.router)
+api.include_router(health_api.router)
 app.include_router(api)

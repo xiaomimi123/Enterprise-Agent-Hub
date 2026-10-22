@@ -265,6 +265,31 @@ CREATE INDEX IF NOT EXISTS work_items_updated ON work_items (org, updated_at DES
 -- 应用自动上报用的幂等键：同一个人、同一来源、同一个 key 只有一条，重复上报是更新
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ext_key TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS work_items_ext ON work_items (org, user_name, source, ext_key) WHERE ext_key <> '';
+
+-- 应用健康：员工电脑上安装 / 登录 / 打开应用 / 运行的结果（成功也记），只保留 7 天，见 health.py
+CREATE TABLE IF NOT EXISTS app_health_events (
+    id                BIGSERIAL PRIMARY KEY,
+    org               TEXT NOT NULL,
+    user_name         TEXT NOT NULL,
+    display_name      TEXT NOT NULL DEFAULT '',
+    dept              TEXT NOT NULL DEFAULT '',
+    device_id         TEXT NOT NULL DEFAULT '',
+    app_id            TEXT NOT NULL DEFAULT '',
+    app_version       TEXT NOT NULL DEFAULT '',
+    stage             TEXT NOT NULL,
+    ok                BOOLEAN NOT NULL,
+    code              TEXT NOT NULL,
+    message           TEXT NOT NULL DEFAULT '',
+    os                TEXT NOT NULL DEFAULT '',
+    os_version        TEXT NOT NULL DEFAULT '',
+    arch              TEXT NOT NULL DEFAULT '',
+    agent             TEXT NOT NULL DEFAULT '',
+    agent_version     TEXT NOT NULL DEFAULT '',
+    connector_version TEXT NOT NULL DEFAULT '',
+    at                TIMESTAMPTZ NOT NULL,
+    received_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_health_at ON app_health_events (org, at DESC);
 """
 
 PACK_FIELDS = ("name", "dept", "status", "description", "skills", "knowledge_bases", "tools", "models",
@@ -711,3 +736,43 @@ def set_dept_default(org: str, dept_id: str, role_pack_id: str | None) -> None:
                          "ON CONFLICT (org, dept_id) DO UPDATE SET role_pack_id = EXCLUDED.role_pack_id", (org, dept_id, role_pack_id))
         else:
             conn.execute("DELETE FROM dept_config WHERE org = %s AND dept_id = %s", (org, dept_id))
+
+
+# ---------------- 应用健康 ----------------
+
+HEALTH_COLS = ("org", "user_name", "display_name", "dept", "device_id", "app_id", "app_version", "stage", "ok", "code", "message",
+               "os", "os_version", "arch", "agent", "agent_version", "connector_version", "at")
+
+
+def add_health_events(org: str, user_name: str, display_name: str, dept: str, events: list[dict], keep_days: int) -> int:
+    """写入一批已清洗的事件，顺手删掉超过保留天数的旧事件。"""
+    rows = [{**e, "org": org, "user_name": user_name, "display_name": display_name, "dept": dept} for e in events]
+    with connect() as conn:
+        if rows:
+            with conn.cursor() as cur:
+                cur.executemany(f"INSERT INTO app_health_events ({', '.join(HEALTH_COLS)}) VALUES ({', '.join(f'%({k})s' for k in HEALTH_COLS)})", rows)
+        conn.execute("DELETE FROM app_health_events WHERE at < now() - make_interval(days => %s)", (keep_days,))
+    return len(rows)
+
+
+def health_events(org: str, days: int, app_id: str | None = None, app_version: str | None = None,
+                  user_name: str | None = None, device_id: str | None = None, limit: int = 20000) -> list[dict]:
+    """最近 days 天的事件，按时间倒序。按应用筛选时，接入器自身的事件（安装、登录，app_id 为空）也一并返回。"""
+    sql = "SELECT * FROM app_health_events WHERE org = %s AND at > now() - make_interval(days => %s)"
+    args: list = [org, days]
+    if app_id:
+        sql += " AND (app_id = %s OR app_id = '')"
+        args.append(app_id)
+    if app_version:
+        sql += " AND (app_version = %s OR app_id = '')"
+        args.append(app_version)
+    if user_name:
+        sql += " AND user_name = %s"
+        args.append(user_name)
+    if device_id is not None:
+        sql += " AND device_id = %s"
+        args.append(device_id)
+    sql += " ORDER BY at DESC, id DESC LIMIT %s"
+    args.append(limit)
+    with connect() as conn:
+        return conn.execute(sql, args).fetchall()

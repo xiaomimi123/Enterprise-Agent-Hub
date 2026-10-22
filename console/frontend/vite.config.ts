@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8100',
+      '/api': process.env.HUB_API ?? 'http://localhost:8100',  // 本机 8100 被占用时可用 HUB_API 指定后端地址
     },
   },
 })

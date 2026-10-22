@@ -1,0 +1,80 @@
+# 应用健康：员工电脑上的报错自动回传
+
+员工电脑上安装、登录、打开应用、自检和运行的结果，由接入器自动回传到中枢。管理员在控制台「监管 → 应用健康」页查看。这样排查时不用再靠员工的 agent 写排障文档转给管理员：哪个版本、哪种系统、哪个 agent 最常出什么错，直接看数据。
+
+## 怎么流动
+
+```
+接入器 / 安装脚本 / 应用  →  本机 ~/HubApps/logs/health*.jsonl  →  接入器批量转发  →  POST /api/agent/health  →  app_health_events 表  →  「应用健康」页
+```
+
+- **先写本机再转发**。断网时也能记，比如「连不上中枢」这类错误；换到能连通的网络、下次接入或打开应用时补报。
+- 转发按字节偏移记进度，复用工作成果 outbox 的转发逻辑（`_flush_jsonl`），重复转发不会重复入库。
+- MCP 桥运行时每 20 秒转发一次。接入完成、打开应用、`app-doctor` 之后也各转发一次。
+- 接入器、安装脚本、应用**各写各的文件**（`health.jsonl`、`health-<应用>.jsonl`），接入器转发 `logs/` 下所有 `health*.jsonl`。
+
+## 记什么
+
+| 阶段 | 什么时候记 |
+|---|---|
+| 接入（install） | `setup` 结束：配置好了几个 agent |
+| 登录（login） | `setup` 里的登录成功 / 失败（连不上中枢、超时、状态校验失败） |
+| 打开应用（launch） | 打开应用的结果（端口被占、下载失败、启动超时……） |
+| 自检（doctor） | 打开应用或 `app-doctor` 时缺少的能力（CodeBuddy CLI、系统浏览器、Node） |
+| 运行任务 / 运行（task / runtime） | 应用自己写（工作台 0.8.0 起） |
+
+**每条事件的字段（白名单）：** 时间、阶段、成功或失败、错误码、报错原文、应用和版本、设备号、系统和版本、CPU 架构、agent 名称和版本、接入器版本。
+
+- 成功也记，才算得出成功率。
+- **设备号**是本机随机生成的（`~/.hub-agent/device-id`），用来区分同一个人的两台电脑，不读任何硬件信息。
+- 同一个错误 10 分钟内只记一次，避免断网时每 20 秒的重试刷屏。
+
+## 隐私
+
+报错原文在**本机和中枢各去一次隐私**，然后截取 300 字：
+
+- 用户目录（`C:\Users\张三`、`/Users/lisi`）换成 `~`。
+- 令牌、密码、API Key、JWT、`sk-` 开头的密钥打码。
+- 邮箱、手机号打码。
+- 网址去掉参数。
+
+**绝不上报：** 提示词、对话、笔记正文、小红书账号名、Cookie。
+
+**默认开启。** 员工设置环境变量 `HUB_HEALTH=off` 即可关闭。
+
+## 错误码
+
+错误码目录在 `console/backend/app/health.py` 的 `CODES`。每个码配一句处理办法，控制台和员工本机显示同一句。接入器按报错原文归类（`hub_agent.py` 的 `classify`），归不了类的记为 `UNKNOWN`（未分类）。常见的未分类报错，应该补一个新码。
+
+| 码 | 含义 |
+|---|---|
+| `NET_UNREACHABLE` | 连不上中枢（网段不同、防火墙） |
+| `LOGIN_TIMEOUT` / `LOGIN_FAILED` | 登录超时 / 失败 |
+| `CMD_BLOCKED` | 命令被 agent 的安全策略拦（如 WorkBuddy 拦 `iex`、`Start-Process`） |
+| `FILE_BLOCKED` | 写文件被拒 |
+| `PROC_KILLED` | 进程被 agent 结束 |
+| `NODE_MISSING` / `NPM_FAILED` / `CLI_MISSING` / `CLI_NOT_LOGGED_IN` / `BROWSER_MISSING` | 缺运行环境或工具 |
+| `PORT_IN_USE` / `APP_DOWNLOAD_FAILED` / `APP_LAUNCH_FAILED` | 打开应用失败 |
+| `ACCESS_LOCKED` | 工作台的自动访问锁在生效 |
+
+## 中枢侧
+
+- **上报接口 `POST /api/agent/health`。**
+  - 用员工令牌鉴权，单批不超过 50 条，超过返回 413。
+  - 每人每小时最多 1000 条，超过返回 429。
+  - 格式不对、阶段不认识、超过保留期的条目**只跳过它自己**，不会让整批失败。
+- **保留期。** 只保留 **7 天**：每次写入时顺手删掉 7 天前的事件。
+- **控制台接口。**
+  - `GET /api/health/summary?days=1..7&app_id=&app_version=`：顶部数字、常见报错、设备列表。
+  - `GET /api/health/device?user_name=&device_id=`：一台设备的时间线。
+  - **只有管理员**能访问：老板和主管的白名单里没有这两个接口。
+- **演示模式。** 没有数据库时，页面显示一组示例数据。
+
+## 验证
+
+- **单元测试：** `tests/test_health.py` 覆盖去隐私、清洗、限流、汇总和演示数据；`tests/test_hub_agent.py` 覆盖本机记录、开关、归类、转发、打开应用的记录。
+- **端到端：** 运行下面这条命令，共 19 项。它用真实的 Casdoor 登录，加载容器里的真实 `hub_agent.py` 来记录和转发事件；验证断网不推进、补发、拒绝情况、去隐私、汇总、筛选、设备时间线、老板被拒、7 天清理。测试账号和数据会自动删除。
+
+```bash
+docker compose exec -T console-api python - < ../console/backend/scripts/e2e_health.py
+```

@@ -507,3 +507,74 @@ def test_browser_login_survives_browser_preconnects(monkeypatch):
     monkeypatch.setattr(hub_agent.httpx, "post", lambda *a, **k: Resp())
     tok = hub_agent.browser_login("http://hub", {"casdoor_url": "http://cas", "client_id": "cid", "redirect_uri": f"http://127.0.0.1:{port}/callback"})
     assert tok["access_token"] == "tok" and seen["callback"] == 200 and seen["favicon"] == 200   # favicon 不会被当成回调结果
+
+
+# ---------------- 应用健康：本机事件队列 ----------------
+
+@pytest.fixture
+def health_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_agent, "HOME", tmp_path / "hub-agent")
+    monkeypatch.setattr(hub_agent, "HUB_APPS", tmp_path / "HubApps")
+    monkeypatch.delenv("HUB_HEALTH", raising=False)
+    return tmp_path
+
+
+def _events(root):
+    f = root / "HubApps" / "logs" / "health.jsonl"
+    return [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines()] if f.exists() else []
+
+
+def test_health_record_redacts_classifies_and_dedupes(health_home):
+    assert hub_agent.record_health("login", False, None, "连不上中枢 http://192.168.0.41:8088：ConnectError C:\\Users\\张三\\x token=abc", now=1000.0)
+    assert not hub_agent.record_health("login", False, None, "连不上中枢 http://192.168.0.41:8088：ConnectError C:\\Users\\张三\\x token=abc", now=1100.0)  # 10 分钟内同一错误只记一次
+    assert hub_agent.record_health("login", False, None, "连不上中枢 http://192.168.0.41:8088：ConnectError C:\\Users\\张三\\x token=abc", now=1000.0 + 601)
+    assert hub_agent.record_health("launch", True, app_id="xhs-workbench", app_version="0.7.9", now=1700.0)
+    evs = _events(health_home)
+    assert len(evs) == 3
+    e = evs[0]
+    assert e["code"] == "NET_UNREACHABLE" and "张三" not in e["message"] and "abc" not in e["message"] and "~\\x" in e["message"]
+    assert e["device_id"] == evs[2]["device_id"] and len(e["device_id"]) == 32  # 本机固定的随机设备号
+    assert evs[2] == {**evs[2], "ok": True, "code": "OK", "message": "", "app_id": "xhs-workbench"}
+    assert {"os", "os_version", "arch", "connector_version", "agent", "at"} <= set(e)
+
+
+def test_health_off_switch(health_home, monkeypatch):
+    monkeypatch.setenv("HUB_HEALTH", "off")
+    assert not hub_agent.record_health("login", False, None, "x")
+    assert _events(health_home) == []
+
+
+def test_health_classify():
+    c = hub_agent.classify
+    assert c("Command blocked for security: iex (alias for Invoke-Expression)") == "CMD_BLOCKED"
+    assert c("登录未完成：超时或状态不匹配") == "LOGIN_TIMEOUT"
+    assert c("Error: listen EADDRINUSE: address already in use 127.0.0.1:17890") == "PORT_IN_USE"
+    assert c("这个应用需要 Node.js 20 或更高版本（本机没有检测到 Node.js）") == "NODE_MISSING"
+    assert c("校验失败：应用包的 SHA-256 与中枢发布的不一致") == "APP_DOWNLOAD_FAILED"
+    assert c("奇怪的错误") == "UNKNOWN" and c("奇怪的错误", "APP_LAUNCH_FAILED") == "APP_LAUNCH_FAILED"
+
+
+class _Resp:
+    def __init__(self, code):
+        self.status_code = code
+
+
+def test_health_flush_keeps_offset_on_failure_and_reads_all_files(health_home):
+    hub_agent.record_health("launch", True, now=1.0)
+    hub_agent.record_health("launch", False, "PORT_IN_USE", "端口被占用", now=2.0)
+    other = health_home / "HubApps" / "logs" / "health-xhs-workbench.jsonl"  # 应用自己写的文件
+    other.write_text(json.dumps({"stage": "runtime", "ok": False, "code": "ACCESS_LOCKED"}) + "\n" + '{"half": ', encoding="utf-8")
+    sent = []
+    assert hub_agent.flush_health({}, "http://hub", post=lambda stem, items: (_ for _ in ()).throw(OSError("down"))) == 0  # 断网：不推进
+    assert hub_agent.flush_health({}, "http://hub", post=lambda stem, items: sent.append(items) or _Resp(200)) == 3
+    assert sum(len(b) for b in sent) == 3  # 半行没写完的不发
+    assert hub_agent.flush_health({}, "http://hub", post=lambda stem, items: sent.append(items) or _Resp(200)) == 0  # 不重复发
+
+
+def test_report_app_event_records_launch_and_missing(health_home, monkeypatch):
+    monkeypatch.setattr(hub_agent.httpx, "post", lambda *a, **k: _Resp(200))
+    ticket = {"app_id": "xhs-workbench", "version": "0.7.9"}
+    hub_agent.report_app_event({"access_token": "t"}, "http://hub", ticket, {"ok": True, "url": "http://127.0.0.1:17890", "missing": ["CodeBuddy CLI", "系统浏览器"]})
+    hub_agent.report_app_event({"access_token": "t"}, "http://hub", ticket, {"ok": False, "reason": "启动超时（60 秒）"})
+    evs = _events(health_home)
+    assert [(e["stage"], e["code"]) for e in evs] == [("launch", "OK"), ("doctor", "CLI_MISSING"), ("doctor", "BROWSER_MISSING"), ("launch", "APP_LAUNCH_FAILED")]

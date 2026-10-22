@@ -42,13 +42,14 @@ import urllib.parse
 import uuid
 import zipfile
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 import yaml
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -76,7 +77,11 @@ def info(msg: str) -> None:
     print(f"\033[36m›\033[0m {msg}", file=_LOG["stream"] or sys.stdout)
 
 
+_LAST_FAIL = {"msg": ""}
+
+
 def fail(msg: str) -> None:
+    _LAST_FAIL["msg"] = msg  # 应用健康：登录 / 接入失败时据此判断错误码
     print(f"\033[31m✗\033[0m {msg}", file=sys.stderr)
     sys.exit(1)
 
@@ -162,7 +167,10 @@ def browser_login(hub: str, cfg: dict) -> dict:
 
 def cmd_login(args) -> None:
     hub = args.hub.rstrip("/")
-    r = httpx.get(f"{hub}/api/agent/config", timeout=10)
+    try:
+        r = httpx.get(f"{hub}/api/agent/config", timeout=10)
+    except httpx.HTTPError as e:
+        fail(f"连不上中枢 {hub}：{e}。请确认这台电脑和中枢在同一网络：浏览器打开 {hub} 能出登录页再重试。")
     if r.status_code != 200:
         fail(f"连不上中枢 {hub}：{r.text[:200]}")
     cfg = r.json()
@@ -491,13 +499,18 @@ def cmd_setup(args) -> None:
     hub = args.hub.rstrip("/")
     clients = agent_clients()  # 先探测：装了 CodeBuddy 命令行会在这里建好目录，下面的同步才会写入中枢模型
     creds = json.loads(CREDS.read_text(encoding="utf-8")) if CREDS.exists() else {}
-    if creds.get("hub") != hub or not creds.get("refresh_token"):
-        cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
-    else:
-        try:
-            cmd_sync()
-        except SystemExit:  # 续期令牌过期：重新登录
+    try:
+        if creds.get("hub") != hub or not creds.get("refresh_token"):
             cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
+        else:
+            try:
+                cmd_sync()
+            except SystemExit:  # 续期令牌过期：重新登录
+                cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
+    except SystemExit:  # 登录失败：记下来（连不上中枢时只能留在本机，下次接入成功后再补报）
+        record_health("login", False, None, _LAST_FAIL["msg"])
+        raise
+    record_health("login", True)
     results = configure_agents(clients, find_uv(), str(Path(__file__).resolve()))
     print()
     for name, status in results:
@@ -505,6 +518,9 @@ def cmd_setup(args) -> None:
     if not shutil.which("codebuddy"):
         info("提示：要在小红书工作台里用浏览器自动化，需要先安装 CodeBuddy CLI（需要 Node.js）：npm install -g @tencent-ai/codebuddy-code ，装好后重新运行这条命令。只用 WorkBuddy 的话可以不装。")
     done = [n for n, s in results if s in ("已配置", "已是最新")]
+    record_health("install", bool(done), None if done else "UNKNOWN",
+                  "" if done else "没有检测到可配置的 agent（WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版）")
+    try_flush_health()
     if done:
         info(f"接入完成。请完全退出并重新打开 {'、'.join(done)}，在里面就能直接使用公司知识库、技能和出图出视频。")
     else:
@@ -855,6 +871,11 @@ def cmd_app_doctor(args, ask=None, run=subprocess.run) -> None:
         else:
             info(f"  已跳过。想自己装：{fix['text']}")
     pf = preflight(meta.get("requires") or {})
+    for c in pf["checks"]:
+        if c["id"] in ("agent_cli", "npx", "system_browser"):
+            record_health("doctor", c["ok"], None if c["ok"] else MISSING_CODES.get(c["label"], "UNKNOWN"),
+                          "" if c["ok"] else f"{c['label']}：{c['detail']}", args.app_id, meta.get("version", ""))
+    try_flush_health()
     f = write_capabilities(args.app_id, meta.get("version", ""), pf)
     notice = capability_notice(args.app_id, pf)
     info(notice or "所有能力都满足，应用里的对应功能已可用。")
@@ -963,22 +984,11 @@ def _outbox_items(chunk: bytes) -> list[dict]:
     return out
 
 
-def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) -> int:
-    """把应用写在本机 outbox 里的新成果转发给中枢，返回转发条数。
-    按字节偏移记进度（<app>.offset），只处理完整的行；网络 / 5xx 失败时不推进，下次重试；
-    中枢按 (人, 应用, key) 幂等，所以重复转发（比如两个桥同时在跑）只是更新。"""
-    if app_id:
-        files = [outbox_file(app_id)] if outbox_file(app_id).exists() else []
-    else:
-        files = sorted(outbox_dir().glob("*.jsonl")) if outbox_dir().is_dir() else []
-    post = post or (lambda aid, items: httpx.post(
-        f"{hub}/api/agent/work-report", timeout=15, json={"app_id": aid, "items": items},
-        headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")}))
+def _flush_jsonl(files: list[Path], send, parse, label: str, batch_size: int) -> int:
+    """把本机 jsonl 文件里的新行批量发给中枢，返回发出的条数。
+    按字节偏移记进度（<文件>.offset），只处理完整的行；网络 / 5xx / 401 / 429 失败时不推进，下次重试；其他 4xx 跳过这批，不卡住后面的。"""
     sent = 0
     for f in files:
-        aid = f.stem
-        if not APP_ID_RE.match(aid):
-            continue
         off_file = f.with_suffix(".offset")
         try:
             offset = int(off_file.read_text().strip() or 0) if off_file.exists() else 0
@@ -1000,20 +1010,20 @@ def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) ->
         batch, batch_bytes = [], 0
         for ln in lines + [None]:
             if ln is not None:
-                batch.extend(_outbox_items(ln))
+                batch.extend(parse(ln))
                 batch_bytes += len(ln)
-            if ln is None or len(batch) >= OUTBOX_BATCH:
+            if ln is None or len(batch) >= batch_size:
                 if batch:
                     try:
-                        r = post(aid, batch[:OUTBOX_BATCH])
+                        r = send(f.stem, batch[:batch_size])
                     except Exception as e:  # noqa: BLE001 网络不通：保持偏移，下次再试
-                        print(f"hub-agent: 转发成果失败：{e}", file=sys.stderr, flush=True)
+                        print(f"hub-agent: 转发{label}失败：{e}", file=sys.stderr, flush=True)
                         return sent
                     if r.status_code >= 500 or r.status_code in (401, 429):
-                        print(f"hub-agent: 转发成果失败：HTTP {r.status_code}", file=sys.stderr, flush=True)
+                        print(f"hub-agent: 转发{label}失败：HTTP {r.status_code}", file=sys.stderr, flush=True)
                         return sent
-                    sent += len(batch) if r.status_code == 200 else 0  # 其他 4xx：这批有问题，跳过，不卡住后面的
-                    batch = batch[OUTBOX_BATCH:]
+                    sent += len(batch[:batch_size]) if r.status_code == 200 else 0
+                    batch = batch[batch_size:]
                 pos += batch_bytes
                 batch_bytes = 0
                 try:
@@ -1021,6 +1031,20 @@ def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) ->
                 except OSError:
                     return sent
     return sent
+
+
+def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) -> int:
+    """把应用写在本机 outbox 里的新成果转发给中枢，返回转发条数。
+    中枢按 (人, 应用, key) 幂等，所以重复转发（比如两个桥同时在跑）只是更新。"""
+    if app_id:
+        files = [outbox_file(app_id)] if outbox_file(app_id).exists() else []
+    else:
+        files = sorted(outbox_dir().glob("*.jsonl")) if outbox_dir().is_dir() else []
+    files = [f for f in files if APP_ID_RE.match(f.stem)]
+    post = post or (lambda aid, items: httpx.post(
+        f"{hub}/api/agent/work-report", timeout=15, json={"app_id": aid, "items": items},
+        headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")}))
+    return _flush_jsonl(files, post, _outbox_items, "成果", OUTBOX_BATCH)
 
 
 def cmd_flush_outbox(args) -> None:
@@ -1036,12 +1060,158 @@ def _outbox_loop() -> None:
         try:
             creds = fresh_creds()
             flush_outbox(creds, creds["hub"])
+            flush_health(creds, creds["hub"])
         except (Exception, SystemExit) as e:  # noqa: BLE001 转发失败不影响桥
             print(f"hub-agent mcp: 转发成果失败：{e}", file=sys.stderr, flush=True)
 
 
+# ---------------- 应用健康：安装 / 登录 / 打开应用 / 自检的结果先写本机，再转发中枢 ----------------
+
+HUB_APPS = Path(os.environ.get("HUB_APPS_ROOT") or Path.home() / "HubApps")  # 应用根目录：runtime / apps / data / logs
+HEALTH_BATCH = 50
+HEALTH_DEDUPE_SECONDS = 600  # 同一个错误 10 分钟内只记一次（比如断网时每 20 秒的重试）
+_CLIENT = {"name": os.environ.get("HUB_AGENT_CLIENT", "")}  # 桥启动时由 --client 填上（WorkBuddy、CodeBuddy CLI……）
+
+# 本机先去一次隐私（中枢收到后还会再做一次）：用户目录换成 ~，令牌 / 邮箱 / 手机号打码，网址去掉参数
+_REDACT = [
+    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+[^\\/\s\"']+"), "~"),
+    (re.compile(r"/(?:Users|home)/[^/\s\"']+"), "~"),
+    (re.compile(r"(?i)\b(bearer|token|password|passwd|pwd|secret|api[_-]?key|access_token|refresh_token)\b(\s*[:=]\s*|\s+)\S+"), r"\1\2***"),
+    (re.compile(r"\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]*"), "***"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"), "sk-***"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "***@***"),
+    (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "1**********"),
+    (re.compile(r"(https?://[^\s?#\"']+)[?#][^\s\"']*"), r"\1"),
+]
+# 报错原文 → 错误码（中枢的错误码目录里有对应的处理办法）
+_CLASSIFY = [
+    (r"连不上中枢|ConnectError|ConnectTimeout|ConnectionRefused|No route to host|getaddrinfo|Name or service not known|无法连接", "NET_UNREACHABLE"),
+    (r"登录未完成.*超时|超时或状态不匹配", "LOGIN_TIMEOUT"),
+    (r"登录未完成|登录失败|状态校验失败|登录已过期", "LOGIN_FAILED"),
+    (r"blocked for security|Command blocked|被安全策略拦截", "CMD_BLOCKED"),
+    (r"EADDRINUSE|address already in use|端口.{0,10}(被)?占用", "PORT_IN_USE"),
+    (r"需要 Node\.js|没有检测到 Node|node: (command )?not found|'node' is not recognized", "NODE_MISSING"),
+    (r"npm ERR!|npm error", "NPM_FAILED"),
+    (r"下载失败|校验失败", "APP_DOWNLOAD_FAILED"),
+    (r"自动访问已锁定", "ACCESS_LOCKED"),
+    (r"EPERM|EACCES|Access is denied|拒绝访问|Permission denied", "FILE_BLOCKED"),
+]
+
+
+def health_redact(text: str) -> str:
+    text = str(text or "")
+    for rx, rep in _REDACT:
+        text = rx.sub(rep, text)
+    return text.strip()[:300]
+
+
+def classify(message: str, default: str = "UNKNOWN") -> str:
+    for pattern, code in _CLASSIFY:
+        if re.search(pattern, message or "", re.I):
+            return code
+    return default
+
+
+def health_file() -> Path:
+    return HUB_APPS / "logs" / "health.jsonl"
+
+
+def device_id() -> str:
+    """本机随机生成的设备号（区分同一个人的两台电脑），不读任何硬件信息。"""
+    f = HOME / "device-id"
+    try:
+        v = f.read_text(encoding="utf-8").strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    v = uuid.uuid4().hex
+    try:
+        write_private(f, v)
+    except OSError:
+        pass
+    return v
+
+
+def _env_info() -> dict:
+    system = {"Darwin": "macOS"}.get(platform.system(), platform.system())
+    ver = platform.mac_ver()[0] if system == "macOS" else platform.version()
+    return {"os": f"{system} {platform.release()}".strip() if system == "Windows" else system, "os_version": ver,
+            "arch": platform.machine().lower(), "connector_version": VERSION}
+
+
+def record_health(stage: str, ok: bool, code: str | None = None, message: str = "", app_id: str = "", app_version: str = "",
+                  now: float | None = None) -> bool:
+    """记一条应用健康事件到本机（不联网，断网也能记）；之后由 flush_health 转发中枢。HUB_HEALTH=off 时什么都不做。返回是否记下。"""
+    if os.environ.get("HUB_HEALTH", "").lower() in ("off", "0", "no"):
+        return False
+    now = now or time.time()
+    message = "" if ok else health_redact(message)
+    code = "OK" if ok else (code or classify(message))
+    if not ok:  # 同一个错误短时间内只记一次
+        state_file = HOME / "health-dedupe.json"
+        key = f"{stage}|{code}|{app_id}|{message[:80]}"
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            state = {}
+        state = {k: t for k, t in state.items() if now - t < HEALTH_DEDUPE_SECONDS}
+        if key in state:
+            return False
+        state[key] = now
+        try:
+            write_private(state_file, json.dumps(state))
+        except OSError:
+            pass
+    ev = {"at": datetime.fromtimestamp(now, timezone.utc).isoformat(), "stage": stage, "ok": bool(ok), "code": code, "message": message,
+          "app_id": app_id, "app_version": app_version, "device_id": device_id(), "agent": _CLIENT["name"], **_env_info()}
+    try:
+        f = health_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+def _health_items(line: bytes) -> list[dict]:
+    try:
+        d = json.loads(line.decode("utf-8", "replace"))
+    except ValueError:
+        return []
+    return [d] if isinstance(d, dict) else []
+
+
+def flush_health(creds: dict, hub: str, post=None) -> int:
+    """把本机 logs/health*.jsonl（接入器、安装脚本、应用各写各的文件）的新事件转发中枢。"""
+    d = HUB_APPS / "logs"
+    files = sorted(d.glob("health*.jsonl")) if d.is_dir() else []
+    post = post or (lambda _stem, items: httpx.post(
+        f"{hub}/api/agent/health", timeout=15, json={"events": items},
+        headers={"Authorization": f"Bearer {creds['access_token']}"}))
+    return _flush_jsonl(files, post, _health_items, "应用健康", HEALTH_BATCH)
+
+
+def try_flush_health() -> None:
+    """有登录凭证就顺手转发一次；任何失败都不影响正在做的事。"""
+    try:
+        creds = fresh_creds()
+        flush_health(creds, creds["hub"])
+    except (Exception, SystemExit):  # noqa: BLE001
+        pass
+
+
+MISSING_CODES = {"CodeBuddy CLI": "CLI_MISSING", "npx（运行 Playwright）": "NODE_MISSING", "系统浏览器": "BROWSER_MISSING"}
+
+
 def report_app_event(creds: dict, hub: str, ticket: dict, result: dict) -> None:
-    """把启动结果回报给中枢写审计；失败只写 stderr，不影响使用。"""
+    """把启动结果回报给中枢写审计；失败只写 stderr，不影响使用。同时记应用健康。"""
+    app_id, version = ticket.get("app_id", ""), ticket.get("version", "")
+    record_health("launch", bool(result.get("ok")), None if result.get("ok") else classify(result.get("reason", ""), "APP_LAUNCH_FAILED"),
+                  result.get("reason", ""), app_id, version)
+    for label in result.get("missing") or []:
+        record_health("doctor", False, MISSING_CODES.get(label, "UNKNOWN"), f"缺少能力：{label}", app_id, version)
     try:
         httpx.post(f"{hub}/api/agent/app-event", timeout=10,
                    headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ.get("HUB_TRACE_ID", "")},
@@ -1062,6 +1232,7 @@ def cmd_open_app(args) -> None:
     ticket = r.json()
     result = launch_app(ticket, creds["hub"], creds)
     report_app_event(creds, creds["hub"], ticket, result)
+    try_flush_health()
     if not result["ok"]:
         fail(result["reason"])
     info(result["message"])
@@ -1161,6 +1332,7 @@ def cmd_mcp(args=None) -> None:
     log_to_stderr()
     nested = bool(getattr(args, "nested", False)) or os.environ.get("HUB_BRIDGE_NESTED") == "1"
     client = getattr(args, "client", None) or "桌面 agent"
+    _CLIENT["name"] = client
     if not nested:
         try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
             cmd_sync()

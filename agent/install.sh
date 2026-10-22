@@ -9,10 +9,22 @@
 # 没有可交互的终端时（例如由 agent 执行本脚本）不会安装，只打印安装命令。
 set -e
 HUB='__HUB_URL__'
-DIR="$HOME/.hub-agent"
+DIR="${HUB_AGENT_HOME:-$HOME/.hub-agent}"
+ROOT="${HUB_APPS_ROOT:-$HOME/HubApps}"  # 应用根目录：apps / data / logs / bin（双击启动器），见 docs/app-health.md
+export HUB_APPS_ROOT="$ROOT"
 ORIG_PATH="$PATH"
 # 追加而不是前置：前置会让 ~/.local/bin 里别的工具链留下的 node（可能是 alpha 版）压过系统里正常的 Node
 export PATH="$PATH:$HOME/.local/bin"
+
+health() {  # health <错误码> <说明>：安装出错先记在本机，接入器登录成功后（这次或下次）转发到中枢的「应用健康」
+  [ "$HUB_INSTALL_DRYRUN" = "1" ] && return 0
+  case "$HUB_HEALTH" in off|0|no) return 0 ;; esac
+  mkdir -p "$ROOT/logs" "$DIR" 2>/dev/null || return 0
+  [ -s "$DIR/device-id" ] || (uuidgen 2>/dev/null || date +%s) | tr -d '-' | tr 'A-Z' 'a-z' > "$DIR/device-id"
+  msg=$(printf '%s' "$2" | sed -e "s#$HOME#~#g" -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n' | cut -c1-300)
+  printf '{"at":"%s","stage":"install","ok":false,"code":"%s","message":"%s","device_id":"%s","os":"%s","os_version":"%s","arch":"%s","connector_version":"install.sh"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$msg" "$(cat "$DIR/device-id")" "$(uname -s | sed 's/Darwin/macOS/')" "$(uname -r)" "$(uname -m)" >> "$ROOT/logs/health-install.jsonl"
+}
 
 confirm() {  # confirm "<名称>"：默认否；脚本是管道输入，所以从 /dev/tty 读回答
   case "$HUB_INSTALL_TOOLS" in yes) return 0 ;; no) return 1 ;; esac
@@ -75,12 +87,21 @@ fi
 
 echo "[3/4] 下载接入器……"
 mkdir -p "$DIR"
-curl -fsSL "$HUB/api/agent/hub_agent.py" -o "$DIR/hub_agent.py"
+if ! curl -fsSL "$HUB/api/agent/hub_agent.py" -o "$DIR/hub_agent.py"; then
+  health NET_UNREACHABLE "cannot download the connector from $HUB"
+  echo "      连不上中枢 $HUB。请确认这台电脑和中枢在同一网络：浏览器打开这个地址能出登录页再重试。"
+  exit 1
+fi
 
 if [ "$HUB_INSTALL_DRYRUN" = "1" ]; then echo "[4/4] [dry-run] 到此为止，不登录。"; exit 0; fi
 echo "[4/4] 登录（会打开浏览器）并配置本机的 agent……"
 echo "      提示：首次登录需要先把初始密码改成自己的新密码；浏览器没有自动打开时，把输出里的登录链接复制到浏览器。"
 PYTHONUNBUFFERED=1 "$UV" run "$DIR/hub_agent.py" setup --hub "$HUB"
+# 接入器为岗位包里的应用写了双击启动器：放一份到桌面。员工自己双击打开的应用不挂在 agent 下面，agent 退出不会把它一起结束
+for f in "$ROOT"/bin/open-*.command; do
+  [ -f "$f" ] || continue
+  ln -sf "$f" "$HOME/Desktop/$(basename "$f")" 2>/dev/null && echo "已在桌面放了启动器：$(basename "$f")（双击打开应用）"
+done
 if command -v codebuddy >/dev/null 2>&1 || [ -x "$HOME/.local/bin/codebuddy" ]; then
   echo ""
   echo "CodeBuddy CLI 提示：浏览器自动化还需要它自己的账号登录一次：终端运行 codebuddy，输入 /login。"

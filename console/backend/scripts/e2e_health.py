@@ -129,7 +129,11 @@ try:
     boss = console_login("zz-test-boss", pw["zz-test-boss"])
     check("老板访问应用健康被拒（403）", boss.get("/api/health/summary").status_code == 403)
 
-    # 6. 只保留 7 天：写入新一批时清掉 7 天前的
+    # 6. 领取配置时带回岗位包里能打开的应用（接入器据此生成双击启动器）
+    en = httpx.post(f"{HUB}/api/agent/enroll", headers=h).json()
+    check("领取配置带回应用列表（id + 名称）", isinstance(en.get("apps"), list) and all({"id", "name"} <= set(x) for x in en["apps"]), en.get("apps"))
+
+    # 7. 只保留 7 天：写入新一批时清掉 7 天前的
     with db.connect() as c:
         c.execute("INSERT INTO app_health_events (org, user_name, stage, ok, code, at) VALUES (%s, 'zz-test-emp', 'install', true, 'OK', now() - interval '8 days')", (org,))
     httpx.post(f"{HUB}/api/agent/health", headers=h, json={"events": [{"stage": "install", "ok": True, "device_id": device}]})

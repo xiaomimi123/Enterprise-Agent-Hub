@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import json
 import stat
 import subprocess
 import zipfile
@@ -136,6 +137,7 @@ def test_fetch_verified_ok_and_mismatch(tmp_path):
 
 def test_app_dir_rejects_bad_ids_and_versions(tmp_path, monkeypatch):
     monkeypatch.setattr(ha, "HOME", tmp_path)
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path)  # 新装的应用放应用根目录：测试里让它和 HOME 是同一个临时目录
     assert ha.app_dir("xhs-workbench", "0.6.1") == tmp_path / "apps" / "xhs-workbench" / "0.6.1"
     for bad in ("../x", "a/b", "", "A B"):
         with pytest.raises(ValueError):
@@ -147,6 +149,7 @@ def test_app_dir_rejects_bad_ids_and_versions(tmp_path, monkeypatch):
 def test_prune_keeps_newest_two_versions(tmp_path, monkeypatch):
     import os
     monkeypatch.setattr(ha, "HOME", tmp_path)
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path)  # 新装的应用放应用根目录：测试里让它和 HOME 是同一个临时目录
     for i, v in enumerate(["0.5.0", "0.6.0", "0.6.1"]):
         d = ha.app_dir("xhs", v)
         d.mkdir(parents=True)
@@ -193,6 +196,7 @@ class Recorder:
 def home(tmp_path, monkeypatch):
     h = tmp_path / "home"
     monkeypatch.setattr(ha, "HOME", h)
+    monkeypatch.setattr(ha, "HUB_APPS", h)
     monkeypatch.setattr(ha, "find_uv", lambda: "/usr/bin/uv")
     return h
 
@@ -218,6 +222,10 @@ def test_launch_happy_path(tmp_path, home):
     assert kw["cwd"] == str(home / "apps" / "xhs-workbench" / "0.6.1")
     assert kw["env"]["HUB_MCP_SERVERS_FILE"] == str(home / "hub-mcp.json") and "HUB_TRACE_ID" in kw["env"]
     assert kw["env"]["HUB_WORK_OUTBOX"] == str(home / "outbox" / "xhs-workbench.jsonl") and (home / "outbox").is_dir()   # 应用把成果写到这里
+    # 应用根目录的约定：数据在根目录下（agent 可读写），访问锁等状态在根目录之外（HOME 下），运行错误写 logs/health-<应用>.jsonl
+    assert kw["env"]["HUB_APP_DATA_DIR"] == str(home / "data" / "xhs-workbench")
+    assert kw["env"]["HUB_APP_STATE_DIR"] == str(home / "state" / "xhs-workbench")
+    assert kw["env"]["HUB_HEALTH_OUTBOX"] == str(home / "logs" / "health-xhs-workbench.jsonl")
     assert any(c[2:] == ["setup"] for c, _ in run.calls)                      # 先 setup 再 start
     cfg = json.loads((home / "hub-mcp.json").read_text(encoding="utf-8"))["mcpServers"]["enterprise-hub"]
     assert cfg["command"] == "/usr/bin/uv" and "--nested" in cfg["args"] and cfg["args"][:1] == ["run"]
@@ -398,3 +406,58 @@ def test_parse_response_handles_json_and_sse():
     r_sse = httpx.Response(200, content=f"event: message\ndata: {body}\n\n".encode(), headers={"content-type": "text/event-stream"})
     assert ha.parse_response(r_json) == ha.parse_response(r_sse) == [mcp_result("hi")]
     assert ha.parse_response(httpx.Response(202)) == []
+
+
+
+# ---------------- 应用根目录（~/HubApps） ----------------
+
+def test_apps_base_keeps_legacy_installs_and_uses_root_for_new(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "HOME", tmp_path / "hub-agent")
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path / "HubApps")
+    assert ha.app_dir("xhs-workbench", "0.7.9") == tmp_path / "HubApps" / "apps" / "xhs-workbench" / "0.7.9"  # 新装
+    (tmp_path / "hub-agent" / "apps" / "xhs-workbench" / "0.7.5").mkdir(parents=True)
+    assert ha.apps_base() == tmp_path / "hub-agent" / "apps"  # 已经在旧位置装过：保持不动
+
+
+def test_runtime_node_preferred_and_put_first_on_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path)
+    assert ha.node_bin() == "node" and ha.with_runtime_path({"PATH": "x"}) == {"PATH": "x"}
+    node_dir = tmp_path / "runtime" / "node" if ha.sys.platform == "win32" else tmp_path / "runtime" / "node" / "bin"
+    node_dir.mkdir(parents=True)
+    (node_dir / ("node.exe" if ha.sys.platform == "win32" else "node")).write_text("")
+    assert ha.node_bin().startswith(str(node_dir))
+    assert ha.with_runtime_path({"PATH": "x"})["PATH"].split(ha.os.pathsep) == [str(node_dir), "x"]
+
+
+def test_register_app_root_in_workbuddy_and_codebuddy(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setattr(ha.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(ha, "HUB_APPS", home / "HubApps")
+    wb = home / ".workbuddy" / "settings.json"
+    wb.parent.mkdir(parents=True)
+    wb.write_text(json.dumps({"sandbox": {"extraAllowWrite": ["~/.lark-cli"], "other": 1}, "keep": True}), encoding="utf-8")
+    cb = home / ".codebuddy"
+    cb.mkdir()
+    r = dict(ha.register_app_root(wb, cb))
+    assert "已把 ~/HubApps/" in r["WorkBuddy 目录权限"] and "已把" in r["CodeBuddy CLI 目录权限"]
+    d = json.loads(wb.read_text(encoding="utf-8"))
+    assert d["sandbox"]["extraAllowWrite"] == ["~/.lark-cli", "~/HubApps/"] and d["sandbox"]["other"] == 1 and d["keep"] is True
+    assert json.loads((cb / "settings.json").read_text(encoding="utf-8"))["permissions"]["additionalDirectories"] == [str(home / "HubApps")]
+    assert list(wb.parent.glob("settings.json.bak-hub-*"))  # 改之前备份
+    assert dict(ha.register_app_root(wb, cb)) == {"WorkBuddy 目录权限": "已登记", "CodeBuddy CLI 目录权限": "已登记"}  # 幂等
+    wb.write_text("{坏的", encoding="utf-8")
+    assert "格式有误" in dict(ha.register_app_root(wb, cb))["WorkBuddy 目录权限"] and wb.read_text(encoding="utf-8") == "{坏的"
+    # 没装的 agent 不碰
+    assert ha.register_app_root(tmp_path / "none" / "settings.json", tmp_path / "none-cb") == []
+
+
+def test_write_launchers(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path)
+    made = ha.write_launchers([{"id": "xhs-workbench", "name": "小红书运营工作台"}, {"id": "../bad", "name": "x"}], uv="C:/uv/uv.exe", script="C:/a/hub_agent.py")
+    assert [m["id"] for m in made] == ["xhs-workbench"]
+    f = ha.Path(made[0]["path"])
+    text = f.read_bytes().decode("utf-8")
+    assert "open-app xhs-workbench --browser" in text and '"C:/uv/uv.exe" run "C:/a/hub_agent.py"' in text
+    if ha.sys.platform == "win32":
+        assert text.startswith("@echo off\r\n") and "\r\r\n" not in text
+    assert json.loads((tmp_path / "bin" / "launchers.json").read_text(encoding="utf-8"))[0]["name"] == "小红书运营工作台"

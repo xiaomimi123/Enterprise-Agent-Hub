@@ -49,8 +49,25 @@ curl -fsSL http://<中枢>:8088/api/agent/install.sh | sh
 
 它会：没有 uv 就安装 → 下载接入器到 `~/.hub-agent/` → 打开浏览器用员工本人账号登录 → 检测本机的 WorkBuddy、Cursor、Claude 桌面版，把 `enterprise-hub` 写进它们的 MCP 配置（保留原有内容，改之前备份为 `*.bak-hub-<时间>`，格式有误的配置文件不覆盖）。重复运行是安全的。也可以把这条命令发给 WorkBuddy 这类能执行命令的 agent，让它自己接入。
 
-一键脚本还会检测 **Node.js**（打开公司应用如小红书工作台需要）和 **CodeBuddy CLI**（只有工作台里的浏览器自动化需要），缺哪个就**询问是否安装**，不会静默安装：Windows 用 `winget install -e --id OpenJS.NodeJS.LTS` 装 Node.js，macOS 用 `brew install node`，CodeBuddy CLI 用 `npm install -g @tencent-ai/codebuddy-code`（macOS / Linux 装到 `~/.local`，不需要 sudo）。环境变量：`HUB_INSTALL_TOOLS=yes` 不询问直接装、`HUB_INSTALL_TOOLS=no` 一律不装、`HUB_INSTALL_DRYRUN=1` 只打印会装什么（演练，不登录）；没有交互终端（比如让 agent 代跑）时不会安装，只打印命令。没有 winget 或没有管理员权限时，Node.js 改为下载官方便携版（SHA-256 校验，装到 `%LOCALAPPDATA%\Programs
-odejs`，只写用户 PATH）。装完 CodeBuddy CLI 后它需要自己的账号登录一次（运行 `codebuddy`，输入 `/login`）。
+**所有东西都装进应用根目录 `~/HubApps`**（Windows 是 `%USERPROFILE%\HubApps`，不需要管理员权限，不改系统）：
+
+```
+~/HubApps/
+├── runtime/node/   # Windows：官方便携版 Node.js LTS（SHA-256 校验）；CodeBuddy CLI 也装在这里（--prefix）
+├── runtime/uv/     # 本机没有 uv 时才装在这里
+├── apps/<应用>/<版本>/  # 新装的电脑放这里；已经在 ~/.hub-agent/apps 装过应用的保持不动
+├── data/<应用>/    # 应用数据（agent 可读写；已有 ~/XHS-Workbench 的工作台继续用原目录）
+├── logs/          # 应用健康事件：health.jsonl（接入器）、health-install.jsonl（安装脚本）、health-<应用>.jsonl（应用）
+└── bin/           # 岗位包里每个应用的双击启动器 open-<应用>.cmd / .command，和 launchers.json
+```
+
+- **Node.js**（Windows）：一律装便携版到 `runtime/node`，并把它加进用户 PATH 末尾（系统里已有的 Node 仍然优先）；打开应用时接入器把它放到应用 PATH 的最前面，每台电脑用的是同一套。macOS 暂时仍是检测后询问 `brew install node`。
+- **CodeBuddy CLI**：只有工作台里的浏览器自动化需要，**先询问再装**（`npm.cmd install -g --prefix runtime/node`），没有交互终端时跳过。装完要用它自己的账号登录一次：运行 `codebuddy`，输入 `/login`。
+- **登记目录**：接入时把 `~/HubApps` 登记为 WorkBuddy（`settings.json` 的 `sandbox.extraAllowWrite`）和 CodeBuddy CLI（`settings.json` 的 `permissions.additionalDirectories`）允许读写的目录，改之前备份。注意 WorkBuddy 拦命令（`iex`、`Start-Process`、Bash 里调 `powershell` 等）是写死在程序里的，登记目录解决不了，只能改写法或让员工自己运行。
+- **快捷方式**：为岗位包里的应用在桌面和开始菜单建快捷方式（macOS 在桌面放启动器）。员工双击打开的应用不挂在 agent 下面，agent 退出不会把它一起结束。
+- **登录凭证和应用的访问锁不在根目录里**（在 `~/.hub-agent/`），agent 被允许读写根目录也碰不到它们。
+
+环境变量：`HUB_INSTALL_TOOLS=yes` 不询问直接装 CodeBuddy CLI、`HUB_INSTALL_TOOLS=no` 一律不装可选项（含便携 Node）、`HUB_INSTALL_DRYRUN=1` 只打印会做什么（演练，不登录）、`HUB_HEALTH=off` 不记录应用健康。测试时用 `HUB_APPS_ROOT` / `HUB_AGENT_HOME` 指向临时目录、`HUB_INSTALL_NO_USER_PATH=1` 不改用户 PATH、`HUB_SHORTCUT_DIR` 指定快捷方式目录，不要动员工真实的目录。
 
 **推荐让员工自己运行**：Win+R 粘贴上面的命令（`-NoExit` 让窗口不会一闪而过）。让 WorkBuddy 等 agent 代跑会受它们沙箱限制（`iex`、启动进程、计划任务、`reg.exe` 被拦；agent 退出时会结束它拉起的后台程序），登录回调也可能因浏览器预连接卡住——后者已在接入器里修复（多线程回调、等待 10 分钟、登录链接单独成行）。
 
@@ -101,11 +118,11 @@ uv run hub_agent.py open-app xhs-workbench
 
 应用写在本机的工作成果会由 MCP 桥每 20 秒自动转发到中枢；不经过桥时可以手动转发：`uv run hub_agent.py flush-outbox [应用 id]`。
 
-**应用健康（0.5.0 起）**：接入、登录、打开应用、自检的结果（成功也记）先写到本机 `~/HubApps/logs/health.jsonl`，去掉用户名、令牌等隐私后由桥转发到中枢，管理员在「应用健康」页看。默认开启，设置 `HUB_HEALTH=off` 关闭。详见 [docs/app-health.md](../docs/app-health.md)。
-
 ```bash
 uv run hub_agent.py app-doctor xhs-workbench
 ```
+
+**应用健康（0.5.0 起）**：接入、登录、打开应用、自检的结果（成功也记）先写到本机 `~/HubApps/logs/health.jsonl`，去掉用户名、令牌等隐私后由桥转发到中枢，管理员在「应用健康」页看。默认开启，设置 `HUB_HEALTH=off` 关闭。详见 [docs/app-health.md](../docs/app-health.md)。
 
 ## 本机会生成的文件
 
@@ -114,11 +131,12 @@ uv run hub_agent.py app-doctor xhs-workbench
 ├── credentials.json     # 令牌（权限 600）
 ├── profile.json         # 最近一次领取的配置摘要
 ├── skills/<技能>/SKILL.md # 只包含岗位包里的技能，每次同步整体替换
-├── apps/<应用>/<版本>/   # open_app 下载并校验过的应用包（保留最近 2 个版本）
+├── apps/<应用>/<版本>/   # 旧位置的应用包（0.5.0 之前装过的电脑继续用；新装的在 ~/HubApps/apps）
 ├── hub-mcp.json         # 给应用里的 agent 用的 MCP 配置（嵌套桥）
 ├── capabilities/<应用>.json # 应用依赖的预检结果（不含密钥），应用据此禁用对应功能
 ├── outbox/<应用>.jsonl  # 应用写下的工作成果，MCP 桥每 20 秒转发到中枢（也可手动 flush-outbox）
 ├── device-id           # 本机随机设备号（应用健康用，不读硬件信息）
+├── state/<应用>/        # 应用的访问锁等状态（在应用根目录之外，agent 碰不到）
 └── hermes/              # 专用的 HERMES_HOME
     ├── config.yaml      # 模型 → New API，MCP → 中枢，技能目录 → 上面的 skills/
     └── .env             # HUB_AGENT_TOKEN、HUB_MODEL_KEY（权限 600）

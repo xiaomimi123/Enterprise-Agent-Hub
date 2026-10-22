@@ -149,10 +149,11 @@ ${agentPrompt}
 
         <Panel title="一键脚本会自动做什么">
           <div className="stack-sm">
-            <div>① 检测 <b>Node.js</b> 和 <b>CodeBuddy CLI</b>：缺哪个就<b>询问是否安装</b>，不会静默安装（没有交互终端时只打印命令）。</div>
+            <div>① 所有东西装进员工自己的 <span className="mono">%USERPROFILE%\HubApps</span>（不需要管理员权限）：自带便携版 <b>Node.js</b>（官方包，校验 SHA-256）；<b>CodeBuddy CLI</b> 会<b>先询问</b>再装（没有交互终端时跳过）。</div>
             <div>② 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
             <div>③ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
-            <div>④ 之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次。</div>
+            <div>④ 把 HubApps 登记为 WorkBuddy、CodeBuddy 允许读写的目录（原配置先备份），并为岗位包里的应用在桌面和开始菜单建快捷方式：<b>双击打开应用</b>，agent 退出也不会把它带走。</div>
+            <div>⑤ 之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
               <span className="muted">自己运行（Win+R 粘贴）的命令：</span>
               <Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />

@@ -249,4 +249,6 @@ def enroll(authorization: str | None = Header(default=None), x_hub_trace_id: str
         "model_mode": model_mode,
         "skills": skills,
         "max_action_level": p.pack["max_action_level"],
+        # 岗位包里能打开的应用：接入器据此在员工电脑上生成「打开某应用」的快捷方式（真正打开时仍逐次鉴权）
+        "apps": [{"id": a["id"], "name": a["name"]} for a in app_access.list_for(p)],
     }

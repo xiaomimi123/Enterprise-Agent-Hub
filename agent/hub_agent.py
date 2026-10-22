@@ -58,6 +58,10 @@ SKILLS_DIR = HOME / "skills"
 WORKBUDDY_SKILLS = Path(os.environ.get("HUB_WORKBUDDY_SKILLS", Path.home() / ".workbuddy" / "skills"))
 # CodeBuddy CLI：中枢下发的模型写进它的 models.json，名字带这个前缀作为标记，只管理带标记的条目，不碰员工自己加的模型
 CODEBUDDY_HOME = Path(os.environ.get("HUB_CODEBUDDY_HOME", Path.home() / ".codebuddy"))
+# 应用根目录：runtime（便携 Node、uv）/ apps（应用包）/ data（应用数据）/ logs（应用健康）/ bin（双击启动器）。
+# 登录凭证和应用的访问锁不放这里（在 HOME 下），agent 被允许读写这个目录也碰不到它们
+HUB_APPS = Path(os.environ.get("HUB_APPS_ROOT") or Path.home() / "HubApps")
+WORKBUDDY_SETTINGS = Path(os.environ.get("HUB_WORKBUDDY_SETTINGS", Path.home() / ".workbuddy" / "settings.json"))
 CB_MODEL_PREFIX = "公司中枢 · "
 WB_PREFIX = "hub-"
 WB_MARKER = ".hub-managed"
@@ -485,13 +489,107 @@ def configure_agents(clients: list[dict], command: str, script: str) -> list[tup
     return out
 
 
+def runtime_dirs() -> list[Path]:
+    """应用根目录里自带的运行环境（安装脚本装的便携 Node、用它装的 CodeBuddy CLI、uv），存在的才返回。"""
+    node = HUB_APPS / "runtime" / "node"
+    dirs = [node if sys.platform == "win32" else node / "bin", HUB_APPS / "runtime" / "uv"]
+    return [d for d in dirs if d.is_dir()]
+
+
+def node_bin() -> str:
+    """优先用自带的便携 Node（版本固定、不受系统 PATH / 执行策略 / 预发布版影响），没有再用系统的。"""
+    for d in runtime_dirs():
+        exe = d / ("node.exe" if sys.platform == "win32" else "node")
+        if exe.is_file():
+            return str(exe)
+    return "node"
+
+
+def with_runtime_path(env: dict) -> dict:
+    """给应用的环境变量把自带运行环境放到 PATH 最前面：应用再去调用 node / npx / codebuddy 时用的是同一套。"""
+    dirs = [str(d) for d in runtime_dirs()]
+    key = next((k for k in env if k.upper() == "PATH"), "PATH")
+    return {**env, key: os.pathsep.join(dirs + [env.get(key, "")])} if dirs else env
+
+
 def find_uv() -> str:
     """配置里写 uv 的完整路径：桌面 agent 启动子进程时不一定带着用户的 PATH。"""
     found = shutil.which("uv")
     if found:
         return found
-    exe = Path.home() / ".local" / "bin" / ("uv.exe" if sys.platform == "win32" else "uv")
-    return str(exe) if exe.exists() else "uv"
+    for exe in (HUB_APPS / "runtime" / "uv" / ("uv.exe" if sys.platform == "win32" else "uv"),
+                Path.home() / ".local" / "bin" / ("uv.exe" if sys.platform == "win32" else "uv")):
+        if exe.exists():
+            return str(exe)
+    return "uv"
+
+
+def register_app_root(wb_settings: Path | None = None, cb_home: Path | None = None) -> list[tuple[str, str]]:
+    """把应用根目录登记为 agent 允许读写的目录（改之前先备份原配置），只处理装了的 agent：
+    WorkBuddy 写 settings.json 的 sandbox.extraAllowWrite（它的写法，带 ~），CodeBuddy CLI 写 settings.json 的 permissions.additionalDirectories。
+    配置读不了（格式有误）就跳过，绝不覆盖员工的文件。"""
+    results = []
+    try:
+        wb_entry = "~/" + HUB_APPS.relative_to(Path.home()).as_posix().rstrip("/") + "/"
+    except ValueError:
+        wb_entry = HUB_APPS.as_posix().rstrip("/") + "/"
+    wb = wb_settings or WORKBUDDY_SETTINGS
+    if wb.parent.is_dir():
+        data = _read_json_file(wb)
+        if data is None:
+            results.append(("WorkBuddy 目录权限", f"跳过：{wb} 格式有误，没有改动"))
+        else:
+            box = data.setdefault("sandbox", {})
+            allow = box.get("extraAllowWrite") if isinstance(box.get("extraAllowWrite"), list) else []
+            if wb_entry in allow:
+                results.append(("WorkBuddy 目录权限", "已登记"))
+            else:
+                _backup(wb)
+                box["extraAllowWrite"] = allow + [wb_entry]
+                wb.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                results.append(("WorkBuddy 目录权限", f"已把 {wb_entry} 登记为允许写入的目录（原配置已备份）"))
+    home = cb_home or CODEBUDDY_HOME
+    if home.is_dir():
+        f = home / "settings.json"
+        data = _read_json_file(f)
+        if data is None:
+            results.append(("CodeBuddy CLI 目录权限", f"跳过：{f} 格式有误，没有改动"))
+        else:
+            perms = data.setdefault("permissions", {})
+            dirs = perms.get("additionalDirectories") if isinstance(perms.get("additionalDirectories"), list) else []
+            if str(HUB_APPS) in dirs:
+                results.append(("CodeBuddy CLI 目录权限", "已登记"))
+            else:
+                _backup(f)
+                perms["additionalDirectories"] = dirs + [str(HUB_APPS)]
+                f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                results.append(("CodeBuddy CLI 目录权限", f"已把 {HUB_APPS} 登记为允许访问的目录（原配置已备份）"))
+    return results
+
+
+def write_launchers(app_list: list[dict], uv: str | None = None, script: str | None = None) -> list[dict]:
+    """给岗位包里的每个应用在 ~/HubApps/bin 写一个双击启动器（Windows .cmd / macOS .command），并写 launchers.json 供安装脚本建快捷方式。
+    由员工自己双击启动的应用不挂在 agent 下面，agent 退出不会把它一起结束。真正打开时仍向中枢逐次鉴权。"""
+    uv, script = uv or find_uv(), script or str(Path(__file__).resolve())
+    out_dir = HUB_APPS / "bin"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    made = []
+    for a in app_list:
+        app_id, name = str(a.get("id") or ""), str(a.get("name") or a.get("id") or "")
+        if not APP_ID_RE.match(app_id):
+            continue
+        if sys.platform == "win32":
+            f = out_dir / f"open-{app_id}.cmd"
+            f.write_text("@echo off\r\nchcp 65001 >nul\r\nset PYTHONUTF8=1\r\n"
+                         f'"{uv}" run "{script}" open-app {app_id} --browser\r\n'
+                         "if errorlevel 1 pause\r\n", encoding="utf-8", newline="")  # 换行原样写，不让 Windows 再转一次
+        else:
+            f = out_dir / f"open-{app_id}.command"
+            f.write_text(f'#!/bin/sh\nexport PYTHONUTF8=1\n"{uv}" run "{script}" open-app {app_id} --browser || read -r _\n', encoding="utf-8")
+            f.chmod(0o755)
+        made.append({"id": app_id, "name": name, "path": str(f)})
+    (out_dir / "launchers.json").write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+    return made
 
 
 def cmd_setup(args) -> None:
@@ -512,12 +610,20 @@ def cmd_setup(args) -> None:
         raise
     record_health("login", True)
     results = configure_agents(clients, find_uv(), str(Path(__file__).resolve()))
+    results += register_app_root()
+    try:
+        prof = json.loads((HOME / "profile.json").read_text(encoding="utf-8"))
+        made = write_launchers(prof.get("apps") or [])
+        if made:
+            results.append(("应用启动器", f"已为 {'、'.join(a['name'] for a in made)} 生成双击启动器（{HUB_APPS / 'bin'}）"))
+    except (OSError, ValueError) as e:
+        results.append(("应用启动器", f"没有生成：{e}"))
     print()
     for name, status in results:
         info(f"{name}：{status}")
     if not shutil.which("codebuddy"):
         info("提示：要在小红书工作台里用浏览器自动化，需要先安装 CodeBuddy CLI（需要 Node.js）：npm install -g @tencent-ai/codebuddy-code ，装好后重新运行这条命令。只用 WorkBuddy 的话可以不装。")
-    done = [n for n, s in results if s in ("已配置", "已是最新")]
+    done = [n for n, s in results if s in ("已配置", "已是最新") and "目录权限" not in n and n != "应用启动器"]
     record_health("install", bool(done), None if done else "UNKNOWN",
                   "" if done else "没有检测到可配置的 agent（WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版）")
     try_flush_health()
@@ -534,16 +640,27 @@ APP_MAX_BYTES = 50 * 1024 * 1024
 APP_MAX_FILES = 2000
 
 
+def apps_base() -> Path:
+    """应用包放哪：已经在旧位置（~/.hub-agent/apps）装过应用的电脑保持不动；新装的放到 ~/HubApps/apps。"""
+    legacy = HOME / "apps"
+    try:
+        if legacy.is_dir() and any(d.is_dir() and APP_ID_RE.match(d.name) for d in legacy.iterdir()):
+            return legacy
+    except OSError:
+        pass
+    return HUB_APPS / "apps"
+
+
 def app_dir(app_id: str, version: str) -> Path:
     """应用包的本机目录。id 与版本都来自网络，只允许安全字符，绝不拼出目录之外的路径。"""
     if not APP_ID_RE.match(app_id or "") or not re.match(r"^[0-9A-Za-z][0-9A-Za-z._-]*$", version or "") or ".." in version:
         raise ValueError(f"应用 id 或版本不合法：{app_id!r} {version!r}")
-    return HOME / "apps" / app_id / version
+    return apps_base() / app_id / version
 
 
 def prune_versions(app_id: str, keep: int = 2) -> None:
     """只保留最近使用的 keep 个版本目录，其余删除（员工数据在包外，不受影响）。"""
-    root = HOME / "apps" / app_id
+    root = apps_base() / app_id
     if not root.is_dir():
         return
     versions = sorted((d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")), key=lambda d: d.stat().st_mtime, reverse=True)
@@ -566,7 +683,7 @@ def node_status(requires: dict, run=subprocess.run) -> tuple[bool, str]:
         return True, ""
     need = int(m.group(1)) if (m := re.search(r"(\d+)", want)) else 0
     try:
-        r = run(["node", "-v"], capture_output=True, text=True, timeout=10)
+        r = run([node_bin(), "-v"], capture_output=True, text=True, timeout=10)
         found = (m.group(1), r.stdout.strip()) if r.returncode == 0 and (m := re.match(r"v?(\d+)(?:\.\d+)*$", r.stdout.strip())) else None
     except (OSError, subprocess.SubprocessError):
         found = None
@@ -657,7 +774,7 @@ def _app_lock(app_id: str):
     class _Lock:
         def __enter__(self):
             thread_lock.acquire()
-            lock_dir = HOME / "apps" / app_id
+            lock_dir = apps_base() / app_id
             lock_dir.mkdir(parents=True, exist_ok=True)
             self.f = open(lock_dir / ".lock", "a+")
             try:
@@ -851,7 +968,7 @@ def run_fix(fix: dict, run=subprocess.run) -> tuple[bool, str]:
 
 def cmd_app_doctor(args, ask=None, run=subprocess.run) -> None:
     """app-doctor <应用 id>：重新预检并（经询问）安装缺少的依赖，然后刷新能力文件。--yes 表示已征得员工同意，不再逐项询问。"""
-    cached = HOME / "apps" / args.app_id / ".requires.json"
+    cached = apps_base() / args.app_id / ".requires.json"
     try:
         meta = json.loads(cached.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -895,7 +1012,7 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             marker = target / ".sha256"
             if not (target.is_dir() and marker.exists() and marker.read_text().strip() == ticket["sha256"]):
                 http = client or httpx.Client(follow_redirects=True)
-                zip_file = fetch_verified(ticket["download_url"], ticket["sha256"], HOME / "apps" / app_id / ".downloads" / f"{version}.zip", http)
+                zip_file = fetch_verified(ticket["download_url"], ticket["sha256"], apps_base() / app_id / ".downloads" / f"{version}.zip", http)
                 shutil.rmtree(target, ignore_errors=True)
                 safe_extract(zip_file, target)
                 zip_file.unlink(missing_ok=True)
@@ -906,26 +1023,31 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             env = {**os.environ, "HUB_MCP_SERVERS_FILE": str(_write_hub_mcp_config()),
                    "HUB_TRACE_ID": os.environ.get("HUB_TRACE_ID") or new_trace_id()}
             env["HUB_WORK_OUTBOX"] = str(outbox_file(app_id))  # 应用把关键产出追加写到这里，接入器转发给中枢（中枢上的「工作看板」）
+            # 应用根目录的约定：数据放 data/<应用>（agent 可读写），访问锁等状态放根目录之外（agent 碰不到），运行错误写 logs/health-<应用>.jsonl
+            env["HUB_APP_DATA_DIR"] = str(HUB_APPS / "data" / app_id)
+            env["HUB_APP_STATE_DIR"] = str(HOME / "state" / app_id)
+            env["HUB_HEALTH_OUTBOX"] = str(HUB_APPS / "logs" / f"health-{app_id}.jsonl")
+            env = with_runtime_path(env)
             outbox_dir().mkdir(parents=True, exist_ok=True)
             requires = ticket.get("requires") or {}
             pf = preflight(requires) if (requires.get("agent_cli") or requires.get("capabilities")) else None
             if pf:  # 记下 requires 供 app-doctor 复核；能力文件交给应用，缺什么应用自己禁用对应功能
-                write_private(HOME / "apps" / app_id / ".requires.json", json.dumps({"requires": requires, "version": version}, ensure_ascii=False))
+                write_private(apps_base() / app_id / ".requires.json", json.dumps({"requires": requires, "version": version}, ensure_ascii=False))
                 env["HUB_CAPABILITIES_FILE"] = str(write_capabilities(app_id, version, pf))
             base = {"cwd": str(target), "env": env, "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
             try:
                 setup_out = ""
                 if ticket.get("setup_args"):
-                    done = run(["node", str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
+                    done = run([node_bin(), str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
                     setup_out = (done.stdout or "") + (done.stderr or "")
-                started = run(["node", str(entry), *ticket.get("start_args", [])], timeout=LAUNCH_TIMEOUT, **base)
+                started = run([node_bin(), str(entry), *ticket.get("start_args", [])], timeout=LAUNCH_TIMEOUT, **base)
             except subprocess.TimeoutExpired:
                 return {"ok": False, "reason": f"启动超时（{LAUNCH_TIMEOUT} 秒）。可以稍后再说一次「打开工作台」，仍不行请查看应用自己的日志。"}
             out = (started.stdout or "") + (started.stderr or "")
             url = parse_url(out)
             if not url:
                 return {"ok": False, "reason": "应用没有返回网址。输出：" + (out.strip()[-300:] or "（空）")}
-            state_file = HOME / "apps" / app_id / ".running.json"
+            state_file = apps_base() / app_id / ".running.json"
             old = json.loads(state_file.read_text(encoding="utf-8")).get("version") if state_file.exists() else None
             message = f"已打开「{ticket.get('name', app_id)}」v{version}：{url}"
             skill = target / "xhs-workbench" / "SKILL.md" if (target / "xhs-workbench" / "SKILL.md").exists() else next(iter(target.glob("*/SKILL.md")), None)
@@ -1067,7 +1189,6 @@ def _outbox_loop() -> None:
 
 # ---------------- 应用健康：安装 / 登录 / 打开应用 / 自检的结果先写本机，再转发中枢 ----------------
 
-HUB_APPS = Path(os.environ.get("HUB_APPS_ROOT") or Path.home() / "HubApps")  # 应用根目录：runtime / apps / data / logs
 HEALTH_BATCH = 50
 HEALTH_DEDUPE_SECONDS = 600  # 同一个错误 10 分钟内只记一次（比如断网时每 20 秒的重试）
 _CLIENT = {"name": os.environ.get("HUB_AGENT_CLIENT", "")}  # 桥启动时由 --client 填上（WorkBuddy、CodeBuddy CLI……）
@@ -1236,6 +1357,8 @@ def cmd_open_app(args) -> None:
     if not result["ok"]:
         fail(result["reason"])
     info(result["message"])
+    if getattr(args, "browser", False) and result.get("url"):
+        webbrowser.open(result["url"])
     info("提示：工作台产生的成果会由 `hub_agent.py flush-outbox` 转发到中枢；桥（MCP）运行时会自动转发。")
 
 
@@ -1389,6 +1512,7 @@ def main() -> None:
     p.add_argument("--nested", action="store_true", help="嵌套模式：由应用里的 agent 启动，不同步技能、不报心跳")
     p = sub.add_parser("open-app", help="在本机打开中枢发布的应用（给不走 MCP 桥的客户端用）")
     p.add_argument("app_id", help="应用 id，如 xhs-workbench")
+    p.add_argument("--browser", action="store_true", help="打开后在浏览器里打开应用网址（双击启动器用）")
     p = sub.add_parser("app-doctor", help="重新检查应用需要的依赖，并（经询问）安装缺少的部分")
     p.add_argument("app_id", help="应用 id，如 xhs-workbench")
     p.add_argument("--yes", action="store_true", help="已征得员工同意，不再逐项询问")

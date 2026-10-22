@@ -342,9 +342,15 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // 超时要有明确提示，不能让页面一直转圈（比如访问地址不是中枢地址、/api 没转发到中枢）
   const res = await fetch(`/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(20000),
     ...init,
+  }).catch((e: Error) => {
+    throw new ApiError(0, e.name === 'TimeoutError'
+      ? '连接中枢超时。请确认你是直接用浏览器打开中枢地址（例如 http://192.168.0.41:8088），不是通过别的预览面板或代理访问。'
+      : `无法连接中枢（${e.message}）。请确认访问地址就是中枢地址。`)
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

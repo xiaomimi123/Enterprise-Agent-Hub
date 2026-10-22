@@ -6,6 +6,13 @@
 
 ## 2026-10-22
 
+**工作台 0.7.8：Codex 写出「自动访问已锁定」的复盘**
+- 现象：员工用 Codex CLI 时报「自动访问已锁定：用户提供平台处罚截图（2026-10-18 至 10-25）…」，换成 CodeBuddy 就能聊天。已确认原因：工作台自己只会写固定的锁文字，这句是 Codex 凭它自己的历史记忆、用 `exec --sandbox workspace-write`（工作目录就是工作台数据目录）直接改了 `browser-access.json`；而 Codex 的连接开着浏览器控制，每个任务（含普通聊天）都先检查锁，CodeBuddy 的连接保存为 `browser: none` 所以没被拦。Codex 能读到之前的记忆，是 Codex CLI 自带的全局记忆 / 说明，不是工作台提示词。
+- 又自动选到 Codex：网页从不自动选，只有命令行 `bridge-test` 会写连接；旧版 `--auto` 取固定顺序第一个，Codex 排在 CodeBuddy 前（0.7.7 已改为 CodeBuddy 优先）。该员工机器需要更新到 0.7.7 以上，并在「连接与设置」手动选 CodeBuddy。
+- 0.7.8 做了：工作台写的锁带 `source` 标记，没有标记的锁在报错里说明「可能是旧版本或 agent 直接改的，请核对」；报错末尾提示关掉浏览器控制即可继续聊天；对话提示词禁止 agent 直接改锁文件，用户说被处罚时让他在网页点「报告平台处罚」。
+- **没解决**：`workspace-write` 的 agent 仍有能力改这个文件（只加了标记、提示和规则，没有写保护）；Codex 的全局记忆没有隔离（需要在装有 Codex 的机器上看它支持哪些隔离参数）。
+- 验证：工作台新增 1 项测试，全量 364 通过（2 项 ffmpeg 环境用例失败）；已打包上传 0.7.8。**没验证**：在真实的 Codex 机器上复现和确认。
+
 **工作台 0.7.7：`--auto` 自动选择时 CodeBuddy 优先**
 - 起因：Mac 复盘里工作台选中了 Codex 而不是 CodeBuddy。逻辑本身是按设计的（多个选项且没有 `--auto` 时不替用户决定，已有选择沿用），但 `--auto` 取固定顺序第一个（claude-code → codex → codebuddy），而中枢的浏览器自动化、模型和只读权限档都按 CodeBuddy 配置。现在 `--auto` 时有 CodeBuddy 就选它。
 - 验证：工作台新增 1 项测试，全量 363 通过（2 项 ffmpeg 环境用例失败）；已打包上传 `apps/xhs-workbench/0.7.7.zip`，`app.json` 升到 0.7.7。**没验证**：在装有 Codex 和 CodeBuddy 的真实机器上跑一遍 `bridge-test --auto`。已经选定过 Codex 的机器不会被改，需要在工作台「连接与设置」里手动切到 CodeBuddy。

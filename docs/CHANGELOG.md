@@ -6,6 +6,10 @@
 
 ## 2026-10-22
 
+**工作台 0.7.7：`--auto` 自动选择时 CodeBuddy 优先**
+- 起因：Mac 复盘里工作台选中了 Codex 而不是 CodeBuddy。逻辑本身是按设计的（多个选项且没有 `--auto` 时不替用户决定，已有选择沿用），但 `--auto` 取固定顺序第一个（claude-code → codex → codebuddy），而中枢的浏览器自动化、模型和只读权限档都按 CodeBuddy 配置。现在 `--auto` 时有 CodeBuddy 就选它。
+- 验证：工作台新增 1 项测试，全量 363 通过（2 项 ffmpeg 环境用例失败）；已打包上传 `apps/xhs-workbench/0.7.7.zip`，`app.json` 升到 0.7.7。**没验证**：在装有 Codex 和 CodeBuddy 的真实机器上跑一遍 `bridge-test --auto`。已经选定过 Codex 的机器不会被改，需要在工作台「连接与设置」里手动切到 CodeBuddy。
+
 **Mac 上安装的复盘（`install.sh` 在 agent 里卡死等）**
 - 来源：你在另一台 Mac 上让 WorkBuddy 代跑安装后写的复盘。逐条对照代码和服务验证：
   - **属实，已修：脚本在非交互时卡在提问**。`confirm()` 只判断 `/dev/tty` 能否打开，而 agent 拉起的子进程继承了控制终端，能打开却没有人回答，`read` 永远等。又因为脚本是 `curl | sh`（stdin 是管道），复盘建议的 `[ -t 0 ]` 对真实员工恒为假，不能用。改为：要求**标准输出是终端**（agent 会捕获输出）、且没有 `CI` / `CLAUDECODE` / `CODEBUDDY_CODE` / `WORKBUDDY_*` 环境变量，才从 `/dev/tty` 询问；否则跳过，并打印可直接复制的 `HUB_INSTALL_TOOLS=yes curl ... | sh`。

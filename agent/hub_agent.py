@@ -1027,6 +1027,7 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             env["HUB_APP_DATA_DIR"] = str(HUB_APPS / "data" / app_id)
             env["HUB_APP_STATE_DIR"] = str(HOME / "state" / app_id)
             env["HUB_HEALTH_OUTBOX"] = str(HUB_APPS / "logs" / f"health-{app_id}.jsonl")
+            env["HUB_DEVICE_ID"] = device_id()  # 应用写的健康事件和接入器的归到同一台设备
             env = with_runtime_path(env)
             outbox_dir().mkdir(parents=True, exist_ok=True)
             requires = ticket.get("requires") or {}

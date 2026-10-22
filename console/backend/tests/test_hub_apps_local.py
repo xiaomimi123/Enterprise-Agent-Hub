@@ -226,6 +226,7 @@ def test_launch_happy_path(tmp_path, home):
     assert kw["env"]["HUB_APP_DATA_DIR"] == str(home / "data" / "xhs-workbench")
     assert kw["env"]["HUB_APP_STATE_DIR"] == str(home / "state" / "xhs-workbench")
     assert kw["env"]["HUB_HEALTH_OUTBOX"] == str(home / "logs" / "health-xhs-workbench.jsonl")
+    assert kw["env"]["HUB_DEVICE_ID"] == ha.device_id() and len(kw["env"]["HUB_DEVICE_ID"]) == 32
     assert any(c[2:] == ["setup"] for c, _ in run.calls)                      # 先 setup 再 start
     cfg = json.loads((home / "hub-mcp.json").read_text(encoding="utf-8"))["mcpServers"]["enterprise-hub"]
     assert cfg["command"] == "/usr/bin/uv" and "--nested" in cfg["args"] and cfg["args"][:1] == ["run"]

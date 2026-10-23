@@ -22,6 +22,7 @@
 | [knowledge.md](knowledge.md) | 知识库：文档查看与编辑、版本与回滚、内容类型 / 负责人 / 复核、同步到检索 |
 | [proposals.md](proposals.md) | 改进建议：agent 提建议、主管 / 老板审核采纳 |
 | [work-report.md](work-report.md) | 工作成果与进度：员工上报、控制台看板、老板 agent 日报 |
+| [测试流程-WorkBuddy浏览器插件.md](测试流程-WorkBuddy浏览器插件.md) | 发给新电脑上的 WorkBuddy 执行的测试流程：CodeBuddy CLI 经 WorkBuddy Edge 插件操作浏览器（工作台 0.8.3） |
 | [app-health.md](app-health.md) | 应用健康：员工电脑上安装 / 登录 / 打开应用的报错自动回传，管理员看失败率和常见报错 |
 
 **员工端与接入**

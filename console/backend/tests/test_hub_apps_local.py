@@ -503,3 +503,21 @@ def test_prune_skipped_inside_workbuddy_sandbox(tmp_path, monkeypatch):
     monkeypatch.delenv("WORKBUDDY_SESSION")
     ha.prune_versions("xhs")
     assert len([p for p in (tmp_path / "apps" / "xhs").iterdir() if p.is_dir()]) == 2
+
+
+def test_launcher_uses_userprofile_so_cmd_stays_ascii(tmp_path, monkeypatch):
+    """中文用户名时，启动器里的路径改写成以 USERPROFILE 变量开头，.cmd 是纯 ASCII（cmd 按系统代码页解析，中文会把行搞乱）。"""
+    home = tmp_path / "张三"
+    monkeypatch.setattr(ha.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(ha, "HUB_APPS", home / "HubApps")
+    made = ha.write_launchers([{"id": "xhs-workbench", "name": "小红书运营工作台"}],
+                              uv=str(home / ".local" / "bin" / "uv.exe"), script=str(home / ".hub-agent" / "hub_agent.py"))
+    text = ha.Path(made[0]["path"]).read_bytes().decode("utf-8")
+    if ha.sys.platform == "win32":
+        assert text.isascii() and "chcp" not in text
+        assert r'"%USERPROFILE%\.local\bin\uv.exe" run "%USERPROFILE%\.hub-agent\hub_agent.py" open-app xhs-workbench --browser' in text
+    # 不在用户目录下、又含中文时：退回 UTF-8 + chcp 65001
+    other = ha.write_launchers([{"id": "xhs-workbench", "name": "x"}], uv="D:/工具/uv.exe", script="D:/工具/hub_agent.py")
+    t2 = ha.Path(other[0]["path"]).read_bytes().decode("utf-8")
+    if ha.sys.platform == "win32":
+        assert "chcp 65001" in t2 and "D:/工具/uv.exe" in t2

@@ -70,6 +70,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **New API 管理接口会限流**（默认每个 IP 180 次 / 3 分钟，中枢后端是唯一调用方）：被撞到时返回 429，员工领取配置变成 502。`docker-compose.yml` 已把 `GLOBAL_API_RATE_LIMIT` 调到 6000（可用 `NEWAPI_API_RATE_LIMIT` 改），`newapi.py` 遇到 429 会等一下重试；接入器的桥 10 分钟内同步过就不再领取（CodeBuddy CLI 每次运行都会重启桥，工作台每个任务都会运行它）。
 - **WorkBuddy 的浏览器操控可以单独给 CodeBuddy CLI 用**：它是一个标准 stdio MCP 服务 `~/.workbuddy/plugins/cache/workbuddy-browser-use/browser-use/<版本>/bin/browser-mcp.exe`（通过 Edge / Chrome 里的 WorkBuddy 扩展 + 本机 native host 中转），工作台 0.8.3 起 `browser-setup --engine workbuddy` 接上它。CodeBuddy CLI 的登录要在员工**自己的**终端里做（在 WorkBuddy 终端里登录会存到 WorkBuddy 的目录）。用户要求不在开发机上测这条链路，测试流程见 `docs/测试流程-WorkBuddy浏览器插件.md`。
 - **网页为主界面（工作台 0.8.5 起）**：CodeBuddy CLI 是网页工作台唯一的执行者，本机有它就自动连上；CodeBuddy 登录检查、浏览器方式、权限档都在网页「连接与设置」的「执行 Agent 与浏览器」里做。WorkBuddy 等桌面 agent 不再被设成收件箱值守者（只作后备），SKILL.md 和接入器打开应用的提示都写明了。第二阶段（WorkBuddy 当遥控器把任务转给工作台）和第三阶段（网页交互打磨）待第一阶段的「应用健康」数据再定。
+- **Windows 上工作台启动子进程都要 `windowsHide: true`**：工作台服务是无控制台（detached）启动的，它再启动的控制台程序不隐藏就会每次新开一个黑窗口（员工反馈「一直闪」）；服务自身的启动方式别改（加 windowsHide 实测会起不来）。批处理 `.cmd` 里别写中文：路径用 `%USERPROFILE%\...`。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
@@ -87,7 +88,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.5）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.6）。
 
 ## 开发与架构文档
 

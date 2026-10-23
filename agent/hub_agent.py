@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.4"
+VERSION = "0.5.5"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -641,6 +641,16 @@ def place_on_desktop(made: list[dict]) -> tuple[list[str], str]:
     return placed, problem
 
 
+def _cmd_path(p: str, home: Path | None = None) -> str:
+    """批处理里用的路径：在用户目录下的换成 %USERPROFILE%\\<相对路径>（纯 ASCII，不受中文用户名影响）。"""
+    home = home or Path.home()
+    try:
+        rel = Path(p).resolve().relative_to(home.resolve())
+    except (ValueError, OSError):
+        return p
+    return "%USERPROFILE%\\" + str(rel).replace("/", "\\")
+
+
 def write_launchers(app_list: list[dict], uv: str | None = None, script: str | None = None) -> list[dict]:
     """给岗位包里的每个应用在 ~/HubApps/bin 写一个双击启动器（Windows .cmd / macOS .command），并写 launchers.json 供安装脚本建快捷方式。
     由员工自己双击启动的应用不挂在 agent 下面，agent 退出不会把它一起结束。真正打开时仍向中枢逐次鉴权。"""
@@ -654,9 +664,12 @@ def write_launchers(app_list: list[dict], uv: str | None = None, script: str | N
             continue
         if sys.platform == "win32":
             f = out_dir / f"open-{app_id}.cmd"
-            f.write_text("@echo off\r\nchcp 65001 >nul\r\nset PYTHONUTF8=1\r\n"
-                         f'"{uv}" run "{script}" open-app {app_id} --browser\r\n'
-                         "if errorlevel 1 pause\r\n", encoding="utf-8", newline="")  # 换行原样写，不让 Windows 再转一次
+            # cmd 按系统代码页逐行解析批处理，文件里有中文（比如中文用户名的路径）时容易把引号和换行搞乱、双击直接报错（员工电脑上踩过）。
+            # 用户目录下的路径写成 %USERPROFILE%\...，文件就是纯 ASCII；只有路径确实在别处且含中文时才退回 UTF-8 + chcp 65001
+            run_line = f'"{_cmd_path(uv)}" run "{_cmd_path(script)}" open-app {app_id} --browser\r\n'
+            head = "@echo off\r\n" if run_line.isascii() else "@echo off\r\nchcp 65001 >nul\r\n"
+            f.write_text(head + "set PYTHONUTF8=1\r\n" + run_line + "if errorlevel 1 pause\r\n",
+                         encoding="utf-8", newline="")  # 换行原样写，不让 Windows 再转一次
         else:
             f = out_dir / f"open-{app_id}.command"
             f.write_text(f'#!/bin/sh\nexport PYTHONUTF8=1\n"{uv}" run "{script}" open-app {app_id} --browser || read -r _\n', encoding="utf-8")

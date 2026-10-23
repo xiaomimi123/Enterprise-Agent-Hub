@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -745,8 +745,17 @@ def app_dir(app_id: str, version: str) -> Path:
     return apps_base() / app_id / version
 
 
+def in_agent_sandbox(env=None) -> bool:
+    """是不是在 WorkBuddy 这类 agent 的沙箱里运行（它会给子进程注入 WORKBUDDY_* 变量）。"""
+    return any(k.upper().startswith("WORKBUDDY_") for k in (env if env is not None else os.environ))
+
+
 def prune_versions(app_id: str, keep: int = 2) -> None:
-    """只保留最近使用的 keep 个版本目录，其余删除（员工数据在包外，不受影响）。"""
+    """只保留最近使用的 keep 个版本目录，其余删除（员工数据在包外，不受影响）。
+    在 WorkBuddy 沙箱里不删：它对批量删除（超过 50 个文件）要员工确认，会把打开应用卡住（员工电脑上踩过）；
+    旧版本每个不到 0.5 MB，留到下次在沙箱外打开时再清。"""
+    if in_agent_sandbox():
+        return
     root = apps_base() / app_id
     if not root.is_dir():
         return

@@ -490,3 +490,16 @@ def test_launch_message_points_user_to_desktop(tmp_path, home, monkeypatch):
     (desk / f"{ticket.get('name', ticket['app_id'])}.cmd").write_text("x", encoding="utf-8")
     r = launch(ticket, data, Recorder())
     assert "以后双击桌面上的" in r["message"] and "关掉你（agent）也不会影响它" in r["message"]
+
+
+def test_prune_skipped_inside_workbuddy_sandbox(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "HOME", tmp_path)
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path)
+    for v in ("0.8.0", "0.8.1", "0.8.2"):
+        (tmp_path / "apps" / "xhs" / v).mkdir(parents=True)
+    monkeypatch.setenv("WORKBUDDY_SESSION", "x")  # 沙箱会注入 WORKBUDDY_*：批量删除要员工确认，不删
+    ha.prune_versions("xhs")
+    assert len([p for p in (tmp_path / "apps" / "xhs").iterdir() if p.is_dir()]) == 3
+    monkeypatch.delenv("WORKBUDDY_SESSION")
+    ha.prune_versions("xhs")
+    assert len([p for p in (tmp_path / "apps" / "xhs").iterdir() if p.is_dir()]) == 2

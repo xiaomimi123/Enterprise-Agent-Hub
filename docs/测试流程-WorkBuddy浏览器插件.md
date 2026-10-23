@@ -1,8 +1,9 @@
-# 测试流程：CodeBuddy CLI 通过 WorkBuddy 浏览器插件操作 Edge（小红书运营工作台 0.8.4 / 接入器 0.5.3）
+# 测试流程：CodeBuddy CLI 通过 WorkBuddy 浏览器插件操作 Edge（小红书运营工作台 0.8.5 / 接入器 0.5.4）
 
 > 这份文件发给**新 Windows 电脑上的 WorkBuddy**，由它按步骤执行并写测试报告，电脑前的同事配合完成需要本人操作的步骤。
 > 目标是验证：工作台里需要浏览器的功能，能由 CodeBuddy CLI 通过 WorkBuddy 的 Edge 插件，在**用户自己的 Edge** 里完成。
 >
+> 0.8.5 起网页是主界面：CodeBuddy 的登录检查、浏览器方式、权限档都在网页「连接与设置」里点选，第 3 步不再需要在终端里跑命令。
 > 第一轮测试（10-23，工作台 0.8.3）的结论和这次的变化：核心链路已通过；测试 B 的预期改了（只读档允许打开网址，见下）；测试 D 当时因为日常 Edge 没登录小红书被挡住，这次先在第 3.5 步登录。
 
 ---
@@ -36,7 +37,7 @@
 
 ## 第 1 步：接入中枢（同事操作）
 
-> **已经接入过的电脑也要做这一步**：它会把接入器升级到 0.5.3，并在桌面放上中枢的「小红书运营工作台」启动器（启动器不写版本号，总是向中枢要最新版）。之前 agent 自己做的启动器（比如 `.vbs`、`start-workbench-clean.mjs`）请删掉，以免打开旧版本。
+> **已经接入过的电脑也要做这一步**：它会把接入器升级到 0.5.4，并在桌面放上中枢的「小红书运营工作台」启动器（启动器不写版本号，总是向中枢要最新版）。之前 agent 自己做的启动器（比如 `.vbs`、`start-workbench-clean.mjs`）请删掉，以免打开旧版本。
 
 1. 同事按 Win+R，粘贴下面这一行，回车：
 
@@ -63,42 +64,30 @@
 1. 同事**双击桌面上的「小红书运营工作台」**。
 2. 浏览器打开工作台网页（地址类似 `http://127.0.0.1:17890/...`）。
 
-**预期：** 网页能打开；「连接与设置」页显示版本 **0.8.4**；「企业中枢」一行显示「已接入」。
+**预期：** 网页能打开；「连接与设置」页显示版本 **0.8.5**；「企业中枢」一行显示「已接入」。
 
 记录：页面显示的版本号、连接与设置页的截图或文字。
 
 ---
 
-## 第 3 步：把工作台连到 CodeBuddy，浏览器方式选 WorkBuddy 插件
+## 第 3 步：在网页里设置 CodeBuddy 和浏览器（同事操作，全程不用终端）
 
-下面命令里的 `<WB>` 指：
+打开工作台网页的「连接与设置」，最上面是「执行 Agent 与浏览器」卡片。
 
-```
-%USERPROFILE%\HubApps\apps\xhs-workbench\0.8.4\xhs-workbench\scripts\workbench.mjs
-```
+1. **CodeBuddy 状态**：打开页面后它会自动检查一次（最长约 2 分钟）。
+   - 显示「已登录，可以使用」：通过。
+   - 显示「还没登录」：点「去登录」，**桌面上会弹出一个终端窗口**运行 codebuddy；第一次会问是否信任文件夹，选第 1 项回车；再输入 `/login`，在浏览器里登录 CodeBuddy 账号，完成后输入 `/exit`；回到网页点「重新检查」，应变成「已登录，可以使用」。
+   - **预期**：连接方式已经自动是 CodeBuddy（不需要选 agent，也没有把 WorkBuddy 设成值守者）。
+2. **浏览器方式**：在「我自己的 Edge（WorkBuddy 插件）」那一行点「用这个」。
+   - 会先跑一次连接测试（最长约 3 分钟），通过后这一行出现「当前」，提示「已切换到你自己的 Edge」。
+   - 如果显示「没有找到 WorkBuddy 浏览器插件」，按提示在 WorkBuddy 里打开浏览器操控、安装 Edge 扩展后再点。
+3. **权限档**：确认显示「权限档：只读档」。点一次「切到测试档」，应弹出确认框，**点取消**（这次不测测试档），权限档仍是只读档。
 
-（如果这个路径不存在，在 `%USERPROFILE%\HubApps\apps\xhs-workbench\` 或 `%USERPROFILE%\.hub-agent\apps\xhs-workbench\` 下找 0.8.4 目录。）`node` 如果找不到，用 `%USERPROFILE%\HubApps\runtime\node\node.exe`。
+记录：三处显示的原文；「去登录」是否弹出了终端窗口；切换浏览器方式用了多久、有没有报错。
 
-1. 连接 CodeBuddy：
-
-   ```
-   node "<WB>" bridge-test --agent codebuddy
-   ```
-
-   **预期：** 最后一行 `RESULT: cli codebuddy`。
-
-2. 如果「连接与设置」页里「后台有头采集」是开着的，请同事先在网页里关掉它（下一步要求关掉）。
-
-3. 切换浏览器方式（只读档）：
-
-   ```
-   node "<WB>" browser-setup --engine workbuddy --yes
-   ```
-
-   **预期：**
-   - 输出「使用 WorkBuddy 浏览器插件（…\browser-mcp.exe）」和「权限：只读档」。
-   - 「测试连接 … 通过」，最后一行 `RESULT: browser workbuddy`。
-   - **如果失败**，把完整输出记下来。其中若有 `Authentication required`，说明 CodeBuddy 没登录，回到第 0 步。
+> 网页设置失败时的后备做法（在同事自己的 PowerShell 里运行，把输出贴回来）：
+> `node "<WB>" bridge-test --agent codebuddy`，然后 `node "<WB>" browser-setup --engine workbuddy --yes`。
+> `<WB>` 是 `%USERPROFILE%\HubApps\apps\xhs-workbench\0.8.5\xhs-workbench\scripts\workbench.mjs`（找不到就在 `%USERPROFILE%\HubApps\apps\xhs-workbench\` 或 `%USERPROFILE%\.hub-agent\apps\xhs-workbench\` 下找 0.8.5 目录；`node` 找不到时用 `%USERPROFILE%\HubApps\runtime\node\node.exe`）。
 
 ---
 
@@ -182,7 +171,7 @@
 
 请管理员打开 `http://192.168.0.41:8088` →「监管」→「应用健康」，找到这位同事的这台电脑。
 
-**预期：** 能看到这台设备、接入器版本 **0.5.3**、接入和打开应用的成功记录；第 3 步的两次连接测试（「自检」）现在也会出现在这里；测试中出过的错误也在这里。
+**预期：** 能看到这台设备、接入器版本 **0.5.4**、接入和打开应用的成功记录；第 3 步的 CodeBuddy 检查和浏览器方式的连接测试（「自检」）也会出现在这里；测试中出过的错误也在这里。
 
 记录：这台设备那一行的内容。
 
@@ -190,11 +179,7 @@
 
 ## 第 9 步：恢复（可选）
 
-测完想换回原来的浏览器方式（Playwright，独立浏览器）：
-
-```
-node "<WB>" browser-setup --yes
-```
+测完想换回原来的浏览器方式：在「连接与设置」的「执行 Agent 与浏览器」里，「工作台独立浏览器（推荐）」那一行点「用这个」。
 
 **不要切到测试档**（`browser-mode test`）。测试档需要另行确认后再测。
 
@@ -214,7 +199,7 @@ node "<WB>" browser-setup --yes
 | 0 前提检查 | | | |
 | 1 接入中枢 | | | |
 | 2 打开工作台 | | | |
-| 3 连 CodeBuddy + 切 WorkBuddy 插件 | | | |
+| 3 网页里设置 CodeBuddy / 浏览器方式 / 权限档 | | | |
 | 3.5 在自己的 Edge 里登录小红书 | | | |
 | 4 测试 A 只读浏览 | | | |
 | 5 测试 B 不能点击、不能输入 | | | |

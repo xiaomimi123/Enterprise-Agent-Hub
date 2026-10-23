@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.3"
+VERSION = "0.5.4"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -1148,11 +1148,10 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             old = json.loads(state_file.read_text(encoding="utf-8")).get("version") if state_file.exists() else None
             message = f"已打开「{ticket.get('name', app_id)}」v{version}：{url}"
             skill = target / "xhs-workbench" / "SKILL.md" if (target / "xhs-workbench" / "SKILL.md").exists() else next(iter(target.glob("*/SKILL.md")), None)
-            if "尚未配置" in setup_out:  # 网页右上角会显示「未连接 agent」，要 agent 先做连接自检
-                message += (f"\n工作台还没有连接 agent（网页会显示「未连接 agent」）。请现在做连接自检：运行 "
-                            f"node \"{entry}\" bridge-test --inbox（你是 claude-code / codex 等有命令行的 agent 时改用 "
-                            f"--prefer <你的 id>），详见 {skill or 'SKILL.md'} 的「连接自检」一节；"
-                            "完成后若是收件箱模式，继续进入值守，网页里的消息才会被处理。")
+            if "尚未配置" in setup_out:  # 本机没有 CodeBuddy CLI，工作台没能自动连接执行者
+                message += ("\n工作台还没有执行任务的 agent（这台电脑没有 CodeBuddy CLI；网页工作台由 CodeBuddy CLI 执行任务）。"
+                            "请告诉用户：重新运行一次中枢的接入命令，询问时选择安装 CodeBuddy CLI，装好后在网页「连接与设置」里点「重新检查」并登录。"
+                            f"不要把你自己设成收件箱值守者，除非用户明确要求（那时按 {skill or 'SKILL.md'} 的「连接自检」用 bridge-test --inbox）。")
             elif skill:
                 message += f"\n如果它的连接模式是「收件箱模式」，请按 {skill} 的「值守模式」一节进入值守。"
             if _ALREADY in out and old and old != version:

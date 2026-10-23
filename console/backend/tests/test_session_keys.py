@@ -178,9 +178,25 @@ def test_purge_uses_cached_list_and_forgets_deleted(monkeypatch):
     assert na.find_token("hub-o-u~tr-old") is None          # 已删除的不应再从缓存里返回
 
 
-def test_rate_limited_response_becomes_clear_error():
+def test_rate_limited_response_becomes_clear_error(monkeypatch):
     import pytest
+    monkeypatch.setattr(newapi.time, "sleep", lambda s: None)
     na = newapi.NewApi("http://x", "t", "1")
     na.http = httpx.Client(base_url="http://x", transport=httpx.MockTransport(lambda r: httpx.Response(429)))
     with pytest.raises(newapi.NewApiError, match="429"):
         na._call("GET", "/api/channel/")
+
+
+def test_rate_limited_call_is_retried(monkeypatch):
+    """New API 管理接口被限流时等一下再试：员工同时同步时偶尔撞上，不该直接让领取配置失败（502）。"""
+    waits = []
+    monkeypatch.setattr(newapi.time, "sleep", waits.append)
+    calls = []
+
+    def handler(r):
+        calls.append(1)
+        return httpx.Response(429, headers={"Retry-After": "0.2"}) if len(calls) < 3 else httpx.Response(200, json={"success": True, "data": [1]})
+    na = newapi.NewApi("http://x", "t", "1")
+    na.http = httpx.Client(base_url="http://x", transport=httpx.MockTransport(handler))
+    assert na._call("GET", "/api/channel/") == [1]
+    assert len(calls) == 3 and waits == [0.2, 0.2]

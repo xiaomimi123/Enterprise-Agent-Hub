@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -222,6 +222,18 @@ def task_from_args(hermes_args: list[str]) -> str:
         if a in ("-q", "--query") and i + 1 < len(hermes_args):
             return hermes_args[i + 1][:80]
     return ""
+
+
+SYNC_MIN_SECONDS = 600
+
+
+def synced_recently(now: float | None = None) -> bool:
+    """10 分钟内领取过配置（profile.json 刚写过）。CodeBuddy CLI 每次运行都会重新拉起桥，
+    工作台的每个任务都会运行一次它；每次都去领取配置，中枢调模型网关的管理接口会被限流（HTTP 429，员工同步失败），见 docs/CHANGELOG 2026-10-23。"""
+    try:
+        return (now or time.time()) - (HOME / "profile.json").stat().st_mtime < SYNC_MIN_SECONDS
+    except OSError:
+        return False
 
 
 def cmd_sync(_args=None, trace_id: str | None = None, task: str = "", session_key: bool = False) -> dict:
@@ -584,6 +596,51 @@ def stale_copies(app_list: list[dict], home: Path | None = None) -> list[tuple[d
     return found
 
 
+def desktop_dir() -> Path:
+    """员工的桌面目录。Windows 用系统 API 取（桌面可能被重定向到 OneDrive 等位置），不用 COM（agent 的沙箱会拦）。"""
+    if os.environ.get("HUB_SHORTCUT_DIR"):  # 测试用
+        return Path(os.environ["HUB_SHORTCUT_DIR"])
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("d1", wintypes.DWORD), ("d2", wintypes.WORD), ("d3", wintypes.WORD), ("d4", ctypes.c_ubyte * 8)]
+            desktop = GUID(0xB4BFCC3A, 0xDB2C, 0x424C, (ctypes.c_ubyte * 8)(0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41))  # FOLDERID_Desktop
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(desktop), 0, None, ctypes.byref(out)) == 0:
+                path = Path(out.value)
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                return path
+        except Exception:  # noqa: BLE001 取不到就用默认位置
+            pass
+    return Path.home() / "Desktop"
+
+
+def place_on_desktop(made: list[dict]) -> tuple[list[str], str]:
+    """把双击启动器复制到桌面（文件名用应用名）。不依赖安装脚本、也不用 COM：员工让 WorkBuddy 代跑接入时，
+    安装脚本里建快捷方式那一步常常没跑到或被拦，桌面上就什么都没有（员工反馈过）。员工自己运行安装脚本时，会再换成正式的快捷方式。
+    桌面上已有同名、但不是我们放的文件时不覆盖。返回 (放好的应用名, 出错说明)。"""
+    placed, problem = [], ""
+    desk = desktop_dir()
+    for a in made:
+        src = Path(a["path"])
+        dst = desk / (a["name"] + src.suffix)
+        try:
+            if dst.exists() and dst.read_bytes() != src.read_bytes() and "open-app" not in dst.read_text(encoding="utf-8", errors="replace"):
+                continue
+            desk.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            if sys.platform != "win32":
+                dst.chmod(0o755)
+            placed.append(a["name"])
+        except OSError as e:
+            problem = f"没能放到桌面（{desk}）：{e}"
+            record_health("install", False, classify(str(e), "FILE_BLOCKED"), problem)
+    return placed, problem
+
+
 def write_launchers(app_list: list[dict], uv: str | None = None, script: str | None = None) -> list[dict]:
     """给岗位包里的每个应用在 ~/HubApps/bin 写一个双击启动器（Windows .cmd / macOS .command），并写 launchers.json 供安装脚本建快捷方式。
     由员工自己双击启动的应用不挂在 agent 下面，agent 退出不会把它一起结束。真正打开时仍向中枢逐次鉴权。"""
@@ -620,7 +677,9 @@ def cmd_setup(args) -> None:
         else:
             try:
                 cmd_sync()
-            except SystemExit:  # 续期令牌过期：重新登录
+            except SystemExit:  # 只有确实是登录问题（令牌过期、凭证无效）才重新登录；中枢临时出错（如 502）不要弹浏览器
+                if not any(w in _LAST_FAIL["msg"] for w in ("过期", "尚未登录", "凭证无效", "已被停用")):
+                    raise
                 cmd_login(argparse.Namespace(hub=hub, username=None, password=None))
     except SystemExit:  # 登录失败：记下来（连不上中枢时只能留在本机，下次接入成功后再补报）
         record_health("login", False, None, _LAST_FAIL["msg"])
@@ -641,7 +700,9 @@ def cmd_setup(args) -> None:
                                              f"以后双击桌面快捷方式或对 agent 说「打开{name}」"))
         made = write_launchers(prof.get("apps") or [])
         if made:
-            results.append(("应用启动器", f"已为 {'、'.join(a['name'] for a in made)} 生成双击启动器（{HUB_APPS / 'bin'}）"))
+            placed, problem = place_on_desktop(made)
+            where = f"桌面上的「{'」「'.join(placed)}」" if placed else f"{HUB_APPS / 'bin'} 里的 open-<应用>.cmd"
+            results.append(("应用启动器", f"以后双击{where}打开应用，关掉 agent 也不会影响它" + (f"；{problem}" if problem else "")))
     except (OSError, ValueError) as e:
         results.append(("应用启动器", f"没有生成：{e}"))
     print()
@@ -1090,6 +1151,10 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
             elif _STARTED in out or not old:
                 state_file.write_text(json.dumps({"version": version}), encoding="utf-8")
             prune_versions(app_id)
+            desk = [p for p in (desktop_dir() / f"{ticket.get('name', app_id)}.cmd", desktop_dir() / f"{ticket.get('name', app_id)}.lnk",
+                                desktop_dir() / f"{ticket.get('name', app_id)}.command") if p.exists()]
+            if desk:  # 由 agent 打开的应用会随 agent 退出被一起结束；员工自己双击打开的不会
+                message += f"\n请告诉用户：以后双击桌面上的「{ticket.get('name', app_id)}」打开，关掉你（agent）也不会影响它；现在这个是由你打开的，你退出时它可能会被一起关掉。"
             notice = capability_notice(app_id, pf) if pf else ""
             if notice:
                 message += "\n" + notice
@@ -1486,10 +1551,13 @@ def cmd_mcp(args=None) -> None:
     client = getattr(args, "client", None) or "桌面 agent"
     _CLIENT["name"] = client
     if not nested:
-        try:  # 每次桌面智能体启动时拉一次最新的岗位包技能
-            cmd_sync()
-        except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
-            print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
+        if synced_recently():
+            print("hub-agent mcp: 10 分钟内已同步过配置，这次不再领取（CodeBuddy 等每次运行都会重启桥）", file=sys.stderr, flush=True)
+        else:
+            try:  # 桌面智能体启动时拉一次最新的岗位包技能
+                cmd_sync()
+            except (Exception, SystemExit) as e:  # noqa: BLE001 同步失败不影响桥本身
+                print(f"hub-agent mcp: 同步技能失败：{e}", file=sys.stderr, flush=True)
         threading.Thread(target=_heartbeat_loop, args=(client,), daemon=True).start()
         threading.Thread(target=_outbox_loop, daemon=True).start()
     creds = fresh_creds()

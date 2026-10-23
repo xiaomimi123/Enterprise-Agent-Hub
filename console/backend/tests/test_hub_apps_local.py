@@ -462,3 +462,31 @@ def test_write_launchers(tmp_path, monkeypatch):
     if ha.sys.platform == "win32":
         assert text.startswith("@echo off\r\n") and "\r\r\n" not in text
     assert json.loads((tmp_path / "bin" / "launchers.json").read_text(encoding="utf-8"))[0]["name"] == "小红书运营工作台"
+
+
+def test_launchers_go_on_desktop_without_com(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "HUB_APPS", tmp_path / "HubApps")
+    monkeypatch.setattr(ha, "HOME", tmp_path / "hub-agent")
+    desk = tmp_path / "desk"
+    monkeypatch.setenv("HUB_SHORTCUT_DIR", str(desk))
+    made = ha.write_launchers([{"id": "xhs-workbench", "name": "小红书运营工作台"}], uv="uv", script="hub_agent.py")
+    placed, problem = ha.place_on_desktop(made)
+    ext = ".cmd" if ha.sys.platform == "win32" else ".command"
+    assert placed == ["小红书运营工作台"] and problem == ""
+    assert (desk / f"小红书运营工作台{ext}").read_bytes() == ha.Path(made[0]["path"]).read_bytes()
+    assert ha.place_on_desktop(made)[0] == ["小红书运营工作台"]  # 重复运行：覆盖自己放的
+    (desk / f"小红书运营工作台{ext}").write_text("员工自己的文件", encoding="utf-8")
+    assert ha.place_on_desktop(made)[0] == []  # 同名但不是我们放的：不覆盖
+    assert (desk / f"小红书运营工作台{ext}").read_text(encoding="utf-8") == "员工自己的文件"
+
+
+def test_launch_message_points_user_to_desktop(tmp_path, home, monkeypatch):
+    desk = tmp_path / "desk2"
+    desk.mkdir()
+    monkeypatch.setenv("HUB_SHORTCUT_DIR", str(desk))
+    ticket, data = build_ticket(tmp_path)
+    r = launch(ticket, data, Recorder())
+    assert "双击桌面" not in r["message"]  # 桌面上还没有：不说
+    (desk / f"{ticket.get('name', ticket['app_id'])}.cmd").write_text("x", encoding="utf-8")
+    r = launch(ticket, data, Recorder())
+    assert "以后双击桌面上的" in r["message"] and "关掉你（agent）也不会影响它" in r["message"]

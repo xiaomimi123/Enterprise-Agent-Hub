@@ -224,6 +224,9 @@ if ($ok -and (Test-Path $launchers)) {
                     $lnk.WindowStyle = 7
                     $lnk.Description = 'Open ' + $l.id + ' (Enterprise Agent Hub)'
                     $lnk.Save()
+                    # The connector already put a plain copy of the launcher here (it works without COM); the real shortcut replaces it.
+                    $copy = Join-Path $d ($l.name + '.cmd')
+                    if ((Test-Path $copy) -and ((Get-FileHash $copy).Hash -eq (Get-FileHash $l.path).Hash)) { Remove-Item $copy -Force }
                 }
             }
             Write-Host ''

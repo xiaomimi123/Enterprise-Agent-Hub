@@ -90,6 +90,16 @@ class NewApi:
 
     def _call(self, method: str, path: str, **kw) -> object:
         r = self.http.request(method, path, **kw)
+        # 被限流（429）时等一下再试两次：员工同时同步、CodeBuddy 频繁重连时会撞上 New API 管理接口的频率上限
+        for wait in (1.0, 2.5):
+            if r.status_code != 429:
+                break
+            try:
+                wait = min(float(r.headers.get("Retry-After") or wait), 5.0)
+            except ValueError:
+                pass
+            time.sleep(wait)
+            r = self.http.request(method, path, **kw)
         try:
             body = r.json()
         except ValueError:  # 限流（HTTP 429、空响应）或网关错误页

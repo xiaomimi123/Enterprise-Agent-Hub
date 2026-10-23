@@ -148,6 +148,10 @@ services:
       SESSION_SECRET: ${NEWAPI_SESSION_SECRET:?}
       ERROR_LOG_ENABLED: "true"
       TZ: ${TZ}
+      # 管理接口（/api/*）的频率上限默认是每个 IP 180 次 / 3 分钟。中枢后端是唯一的调用方（领取配置时查模型、查额度、更新 key），
+      # 所有员工的同步都从同一个 IP 来，默认值会被撞到（返回 429，员工领取配置失败）。模型调用（/v1）不受这个设置影响
+      GLOBAL_API_RATE_LIMIT: ${NEWAPI_API_RATE_LIMIT:-6000}
+      GLOBAL_API_RATE_LIMIT_DURATION: "180"
     volumes:
       - ./data/new-api:/data
       - ./logs/new-api:/app/logs

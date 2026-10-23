@@ -598,3 +598,39 @@ def test_stale_copies_found_in_agent_skill_dirs(tmp_path, monkeypatch):
 def test_connector_pins_python_below_314():
     head = (Path(hub_agent.__file__).read_text(encoding="utf-8")).split("# ///")[1]
     assert 'requires-python = ">=3.11,<3.14"' in head  # uv 曾在新电脑上选了 3.15，pyyaml 没有预编译包，接入直接失败
+
+
+def test_bridge_skips_resync_within_10_minutes(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_agent, "HOME", tmp_path)
+    assert not hub_agent.synced_recently()                       # 没同步过
+    (tmp_path / "profile.json").write_text("{}", encoding="utf-8")
+    assert hub_agent.synced_recently()
+    import os as _os
+    old = (tmp_path / "profile.json").stat().st_mtime - 601
+    _os.utime(tmp_path / "profile.json", (old, old))
+    assert not hub_agent.synced_recently()
+
+
+def test_setup_does_not_relogin_on_temporary_hub_error(tmp_path, monkeypatch):
+    """中枢临时出错（如模型网关限流导致 502）时，接入不应当成登录过期去弹浏览器。"""
+    monkeypatch.setattr(hub_agent, "HOME", tmp_path)
+    monkeypatch.setattr(hub_agent, "CREDS", tmp_path / "credentials.json")
+    (tmp_path / "credentials.json").write_text(json.dumps({"hub": "http://hub", "refresh_token": "r"}), encoding="utf-8")
+    monkeypatch.setattr(hub_agent, "agent_clients", lambda: [])
+    logins = []
+    monkeypatch.setattr(hub_agent, "cmd_login", lambda a: logins.append(a))
+
+    def sync_fail(msg):
+        def f(*a, **k):
+            hub_agent.fail(msg)
+        return f
+    monkeypatch.setattr(hub_agent, "cmd_sync", sync_fail("领取配置失败：New API /api/token/26/key 返回 HTTP 429（非 JSON 响应，可能被限流）"))
+    with pytest.raises(SystemExit):
+        hub_agent.cmd_setup(hub_agent.argparse.Namespace(hub="http://hub"))
+    assert logins == []
+    monkeypatch.setattr(hub_agent, "cmd_sync", sync_fail("登录已过期，请重新运行 login"))
+    monkeypatch.setattr(hub_agent, "configure_agents", lambda *a: [])
+    monkeypatch.setattr(hub_agent, "register_app_root", lambda: [])
+    monkeypatch.setattr(hub_agent, "_write_hub_mcp_config", lambda: tmp_path / "hub-mcp.json")
+    hub_agent.cmd_setup(hub_agent.argparse.Namespace(hub="http://hub"))
+    assert len(logins) == 1

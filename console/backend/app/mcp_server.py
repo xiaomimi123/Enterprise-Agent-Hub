@@ -29,7 +29,7 @@ from .skillstore import SkillError
 
 INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公司内部的资料、规范和算力。
 凡是和本公司有关的问题（产品、品牌、制度、违禁词、售后、历史爆款等），先用 search_knowledge 查公司资料，不要联网搜索或凭常识回答；
-写文案、做选题、出封面等工作，先用 list_skills / read_skill 看公司规定的做法；要生成图片或视频时，用这里的生成工具（公司 GPU，按岗位包授权）。
+写文案、做选题、出封面等工作，先用 list_skills / read_skill 看公司规定的做法；要生成图片或视频时，一律用这里的生成工具（公司 GPU，按岗位包授权、有审计），不要用你自带的生图 / 生视频功能；生成完用 report_work 上报。
 你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作

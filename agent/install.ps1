@@ -200,6 +200,12 @@ $env:PYTHONUNBUFFERED = '1'
 $env:HUB_APPS_ROOT = $Root
 & $Uv run (Join-Path $Dir 'hub_agent.py') setup --hub $Hub
 $ok = ($LASTEXITCODE -eq 0)
+if (-not $ok) {
+    # Failures before the connector itself runs (for example uv could not install its dependencies) leave no other trace.
+    Write-Health 'UNKNOWN' "connector setup exited with code $LASTEXITCODE (dependency install, sign-in or agent configuration failed; see the messages above)"
+    Write-Host ''
+    Write-Host "Setup did not finish (exit code $LASTEXITCODE). Read the messages above; run the same command again after fixing the cause."
+}
 
 # Desktop / Start menu shortcuts for the apps in your role pack: apps started by double-click keep running when an agent exits.
 $launchers = Join-Path $Root 'bin\launchers.json'
@@ -225,8 +231,19 @@ if ($ok -and (Test-Path $launchers)) {
             Write-Host '  Open company apps by double-clicking them (not through an agent): they keep running when the agent is closed.'
         }
     } catch {
+        # Shortcut (.lnk) creation needs COM, which agent sandboxes block: copy the launchers themselves to the desktop instead.
+        $why = $_
+        $copied = @()
+        try {
+            $desk = if ($env:HUB_SHORTCUT_DIR) { $env:HUB_SHORTCUT_DIR } else { [Environment]::GetFolderPath('Desktop') }
+            foreach ($l in $items) { Copy-Item $l.path (Join-Path $desk ($l.name + '.cmd')) -Force; $copied += $l.name }
+        } catch { }
         Write-Host ''
-        Write-Host "Could not create shortcuts ($_). The launchers are in $(Join-Path $Root 'bin'): double-click open-<app>.cmd there."
+        if ($copied.Count -gt 0) {
+            Write-Host "Shortcuts could not be created here ($why); copied the launchers to the desktop instead: $($copied -join ', ')"
+        } else {
+            Write-Host "Could not create shortcuts ($why). The launchers are in $(Join-Path $Root 'bin'): double-click open-<app>.cmd there."
+        }
     }
 }
 if ($ok -and (Test-Cmd codebuddy)) {

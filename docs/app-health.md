@@ -56,6 +56,7 @@
 | `NODE_MISSING` / `NPM_FAILED` / `CLI_MISSING` / `CLI_NOT_LOGGED_IN` / `BROWSER_MISSING` | 缺运行环境或工具 |
 | `PORT_IN_USE` / `APP_DOWNLOAD_FAILED` / `APP_LAUNCH_FAILED` | 打开应用失败 |
 | `ACCESS_LOCKED` | 工作台的自动访问锁在生效 |
+| `STALE_COPY` | agent 的技能目录里有应用的旧副本（早期整包发的），agent 会直接运行它而绕开中枢；接入器 0.5.1 起在接入时检测 |
 
 ## 在线状态与接入器版本
 

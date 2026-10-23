@@ -66,6 +66,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
 - **员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦**（`iex`、启动进程、计划任务、`reg.exe` 被拒，agent 退出时还会结束它拉起的后台程序）：首选让员工 Win+R 粘贴一行命令自己跑。接入器登录回调必须多线程（浏览器会预连接，单线程会卡死）；安装脚本刷新 PATH 只能合并不能覆盖，npm 用 `npm.cmd`，无 winget 走 Node.js 便携版。
 - **WorkBuddy 沙箱**（实测 + 读它的程序）：拦命令是写死的规则，改不了配置（`iex` / `irm | iex`、Bash 里出现 `powershell`、`Start-Process` 启动 shell、`Add-Type`、`Set-ExecutionPolicy Bypass` 等）；写文件的白名单是 `~/.workbuddy/settings.json` 的 `sandbox.extraAllowWrite`（带 `~` 的路径），但默认配置下实测并不限制写文件。PowerShell 工具里 `powershell -ExecutionPolicy Bypass -File <脚本>` 可以执行。CodeBuddy CLI 的目录白名单是 `settings.json` 的 `permissions.additionalDirectories`。
+- **WorkBuddy 会给它启动的程序注入整套 `CODEBUDDY_*`（实测 60 个）**：工作台从 WorkBuddy 会话里被拉起后再启动 codebuddy，`CODEBUDDY_SERVICE_PROXY_URL` 会让子进程去抢 WorkBuddy 的端口（`EADDRINUSE`，网页显示「回复为空」），必须全清。**这台开发机复现不了员工电脑的问题**：Python / Node / CodeBuddy 都装好登录过、管理员账号、中枢就在本机、我是从自己的终端启动而不是由 WorkBuddy 代跑。验证安装和接入要用干净环境（Windows 沙盒或新电脑），并且走一遍「让 WorkBuddy 代跑」。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
@@ -83,7 +84,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.0）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.1）。
 
 ## 开发与架构文档
 

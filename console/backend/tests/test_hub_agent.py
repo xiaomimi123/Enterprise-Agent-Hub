@@ -578,3 +578,23 @@ def test_report_app_event_records_launch_and_missing(health_home, monkeypatch):
     hub_agent.report_app_event({"access_token": "t"}, "http://hub", ticket, {"ok": False, "reason": "启动超时（60 秒）"})
     evs = _events(health_home)
     assert [(e["stage"], e["code"]) for e in evs] == [("launch", "OK"), ("doctor", "CLI_MISSING"), ("doctor", "BROWSER_MISSING"), ("launch", "APP_LAUNCH_FAILED")]
+
+
+def test_stale_copies_found_in_agent_skill_dirs(tmp_path, monkeypatch):
+    wb = tmp_path / ".workbuddy" / "skills"
+    monkeypatch.setattr(hub_agent, "WORKBUDDY_SKILLS", wb)
+    monkeypatch.setattr(hub_agent, "CODEBUDDY_HOME", tmp_path / ".codebuddy")
+    (wb / "xhs-workbench").mkdir(parents=True)
+    (wb / "xhs-workbench" / "SKILL.md").write_text("x", encoding="utf-8")         # 早期整包发的副本
+    (wb / "hub-xhs-writing").mkdir()
+    (wb / "hub-xhs-writing" / "SKILL.md").write_text("x", encoding="utf-8")      # 中枢同步的技能：不算
+    (tmp_path / ".claude" / "skills" / "xhs-workbench").mkdir(parents=True)        # 没有 SKILL.md：不算
+    found = hub_agent.stale_copies([{"id": "xhs-workbench", "name": "小红书运营工作台"}, {"id": "../x"}], home=tmp_path)
+    assert [(a["id"], d) for a, d in found] == [("xhs-workbench", wb / "xhs-workbench")]
+    (wb / "xhs-workbench" / hub_agent.WB_MARKER).write_text("")                   # 带中枢标记的不算
+    assert hub_agent.stale_copies([{"id": "xhs-workbench"}], home=tmp_path) == []
+
+
+def test_connector_pins_python_below_314():
+    head = (Path(hub_agent.__file__).read_text(encoding="utf-8")).split("# ///")[1]
+    assert 'requires-python = ">=3.11,<3.14"' in head  # uv 曾在新电脑上选了 3.15，pyyaml 没有预编译包，接入直接失败

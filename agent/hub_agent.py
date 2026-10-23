@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.11,<3.14"
 # dependencies = ["httpx>=0.27", "pyyaml>=6"]
 # ///
 """企业智能体中枢 · 员工端接入器。
@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -567,6 +567,23 @@ def register_app_root(wb_settings: Path | None = None, cb_home: Path | None = No
     return results
 
 
+def stale_copies(app_list: list[dict], home: Path | None = None) -> list[tuple[dict, Path]]:
+    """找出岗位包里的应用在 agent 技能目录里的旧副本（早期把应用当技能包整个文件夹发给员工时留下的）。
+    agent 会直接运行这些副本，绕开中枢下发的版本：中枢的 MCP、成果上报、应用健康全都接不上（员工电脑上踩过）。只报告，不删。"""
+    home = home or Path.home()
+    roots = [WORKBUDDY_SKILLS, CODEBUDDY_HOME / "skills", home / ".claude" / "skills", home / ".codex" / "skills"]
+    found = []
+    for a in app_list:
+        app_id = str(a.get("id") or "")
+        if not APP_ID_RE.match(app_id):
+            continue
+        for r in roots:
+            d = r / app_id
+            if (d / "SKILL.md").is_file() and not (d / WB_MARKER).exists():
+                found.append((a, d))
+    return found
+
+
 def write_launchers(app_list: list[dict], uv: str | None = None, script: str | None = None) -> list[dict]:
     """给岗位包里的每个应用在 ~/HubApps/bin 写一个双击启动器（Windows .cmd / macOS .command），并写 launchers.json 供安装脚本建快捷方式。
     由员工自己双击启动的应用不挂在 agent 下面，agent 退出不会把它一起结束。真正打开时仍向中枢逐次鉴权。"""
@@ -611,8 +628,17 @@ def cmd_setup(args) -> None:
     record_health("login", True)
     results = configure_agents(clients, find_uv(), str(Path(__file__).resolve()))
     results += register_app_root()
+    try:  # 应用不是从中枢打开时（agent 直接运行旧副本、开机自启），应用靠这个文件自己接上中枢 MCP
+        _write_hub_mcp_config()
+    except OSError as e:
+        results.append(("中枢 MCP 配置", f"没有写成：{e}"))
     try:
         prof = json.loads((HOME / "profile.json").read_text(encoding="utf-8"))
+        for a, d in stale_copies(prof.get("apps") or []):
+            name = a.get("name") or a.get("id")
+            record_health("doctor", False, "STALE_COPY", f"本机有「{name}」的旧副本：{d}", str(a.get("id")))
+            results.append((f"{name} 旧副本", f"在 {d} 发现旧的技能包副本，agent 可能会直接运行它而绕开中枢。建议删除这个文件夹（数据不在里面），"
+                                             f"以后双击桌面快捷方式或对 agent 说「打开{name}」"))
         made = write_launchers(prof.get("apps") or [])
         if made:
             results.append(("应用启动器", f"已为 {'、'.join(a['name'] for a in made)} 生成双击启动器（{HUB_APPS / 'bin'}）"))
@@ -623,7 +649,7 @@ def cmd_setup(args) -> None:
         info(f"{name}：{status}")
     if not shutil.which("codebuddy"):
         info("提示：要在小红书工作台里用浏览器自动化，需要先安装 CodeBuddy CLI（需要 Node.js）：npm install -g @tencent-ai/codebuddy-code ，装好后重新运行这条命令。只用 WorkBuddy 的话可以不装。")
-    done = [n for n, s in results if s in ("已配置", "已是最新") and "目录权限" not in n and n != "应用启动器"]
+    done = [n for n, s in results if s in ("已配置", "已是最新") and "目录权限" not in n and n not in ("应用启动器", "中枢 MCP 配置") and "旧副本" not in n]
     record_health("install", bool(done), None if done else "UNKNOWN",
                   "" if done else "没有检测到可配置的 agent（WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版）")
     try_flush_health()

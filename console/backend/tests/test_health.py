@@ -90,3 +90,29 @@ def test_demo_data_and_api_in_demo_mode():
 def test_summarize_empty():
     s = health.summarize([])
     assert s["totals"]["events"] == 0 and s["codes"] == [] and s["devices"] == []
+
+
+def test_merge_presence_online_outdated_and_presence_only():
+    rows = [_row("a", "d1", "launch", True, minutes=10)]
+    p = {
+        "a": {"client": "WorkBuddy", "version": "0.5.0", "os": "Windows 10", "last_seen": NOW - timedelta(seconds=30)},
+        "b": {"client": "CodeBuddy CLI", "version": "0.4.0", "os": "Windows 10", "last_seen": NOW - timedelta(hours=2)},   # 旧版：没有任何健康事件
+        "c": {"client": None, "version": None, "os": None, "last_seen": NOW - timedelta(days=1)},                          # 没有心跳，版本未知
+        "gone": {"client": "WorkBuddy", "version": "0.4.0", "os": "", "last_seen": NOW},                                   # 已删除的账号
+        "old": {"client": "WorkBuddy", "version": "0.4.0", "os": "", "last_seen": NOW - timedelta(days=9)},                # 这段时间没出现
+    }
+    names = {"a": "张三", "b": "李四", "c": "王五", "old": "老人"}
+    s = health.merge_presence(health.summarize(rows, names), p, "0.5.0", names, days=7, now=NOW)
+    devs = {d["user_name"]: d for d in s["devices"]}
+    assert set(devs) == {"a", "b", "c"}
+    assert devs["a"]["online"] and not devs["a"]["outdated"] and devs["a"]["presence_agent"] == "WorkBuddy" and not devs["a"]["no_events"]
+    assert devs["b"]["outdated"] and devs["b"]["no_events"] and not devs["b"]["online"] and devs["b"]["display_name"] == "李四"
+    assert devs["c"]["version_unknown"] and not devs["c"]["outdated"]
+    assert s["devices"][0]["user_name"] == "b"  # 旧版的排在正常的前面
+    assert (s["totals"]["online"], s["totals"]["outdated"], s["totals"]["version_unknown"]) == (1, 1, 1)
+    assert s["latest_connector"] == "0.5.0"
+    # 心跳里还是旧版本、事件已经来自新版本（升级后桥还没重新连）：按较新的算，不标旧版
+    s2 = health.merge_presence(health.summarize([_row("e", "d5", "doctor", True)], {"e": "E"}),
+                               {"e": {"client": "CodeBuddy CLI", "version": "0.4.0", "os": "", "last_seen": NOW - timedelta(hours=5)}}, "0.5.0", {"e": "E"}, now=NOW)
+    assert s2["devices"][0]["current_version"] == "0.5.0" and not s2["devices"][0]["outdated"]
+    assert health.is_outdated("0.4.9", "0.5.0") and not health.is_outdated("0.10.0", "0.5.0") and not health.is_outdated("", "0.5.0")

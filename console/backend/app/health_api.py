@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from fastapi import APIRouter, Query
 
 from . import db, health
@@ -21,13 +24,32 @@ def _names() -> dict[str, str]:
         return {}
 
 
+_LATEST: dict = {}
+
+
+def latest_connector() -> str:
+    """中枢正在发布的接入器版本（agent/hub_agent.py 里的 VERSION），按文件修改时间缓存。"""
+    f = Path(settings.agent_dir) / "hub_agent.py"
+    try:
+        mtime = f.stat().st_mtime
+        if _LATEST.get("mtime") != mtime:
+            m = re.search(r'^VERSION = "([^"]+)"', f.read_text(encoding="utf-8"), re.M)
+            _LATEST.update(mtime=mtime, version=m.group(1) if m else "")
+        return _LATEST["version"]
+    except OSError:
+        return ""
+
+
 @router.get("/health/summary")
 def summary(days: int = Query(7, ge=1, le=health.RETENTION_DAYS), app_id: str | None = None, app_version: str | None = None):
     if not settings.database_url:  # 演示模式：示例数据
         rows = health.demo_rows()
-        return {**health.summarize(rows), "apps": [("xhs-workbench", "0.7.9")], "days": days}
+        demo_names = {r["user_name"]: r["display_name"] for r in rows} | {"sunqi": "孙七", "zhouba": "周八"}
+        data = health.merge_presence(health.summarize(rows, demo_names), health.demo_presence(), latest_connector(), demo_names, days)
+        return {**data, "apps": [("xhs-workbench", "0.7.9")], "days": days}
     rows = db.health_events(settings.casdoor_org, days, app_id=app_id or None, app_version=app_version or None)
-    data = health.summarize(rows, _names())
+    names = _names()
+    data = health.merge_presence(health.summarize(rows, names), db.presence_rows(settings.casdoor_org), latest_connector(), names, days)
     data["apps"] = sorted({(r["app_id"], r["app_version"]) for r in rows if r["app_id"]}, reverse=True)
     data["days"] = days
     return data

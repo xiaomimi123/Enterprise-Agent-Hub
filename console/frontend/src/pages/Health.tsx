@@ -50,8 +50,18 @@ export default function HealthPage() {
           <Rate label="登录" r={t.login} />
           <Rate label="打开应用" r={t.launch} />
           <div className="kpi"><div className="kpi-label">出过错的人</div><div className="kpi-value num" style={{ color: t.fail_people ? 'var(--red)' : undefined }}>{t.fail_people}<small> / {t.people}</small></div></div>
-          <div className="kpi"><div className="kpi-label">设备 / 事件</div><div className="kpi-value num">{t.devices}<small> 台 / {t.events} 条</small></div></div>
+          <div className="kpi"><div className="kpi-label">现在在线</div><div className="kpi-value num">{t.online}<small> 人</small></div></div>
+          <div className="kpi">
+            <div className="kpi-label">旧版接入器{data.latest_connector ? `（最新 ${data.latest_connector}）` : ''}</div>
+            <div className="kpi-value num" style={{ color: t.outdated ? 'var(--amber)' : undefined }}>{t.outdated}<small> 人{t.version_unknown ? ` · 未知 ${t.version_unknown}` : ''}</small></div>
+          </div>
         </section>
+
+        {t.outdated > 0 && (
+          <div className="panel" style={{ padding: '14px 18px' }}>
+            有 {t.outdated} 人还在用旧版接入器：旧版不回传安装和打开应用的结果，这里只能看到他们是否在线。请他们重新运行一次接入命令（「接入方式」页里的那一条），接入器会升级到 {data.latest_connector}。
+          </div>
+        )}
 
         {t.events === 0 && (
           <div className="panel" style={{ padding: '14px 18px' }}>
@@ -82,23 +92,40 @@ export default function HealthPage() {
           />
         </Panel>
 
-        <Panel title="设备" sub="最近一次是失败、之后没再成功的排在前面；点一行看这台设备的时间线" tight>
+        <Panel title="设备" sub="最近一次是失败的排最前，其次是旧版接入器；在线状态和接入器版本来自接入器每分钟的心跳（每人一条）。点一行看这台设备的时间线" tight>
           <Table<HealthDevice>
             rowKey={(r) => `${r.user_name}/${r.device_id}`} dataSource={data.devices} pagination={{ pageSize: 15, showSizeChanger: false, size: 'small' }}
-            scroll={{ x: 980 }} locale={{ emptyText: '暂无设备' }} onRow={(r) => ({ onClick: () => setOpen(r), style: { cursor: 'pointer' } })}
+            scroll={{ x: 1100 }} locale={{ emptyText: '暂无设备' }}
+            onRow={(r) => (r.no_events ? {} : { onClick: () => setOpen(r), style: { cursor: 'pointer' } })}
             columns={[
               {
                 title: '成员', dataIndex: 'display_name', render: (v, r) => (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Avatar name={v} size={24} /><span style={{ fontWeight: 500 }}>{v}</span>
-                    <span className="mono muted" style={{ fontSize: 11 }}>{r.device_id.slice(0, 6)}</span>
+                    {r.device_id && <span className="mono muted" style={{ fontSize: 11 }}>{r.device_id.slice(0, 6)}</span>}
                   </div>
                 ),
               },
-              { title: '状态', key: 's', width: 150, render: (_, r) => r.failing ? <Pill tone="red">{data.catalog[r.last_code]?.label ?? r.last_code}</Pill> : <Pill tone="green">正常</Pill> },
+              {
+                title: '状态', key: 's', width: 150, render: (_, r) => r.failing ? <Pill tone="red">{data.catalog[r.last_code]?.label ?? r.last_code}</Pill>
+                  : r.no_events ? <Pill tone="gray">没有回传</Pill> : <Pill tone="green">正常</Pill>,
+              },
+              {
+                title: '最近在线', key: 'seen', width: 120, render: (_, r) => r.online
+                  ? <Pill tone="green">在线</Pill>
+                  : <span className="num muted">{when(r.last_seen)}</span>,
+              },
               { title: '系统', key: 'os', render: (_, r) => <span style={{ fontSize: 13 }}>{r.os} <span className="muted">{r.arch}</span></span> },
-              { title: 'agent', dataIndex: 'agent', render: (v) => v || <span className="muted">—</span> },
-              { title: '接入器 / 应用', key: 'v', render: (_, r) => <span className="mono" style={{ fontSize: 12 }}>{r.connector_version || '—'} · {r.app_version || '—'}</span> },
+              { title: 'agent', key: 'agent', render: (_, r) => r.presence_agent || r.agent || <span className="muted">—</span> },
+              {
+                title: '接入器', key: 'cv', width: 130, render: (_, r) => r.version_unknown ? <span className="muted" style={{ fontSize: 12 }}>未知（没有心跳）</span> : (
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{r.current_version}</span>
+                    {r.outdated && <Pill tone="amber" dot={false}>旧版</Pill>}
+                  </span>
+                ),
+              },
+              { title: '应用', key: 'app', render: (_, r) => <span className="mono" style={{ fontSize: 12 }}>{r.app_version || '—'}</span> },
               { title: '最近成功', dataIndex: 'last_ok_at', width: 110, render: (v) => <span className="num muted">{when(v)}</span> },
               { title: '最近失败', dataIndex: 'last_fail_at', width: 110, render: (v) => <span className="num muted">{when(v)}</span> },
             ]}

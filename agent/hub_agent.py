@@ -1306,7 +1306,9 @@ def _health_items(line: bytes) -> list[dict]:
 
 
 def flush_health(creds: dict, hub: str, post=None) -> int:
-    """把本机 logs/health*.jsonl（接入器、安装脚本、应用各写各的文件）的新事件转发中枢。"""
+    """把本机 logs/health*.jsonl（接入器、安装脚本、应用各写各的文件）的新事件转发中枢。HUB_HEALTH=off 时积压的也不发。"""
+    if os.environ.get("HUB_HEALTH", "").lower() in ("off", "0", "no"):
+        return 0
     d = HUB_APPS / "logs"
     files = sorted(d.glob("health*.jsonl")) if d.is_dir() else []
     post = post or (lambda _stem, items: httpx.post(

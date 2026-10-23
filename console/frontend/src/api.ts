@@ -286,10 +286,17 @@ export interface HealthDevice {
   user_name: string; display_name: string; device_id: string; os: string; os_version: string; arch: string
   agent: string; agent_version: string; connector_version: string; app_version: string
   last_at: string; last_ok_at: string | null; last_fail_at: string | null; last_code: string; fails: number; failing: boolean
+  // 来自接入器心跳（每人一条）
+  last_seen: string | null; online: boolean; presence_agent: string; current_version: string
+  outdated: boolean; version_unknown: boolean; no_events: boolean
 }
 export interface HealthSummary {
   days: number
-  totals: { events: number; fails: number; people: number; devices: number; fail_people: number; install: HealthRate; login: HealthRate; launch: HealthRate }
+  totals: {
+    events: number; fails: number; people: number; devices: number; fail_people: number; install: HealthRate; login: HealthRate; launch: HealthRate
+    online: number; outdated: number; version_unknown: number
+  }
+  latest_connector: string
   codes: HealthCode[]
   devices: HealthDevice[]
   catalog: Record<string, { label: string; fix: string }>

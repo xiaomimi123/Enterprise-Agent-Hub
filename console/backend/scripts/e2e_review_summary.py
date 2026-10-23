@@ -158,5 +158,8 @@ finally:
         except Exception as e:  # noqa: BLE001
             print("rm", n, e)
         db.drop_user_roles(org, n)
+        with db.connect() as c:  # 测试账号的在线记录也删掉，不然会出现在「应用健康」的设备列表里
+            c.execute("DELETE FROM agent_presence WHERE user_name = %s", (n,))
+            c.execute("DELETE FROM agent_presence_daily WHERE user_name = %s", (n,))
     db.set_dept_managers(org, "ops", [])
 print(f"\n{ok} 通过, {bad} 失败")

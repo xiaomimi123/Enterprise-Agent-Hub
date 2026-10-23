@@ -182,3 +182,66 @@ def demo_rows(now: datetime | None = None) -> list[dict]:
     return [{**base, "user_name": u, "display_name": n, "device_id": d, "stage": st, "ok": ok, "code": c, "os": os_, "agent": ag,
              "connector_version": "0.5.0", "app_id": "xhs-workbench" if v else "", "app_version": v, "message": m,
              "at": now - timedelta(minutes=mins)} for mins, u, n, d, st, ok, c, os_, ag, v, m in spec]
+
+
+# ---------------- 在线状态与接入器版本（来自接入器每分钟的心跳，每人一条） ----------------
+
+ONLINE_SECONDS = 180  # 心跳每分钟一次，3 分钟内有心跳算在线
+
+
+def version_tuple(v: str | None) -> tuple:
+    try:
+        return tuple(int(x) for x in str(v or "").strip().split("."))
+    except ValueError:
+        return ()
+
+
+def is_outdated(v: str | None, latest: str | None) -> bool:
+    """接入器版本低于中枢正在发布的版本。版本未知（没有心跳）的不算旧版，单独标「未知」。"""
+    a, b = version_tuple(v), version_tuple(latest)
+    return bool(a) and bool(b) and a < b
+
+
+def merge_presence(summary: dict, presence: dict[str, dict], latest: str | None, names: dict[str, str] | None = None,
+                   days: int = RETENTION_DAYS, now: datetime | None = None) -> dict:
+    """把心跳合并进设备列表：每台设备补上「最近在线」、心跳里的 agent 和接入器版本、是否旧版；
+    这段时间有心跳却没有任何健康事件的人（旧版接入器不回传事件）也列出来，标成「没有回传」。"""
+    now = now or datetime.now(timezone.utc)
+    names = names or {}
+
+    def info(p: dict | None, fallback_version: str = "") -> dict:
+        seen = p.get("last_seen") if p else None
+        # 心跳和健康事件里各有一个接入器版本，取较新的（升级后桥还没重新连上时，心跳里还是旧版本）
+        version = max([v for v in ((p.get("version") if p else None), fallback_version) if v], key=version_tuple, default="")
+        return {"last_seen": seen, "online": bool(seen and (now - seen).total_seconds() < ONLINE_SECONDS),
+                "presence_agent": (p.get("client") if p else "") or "", "current_version": version or "",
+                "outdated": is_outdated(version, latest), "version_unknown": not version}
+
+    devices = summary["devices"]
+    for d in devices:
+        d.update(info(presence.get(d["user_name"]), d.get("connector_version", "")), no_events=False)
+    have = {d["user_name"] for d in devices}
+    for user, p in presence.items():
+        seen = p.get("last_seen")
+        if user in have or not seen or (now - seen) > timedelta(days=days) or (names and user not in names):
+            continue  # 已删除的账号（不在成员名单里）、这段时间没出现过的不列
+        devices.append({"user_name": user, "display_name": names.get(user) or user, "device_id": "", "os": p.get("os") or "",
+                        "os_version": "", "arch": "", "agent": p.get("client") or "", "agent_version": "",
+                        "connector_version": p.get("version") or "", "app_version": "", "last_at": seen, "last_ok_at": None,
+                        "last_fail_at": None, "last_code": "", "fails": 0, "failing": False, "no_events": True, **info(p)})
+    devices.sort(key=lambda d: (not d["failing"], not d["outdated"], -(d["last_seen"] or d["last_at"]).timestamp()))
+    people = {d["user_name"]: d for d in devices}
+    summary["totals"].update(online=sum(1 for d in people.values() if d["online"]),
+                             outdated=sum(1 for d in people.values() if d["outdated"]),
+                             version_unknown=sum(1 for d in people.values() if d["version_unknown"]))
+    summary["latest_connector"] = latest or ""
+    return summary
+
+
+def demo_presence(now: datetime | None = None) -> dict[str, dict]:
+    now = now or datetime.now(timezone.utc)
+    return {"lisi": {"client": "WorkBuddy", "version": "0.5.0", "os": "Windows 10", "last_seen": now - timedelta(seconds=40)},
+            "zhangsan": {"client": "CodeBuddy CLI", "version": "0.5.0", "os": "macOS", "last_seen": now - timedelta(hours=3)},
+            "wangwu": {"client": "WorkBuddy", "version": "0.4.0", "os": "Windows 10", "last_seen": now - timedelta(hours=20)},
+            "sunqi": {"client": "CodeBuddy CLI", "version": "0.4.0", "os": "Windows 10", "last_seen": now - timedelta(minutes=1)},
+            "zhouba": {"client": None, "version": None, "os": None, "last_seen": now - timedelta(days=2)}}

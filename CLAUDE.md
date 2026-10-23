@@ -66,7 +66,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
 - **员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦**（`iex`、启动进程、计划任务、`reg.exe` 被拒，agent 退出时还会结束它拉起的后台程序）：首选让员工 Win+R 粘贴一行命令自己跑。接入器登录回调必须多线程（浏览器会预连接，单线程会卡死）；安装脚本刷新 PATH 只能合并不能覆盖，npm 用 `npm.cmd`，无 winget 走 Node.js 便携版。
 - **WorkBuddy 沙箱**（实测 + 读它的程序）：拦命令是写死的规则，改不了配置（`iex` / `irm | iex`、Bash 里出现 `powershell`、`Start-Process` 启动 shell、`Add-Type`、`Set-ExecutionPolicy Bypass` 等）；写文件的白名单是 `~/.workbuddy/settings.json` 的 `sandbox.extraAllowWrite`（带 `~` 的路径），但默认配置下实测并不限制写文件。PowerShell 工具里 `powershell -ExecutionPolicy Bypass -File <脚本>` 可以执行。CodeBuddy CLI 的目录白名单是 `settings.json` 的 `permissions.additionalDirectories`。
-- **测试不要写员工真实的 `~/HubApps`**：接入器的应用根目录由 `HUB_APPS_ROOT` 指定，`tests/conftest.py` 已指向临时目录；新测试里涉及 `record_health` 的同样要隔离 `HOME` 和 `HUB_APPS`。
+- **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
 ## 接入新应用

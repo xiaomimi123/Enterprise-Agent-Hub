@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.5"
+VERSION = "0.5.6"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -1282,6 +1282,13 @@ def flush_outbox(creds: dict, hub: str, app_id: str | None = None, post=None) ->
     return _flush_jsonl(files, post, _outbox_items, "成果", OUTBOX_BATCH)
 
 
+def cmd_token(_args=None) -> None:
+    """token：给本机的公司应用（如小红书工作台）用中枢的接口（出图出视频等）时取令牌。快过期会先续期；只输出到标准输出，不写文件。
+    令牌和员工在 agent 里用的是同一个，权限、额度、审计都按这个员工的岗位包。"""
+    creds = fresh_creds()
+    print(json.dumps({"hub": creds["hub"], "access_token": creds["access_token"], "expires_at": creds["expires_at"]}), flush=True)
+
+
 def cmd_flush_outbox(args) -> None:
     """flush-outbox [应用 id]：立刻转发应用写在本机的成果（桥运行时会每 20 秒自动转发）。"""
     creds = fresh_creds()
@@ -1636,12 +1643,13 @@ def main() -> None:
     p.add_argument("--yes", action="store_true", help="已征得员工同意，不再逐项询问")
     p = sub.add_parser("flush-outbox", help="把应用写在本机的工作成果转发到中枢（桥运行时会自动转发）")
     p.add_argument("app_id", nargs="?", default=None, help="只转发这个应用；省略则转发全部")
+    sub.add_parser("token", help="输出可用的中枢令牌（快过期会先续期），给本机的公司应用调用中枢接口用")
     # chat 后面的参数（如 -q、--resume）全部原样交给 hermes，不经过本程序解析
     if len(sys.argv) > 1 and sys.argv[1] == "chat":
         return cmd_chat(argparse.Namespace(hermes_args=sys.argv[2:]))
     args = ap.parse_args()
     {"login": cmd_login, "setup": cmd_setup, "sync": cmd_sync, "status": cmd_status, "logout": cmd_logout, "chat": cmd_chat,
-     "mcp": cmd_mcp, "open-app": cmd_open_app, "app-doctor": cmd_app_doctor, "flush-outbox": cmd_flush_outbox}[args.cmd](args)
+     "mcp": cmd_mcp, "open-app": cmd_open_app, "app-doctor": cmd_app_doctor, "flush-outbox": cmd_flush_outbox, "token": cmd_token}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -634,3 +634,12 @@ def test_setup_does_not_relogin_on_temporary_hub_error(tmp_path, monkeypatch):
     monkeypatch.setattr(hub_agent, "_write_hub_mcp_config", lambda: tmp_path / "hub-mcp.json")
     hub_agent.cmd_setup(hub_agent.argparse.Namespace(hub="http://hub"))
     assert len(logins) == 1
+
+
+def test_token_prints_only_hub_token_and_expiry(monkeypatch, capsys):
+    """token 命令给本机公司应用取令牌：只输出中枢地址、访问令牌和过期时间，不带刷新令牌"""
+    creds = {"hub": "http://hub:8088", "access_token": "a", "refresh_token": "r", "expires_at": 123}
+    monkeypatch.setattr(hub_agent, "fresh_creds", lambda: creds)
+    hub_agent.cmd_token()
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"hub": "http://hub:8088", "access_token": "a", "expires_at": 123}

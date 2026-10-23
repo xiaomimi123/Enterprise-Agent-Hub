@@ -48,6 +48,11 @@ class ImageBody(BaseModel):
     count: int = Field(1, ge=1, le=generation.MAX_IMAGES)
 
 
+class CoverBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=40)
+    description: str | None = Field(None, max_length=500)
+
+
 class VideoBody(BaseModel):
     prompt: str
     aspect: str = "9:16"
@@ -71,6 +76,13 @@ def _enqueue(submit, authorization: str | None, trace_id: str | None, **args) ->
 def create_image(body: ImageBody, authorization: str | None = Header(default=None),
                  x_hub_trace_id: str | None = Header(default=None)):
     return _enqueue(generation.submit_image, authorization, x_hub_trace_id, **body.model_dump())
+
+
+@router.post("/covers", status_code=202)
+def create_cover(body: CoverBody, authorization: str | None = Header(default=None),
+                 x_hub_trace_id: str | None = Header(default=None)):
+    """小红书封面（与 MCP 的 generate_cover 相同：3:4，一次 3 版）。"""
+    return _enqueue(generation.submit_cover, authorization, x_hub_trace_id, title=body.title, description=body.description)
 
 
 @router.post("/videos", status_code=202)

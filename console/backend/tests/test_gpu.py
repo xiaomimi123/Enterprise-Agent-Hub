@@ -87,3 +87,48 @@ def test_public_api_maps_busy_to_429(monkeypatch):
     monkeypatch.setattr(generation, "submit_image", busy)
     r = TestClient(app).post("/api/v1/images", json={"prompt": "猫"})
     assert r.status_code == 429 and "没完成" in r.json()["detail"]
+
+
+def test_public_api_cover_route(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import generation, policy, public_api
+    from app.main import app
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL, pack={})
+    monkeypatch.setattr(public_api, "_principal", lambda auth: p)
+    got = {}
+
+    def cover(principal, trace_id, title, description):
+        got.update(title=title, description=description)
+        return {"id": "c1", "ahead": 0, "trace_id": trace_id}
+    monkeypatch.setattr(generation, "submit_cover", cover)
+    client = TestClient(app)
+    r = client.post("/api/v1/covers", json={"title": "秋天第一杯", "description": "暖色"})
+    assert r.status_code == 202 and r.json()["task_id"] == "c1" and got == {"title": "秋天第一杯", "description": "暖色"}
+    assert client.post("/api/v1/covers", json={"title": ""}).status_code == 422
+    assert client.post("/api/v1/covers", json={"title": "长" * 41}).status_code == 422
+
+
+def test_file_download_converts_to_png(monkeypatch, tmp_path):
+    import io
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from app.main import app
+    s = dataclasses.replace(gpu.settings, file_secret="secret", outputs_dir=str(tmp_path), public_url="http://hub")
+    monkeypatch.setattr(gpu, "settings", s)
+    (tmp_path / "t1").mkdir()
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 6), "red").save(buf, "WEBP")
+    (tmp_path / "t1" / "1.webp").write_bytes(buf.getvalue())
+    (tmp_path / "t1" / "2.webp").write_bytes(b"not an image")
+    exp = int(time.time()) + 60
+    client = TestClient(app)
+    url = lambda n, fmt="": f"/api/files/t1/{n}?exp={exp}&sig={gpu._sign(f't1/{n}', exp)}" + (f"&fmt={fmt}" if fmt else "")
+    assert client.get(url("1.webp")).content == buf.getvalue()                 # 不带 fmt 原样返回
+    r = client.get(url("1.webp", "png"))
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert Image.open(io.BytesIO(r.content)).size == (8, 6)
+    assert client.get(url("2.webp", "png")).status_code == 415
+    assert client.get(f"/api/files/t1/1.webp?exp={exp}&sig=bad&fmt=png").status_code == 404

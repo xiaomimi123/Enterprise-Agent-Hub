@@ -42,7 +42,7 @@ cd console/backend && uv run python scripts/gpu_smoke.py   # 两人同时出图�
 
 | 工作流 | 模型 | 用途 | 入口 |
 |---|---|---|---|
-| `image-gen` | Z-Image-Turbo（int8，8 步） | 文生图，画幅 3:4 / 1:1 / 4:3 / 9:16 / 16:9，一次 1–4 张 | MCP `generate_cover`、`generate_image`；HTTP `POST /api/v1/images` |
+| `image-gen` | Z-Image-Turbo（int8，8 步） | 文生图，画幅 3:4 / 1:1 / 4:3 / 9:16 / 16:9，一次 1–4 张 | MCP `generate_cover`、`generate_image`；HTTP `POST /api/v1/images`、`POST /api/v1/covers`（`{title, description}`，3:4 × 3 张） |
 | `video-h3` | MiniMax-H3 + Turbo 4 步 LoRA | 文生视频（带声音，24fps），2–10 秒 | MCP `generate_video`；HTTP `POST /api/v1/videos` |
 | `video-h3-i2v` | 同上，参考图作首帧 | 图生视频，画幅跟随参考图（约 0.4 百万像素） | MCP `generate_video_from_image`（只收中枢签发的图片链接）；HTTP `POST /api/v1/videos/from-image`（上传 PNG/JPEG/WEBP，≤ 10MB） |
 
@@ -54,6 +54,10 @@ curl -X POST http://<中枢>:8088/api/v1/videos -H "Authorization: Bearer $TOKEN
 # → {"task_id": "gpu-…", "status": "排队中", "ahead": 0, "trace_id": "api-…"}
 curl http://<中枢>:8088/api/v1/tasks/gpu-… -H "Authorization: Bearer $TOKEN"   # 完成后含 images / videos 下载链接
 ```
+
+**下载转 PNG**：签名下载链接加 `&fmt=png` 时，非 PNG 的图片（第三方 API 可能给 JPEG / WEBP）由中枢转成 PNG 再返回（视频和本来就是 PNG 的原样返回，转不了返回 415）。小红书工作台的「公司中枢」生图服务用它，工作台入库只收 PNG。
+
+**本机应用怎么拿令牌**：接入器 0.5.6 起 `uv run hub_agent.py token` 输出 `{hub, access_token, expires_at}`（快过期先续期，不输出刷新令牌），工作台用它调上面的 HTTP 接口，权限和额度按员工岗位包。
 
 **图生视频的参考图**：HTTP 上传的图片先校验格式和大小，存到 `outputs/_inputs/`；调度服务派发时用 ComfyUI 的 `POST /upload/image` 传到该节点，再填进工作流的 LoadImage。MCP 工具只接受中枢自己签发、未过期的下载链接（例如刚生成的封面），**不抓取任意网址**，避免被用来探测内网（SSRF）。
 

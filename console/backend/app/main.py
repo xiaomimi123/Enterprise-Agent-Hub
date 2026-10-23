@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import io
 import mimetypes
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
+from PIL import Image
 from pydantic import BaseModel
 
 from . import agent_api, apps, auth, db, depts_api, gpu, health_api, kb_api, proposals_api, members_api, models_api, public_api, roles, skills_api, work
@@ -90,11 +92,20 @@ def download_app(app_id: str, filename: str, exp: int = 0, sig: str = ""):
 
 
 @app.get("/api/files/{task_id}/{name}")
-def download_file(task_id: str, name: str, exp: int = 0, sig: str = ""):
-    """生成结果下载：凭链接里的签名和有效期访问，不需要登录（链接由 MCP 工具发给员工）。"""
+def download_file(task_id: str, name: str, exp: int = 0, sig: str = "", fmt: str = ""):
+    """生成结果下载：凭链接里的签名和有效期访问，不需要登录（链接由 MCP 工具发给员工）。
+    fmt=png 时把图片转成 PNG 再给（小红书工作台只收 PNG，而第三方出图通道可能返回 JPG / WebP）。"""
     f = gpu.verify_file(task_id, name, exp, sig)
     if f is None:
         raise HTTPException(404, "链接无效或已过期")
+    if fmt == "png" and f.suffix.lower() not in gpu.VIDEO_SUFFIXES and f.suffix.lower() != ".png":
+        try:
+            buf = io.BytesIO()
+            with Image.open(f) as im:
+                im.convert("RGBA" if im.mode in ("RGBA", "LA", "P") else "RGB").save(buf, "PNG")
+            return Response(buf.getvalue(), media_type="image/png")
+        except (OSError, ValueError):
+            raise HTTPException(415, "这个文件不是能转换的图片")
     return FileResponse(f, media_type=mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
 

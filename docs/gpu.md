@@ -100,6 +100,7 @@ ComfyUI 本身没有鉴权，GPU 机器的 8188 端口应只对中枢服务器�
 - worker 重启后，已存第三方任务号的任务继续轮询，不会重复提交；失败、超时或返回空图的任务变为 `failed` 并写审计。
 - 从第三方下载图片偶尔断流（`SSL: UNEXPECTED_EOF_WHILE_READING`）：每次下载网络错误 / 5xx 当场再试 2 次；还不行不判失败，下一轮重新查询再下载（不重新提交、不重复付费），超过 `API_TIMEOUT_SECONDS` 才失败。
 - **参考图生图**（三个通道里只有第三方 API 支持，H3 网关的出图也只有文生图）：HTTP `POST /api/v1/images/with-references`（multipart：`images` 1–4 张、`prompt`、`aspect`、`count`）；MCP `generate_image` 的 `reference_urls`（只收中枢签发的图片链接）。通道不是第三方 API 时直接拒绝并说明，不建任务。
+- JSON 接口（`/images`、`/covers`、`/videos`）写错或多传字段返回 422，指出是哪个字段（以前静默忽略，例如传 `references` 以为带了参考图）；参考图要用 `/images/with-references`。
 - `GET /api/v1/capabilities` 返回当前出图 / 出视频通道和能否带参考图；任务结果里的 `via` 是实际走的通道（第三方 API / 本机 GPU / H3 网关），agent 照它向员工说明，不再一律说「GPU」。
 - 出图 API 的密钥用 `HUB_FILE_SECRET` 派生的密钥加密后存在中枢数据库（`hub_settings` 表），页面、接口、日志、审计里只出现后四位。**更换 `HUB_FILE_SECRET` 后已保存的密钥无法解密，需要在页面重新填写。**
 - 「测试」按钮会真实出一张 512×512 的图并显示耗时，不计入员工任务。

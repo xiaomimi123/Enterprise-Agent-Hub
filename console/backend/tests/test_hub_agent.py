@@ -643,3 +643,42 @@ def test_token_prints_only_hub_token_and_expiry(monkeypatch, capsys):
     hub_agent.cmd_token()
     out = json.loads(capsys.readouterr().out)
     assert out == {"hub": "http://hub:8088", "access_token": "a", "expires_at": 123}
+
+
+def test_bridge_reconnects_when_hub_session_expires(monkeypatch):
+    """HUB-01：中枢重启或空闲超时后会话没了，桥重新握手再发，而不是一直报 Missing session ID"""
+    import httpx
+    monkeypatch.setattr(hub_agent, "fresh_creds", lambda: {"access_token": "t", "hub": "http://hub"})
+    live, seen, issued = set(), [], [0]
+
+    def hub(req):
+        msg = json.loads(req.content)
+        sid = req.headers.get("mcp-session-id")
+        seen.append((msg.get("method"), sid))
+        if msg.get("method") == "initialize":
+            issued[0] += 1
+            new = f"s{issued[0]}"
+            live.add(new)
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {}}, headers={"mcp-session-id": new})
+        if not sid:
+            return httpx.Response(400, json={"jsonrpc": "2.0", "error": {"code": -32600, "message": "Bad Request: Missing session ID"}})
+        if sid not in live:
+            return httpx.Response(404, json={"jsonrpc": "2.0", "error": {"code": -32600, "message": "Session not found"}})
+        if "id" not in msg:
+            return httpx.Response(202)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {"ok": sid}})
+
+    http, headers, session = httpx.Client(transport=httpx.MockTransport(hub)), {}, {}
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "WorkBuddy"}}}
+    call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "whoami"}}
+    assert hub_agent._forward_mcp(http, "http://hub/mcp", init, headers, session).status_code == 200
+    assert hub_agent._forward_mcp(http, "http://hub/mcp", call, headers, session).json()["result"]["ok"] == "s1"
+    live.clear()                                                             # 中枢重启 / 会话被回收：旧会话号 404
+    r = hub_agent._forward_mcp(http, "http://hub/mcp", {**call, "id": 3}, headers, session)
+    assert r.status_code == 200 and r.json()["result"]["ok"] == "s2" and headers["Mcp-Session-Id"] == "s2"
+    assert ("notifications/initialized", "s2") in seen
+    headers.pop("Mcp-Session-Id")                                            # 已经丢了会话号（0.5.6 卡住的状态）：400 也能恢复
+    r = hub_agent._forward_mcp(http, "http://hub/mcp", {**call, "id": 4}, headers, session)
+    assert r.status_code == 200 and r.json()["result"]["ok"] == "s3"
+    reinit = [s for m, s in seen if m == "initialize"]
+    assert len(reinit) == 3                                                  # 每次失效只重新握手一次

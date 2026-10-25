@@ -11,7 +11,7 @@ import uuid
 
 import jwt
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import generation, gpu, policy
 from .auth import _jwks_client
@@ -42,18 +42,23 @@ def _principal(authorization: str | None) -> policy.Principal:
     return p
 
 
-class ImageBody(BaseModel):
+class _Strict(BaseModel):
+    """写错或多传的字段直接 422（以前静默忽略：例如传 references 以为带了参考图，其实没生效）。"""
+    model_config = ConfigDict(extra="forbid")
+
+
+class ImageBody(_Strict):
     prompt: str
     aspect: str = "1:1"
     count: int = Field(1, ge=1, le=generation.MAX_IMAGES)
 
 
-class CoverBody(BaseModel):
+class CoverBody(_Strict):
     title: str = Field(..., min_length=1, max_length=40)
     description: str | None = Field(None, max_length=500)
 
 
-class VideoBody(BaseModel):
+class VideoBody(_Strict):
     prompt: str
     aspect: str = "9:16"
     seconds: float = Field(4, ge=generation.VIDEO_SECONDS[0], le=generation.VIDEO_SECONDS[1])

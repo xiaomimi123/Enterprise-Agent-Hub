@@ -49,7 +49,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.6"
+VERSION = "0.5.7"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -1564,6 +1564,42 @@ def _heartbeat_loop(client: str) -> None:
         time.sleep(HEARTBEAT_SECONDS)
 
 
+def _session_expired(resp: httpx.Response) -> bool:
+    """中枢那边的会话没了：中枢重启，或空闲超过 30 分钟被回收。
+    带着旧会话号是 404；会话号已经丢了的请求是 400「Missing session ID」。"""
+    return resp.status_code == 404 or (resp.status_code == 400 and "session" in resp.text.lower())
+
+
+def _reinit_session(http: httpx.Client, url: str, headers: dict, session: dict) -> None:
+    """重新握手：清掉旧会话号 → 重发 agent 当初的 initialize（回复不转给 agent）→ 记下新会话号 → 补发 initialized 通知。"""
+    headers.pop("Mcp-Session-Id", None)
+    init = session.get("initialize") or {"jsonrpc": "2.0", "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "hub-agent", "version": VERSION}}}
+    resp = _post_mcp(http, url, {**init, "id": f"hub-agent-reinit-{uuid.uuid4().hex[:8]}"}, headers)
+    if resp.status_code >= 400 or not (sid := resp.headers.get("mcp-session-id")):
+        raise RuntimeError(f"重新连接中枢失败（HTTP {resp.status_code}）：{resp.text[:200]}")
+    headers["Mcp-Session-Id"] = sid
+    _post_mcp(http, url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, headers)
+    print("hub-agent mcp: 中枢会话已失效，已重新连接", file=sys.stderr, flush=True)
+
+
+def _forward_mcp(http: httpx.Client, url: str, msg: dict, headers: dict, session: dict) -> httpx.Response:
+    """把一条消息转给中枢。会话失效（中枢重启、空闲超时）时自动重新握手再发一次，
+    不让桥卡在「Missing session ID」直到 agent 重启（HUB-01，0.5.6 及以前只去掉会话号重发，必然 400）。"""
+    if msg.get("method") == "initialize":
+        session["initialize"] = msg
+    resp = _post_mcp(http, url, msg, headers)
+    if _session_expired(resp):
+        if msg.get("method") == "initialize":  # 握手本身失败：去掉旧会话号再试
+            headers.pop("Mcp-Session-Id", None)
+        else:
+            _reinit_session(http, url, headers, session)
+        resp = _post_mcp(http, url, msg, headers)
+    if sid := resp.headers.get("mcp-session-id"):
+        headers["Mcp-Session-Id"] = sid
+    return resp
+
+
 def bridge_headers() -> dict:
     """桥发给中枢的固定请求头。追踪 ID 优先沿用环境变量 HUB_TRACE_ID（open_app 启动的工作台里的桥继承它，
     这样工作台里发起的调用与「打开应用」落在同一条审计链路里）。"""
@@ -1591,6 +1627,7 @@ def cmd_mcp(args=None) -> None:
     creds = fresh_creds()
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
     headers = bridge_headers()
+    session: dict = {}  # 记下 agent 的 initialize 请求，会话失效时用它重新握手
     out = sys.stdout.buffer
     with httpx.Client(timeout=httpx.Timeout(30, read=300)) as http:
         for raw in sys.stdin.buffer:
@@ -1598,12 +1635,7 @@ def cmd_mcp(args=None) -> None:
                 continue
             msg = json.loads(raw)
             try:
-                resp = _post_mcp(http, mcp_url, msg, headers)
-                if resp.status_code == 404 and "Mcp-Session-Id" in headers:  # 中枢重启后会话失效：去掉会话号重试
-                    headers.pop("Mcp-Session-Id")
-                    resp = _post_mcp(http, mcp_url, msg, headers)
-                if sid := resp.headers.get("mcp-session-id"):
-                    headers["Mcp-Session-Id"] = sid
+                resp = _forward_mcp(http, mcp_url, msg, headers, session)
                 if resp.status_code >= 400 and resp.status_code != 202:
                     raise RuntimeError(f"中枢返回 HTTP {resp.status_code}：{resp.text[:200]}")
                 replaced = bridge_intercept(msg, parse_response(resp), launch_app, creds["hub"], creds, report_app_event)

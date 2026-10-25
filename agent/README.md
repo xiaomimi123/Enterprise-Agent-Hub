@@ -116,6 +116,8 @@ uv run hub_agent.py open-app xhs-workbench
 
 应用在 `app.json` 里声明依赖（CodeBuddy CLI、浏览器等）时，打开前会预检，缺什么会说明；应用照常打开，只有对应功能（如浏览器自动化）不可用。安装缺失项（会逐项询问，`--yes` 表示已同意）：
 
+MCP 桥在中枢重启或会话空闲超过 30 分钟后会自动重新连接（0.5.7 起；之前的版本会一直报「Missing session ID」，要重启 agent）。
+
 本机的公司应用要调中枢 HTTP 接口（如工作台出图出视频）时，运行 `uv run hub_agent.py token` 取令牌（0.5.6 起；输出 `{hub, access_token, expires_at}`，快过期先续期，不含刷新令牌）。
 
 应用写在本机的工作成果会由 MCP 桥每 20 秒自动转发到中枢；不经过桥时可以手动转发：`uv run hub_agent.py flush-outbox [应用 id]`。

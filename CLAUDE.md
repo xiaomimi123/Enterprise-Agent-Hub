@@ -71,6 +71,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **WorkBuddy 的浏览器操控可以单独给 CodeBuddy CLI 用**：它是一个标准 stdio MCP 服务 `~/.workbuddy/plugins/cache/workbuddy-browser-use/browser-use/<版本>/bin/browser-mcp.exe`（通过 Edge / Chrome 里的 WorkBuddy 扩展 + 本机 native host 中转），工作台 0.8.3 起 `browser-setup --engine workbuddy` 接上它。CodeBuddy CLI 的登录要在员工**自己的**终端里做（在 WorkBuddy 终端里登录会存到 WorkBuddy 的目录）。用户要求不在开发机上测这条链路，测试流程见 `docs/测试流程-WorkBuddy浏览器插件.md`。
 - **网页为主界面（工作台 0.8.5 起）**：CodeBuddy CLI 是网页工作台唯一的执行者，本机有它就自动连上；CodeBuddy 登录检查、浏览器方式、权限档都在网页「连接与设置」的「执行 Agent 与浏览器」里做。WorkBuddy 等桌面 agent 不再被设成收件箱值守者（只作后备），SKILL.md 和接入器打开应用的提示都写明了。第二阶段（WorkBuddy 当遥控器把任务转给工作台）和第三阶段（网页交互打磨）待第一阶段的「应用健康」数据再定。
 - **Windows 上工作台启动子进程都要 `windowsHide: true`**：工作台服务是无控制台（detached）启动的，它再启动的控制台程序不隐藏就会每次新开一个黑窗口（员工反馈「一直闪」）；服务自身的启动方式别改（加 windowsHide 实测会起不来）。批处理 `.cmd` 里别写中文：路径用 `%USERPROFILE%\...`。
+- **中枢 MCP 会话会失效**：`hub-mcp` 重启（每次重建中枢都会）或会话空闲超过 30 分钟，旧会话号就作废（带旧号 404，没号 400「Missing session ID」）。接入器的桥 0.5.7 起会自动重新握手再发；0.5.6 及以前会一直报错直到 agent 重启。改桥的转发逻辑时要保住这一点（`_forward_mcp`）。
 - **员工电脑上的 agent 会给工作台打本地补丁**（记在那台电脑的 `WorkBuddy/xhs-launcher/PATCHES.md`），升级后会被新版覆盖。发新版前先问有没有新的 PATCHES.md / 自检清单，把有效的修复吸收进官方版本，并在工作台 CHANGELOG 里写明「升级后哪几节不用再打」。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。

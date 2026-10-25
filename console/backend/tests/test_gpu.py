@@ -205,3 +205,19 @@ def test_public_api_with_references_and_capabilities(monkeypatch):
                     files=[("images", ("a.png", b"A", "image/png")), ("images", ("b.png", b"B", "image/png"))])
     assert r.status_code == 400 and "不支持参考图" in r.json()["detail"]
     assert client.get("/api/v1/capabilities").json()["image_via"] == "第三方 API"
+
+
+def test_public_api_rejects_unknown_fields_with_422(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import generation, policy, public_api
+    from app.main import app
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL, pack={})
+    monkeypatch.setattr(public_api, "_principal", lambda auth: p)
+    monkeypatch.setattr(generation, "submit_image", lambda *a, **k: {"id": "x", "ahead": 0, "trace_id": "t"})
+    client = TestClient(app)
+    r = client.post("/api/v1/images", json={"prompt": "猫", "references": ["https://example.com/a.png"]})
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"][-1] == "references"
+    assert client.post("/api/v1/videos", json={"prompt": "猫", "image_url": "x"}).status_code == 422
+    assert client.post("/api/v1/covers", json={"title": "秋天", "style": "x"}).status_code == 422
+    assert client.post("/api/v1/images", json={"prompt": "猫", "aspect": "3:4", "count": 2}).status_code == 202

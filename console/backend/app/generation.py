@@ -1,7 +1,8 @@
 """图片 / 视频生成的统一入口：MCP 工具和 HTTP 接口都走这里，共用权限判断、任务队列和审计。
 
 - 权限：岗位包里要有对应工具（image.cover / image.generate / video.generate），且只开放给官方 agent
-- 执行：任务写入队列，由调度服务派给 ComfyUI 节点（工作流见 gpu-node/workflows）
+- 执行：任务写入队列，由调度服务按管理员在「模型」页选的通道执行：本机 ComfyUI（工作流见 gpu-node/workflows）、第三方 API 或 H3 网关
+- 参考图生图只有第三方 API 通道支持（参考图存在 outputs/_inputs/，派发时转成 data URI 交给第三方）
 - 审计：提交时记一条，完成时由调度服务再记一条，两条共用同一个追踪 ID
 """
 
@@ -21,10 +22,20 @@ from .config import settings
 IMAGE_ASPECTS = {"3:4": (768, 1024), "1:1": (1024, 1024), "4:3": (1024, 768), "9:16": (576, 1024), "16:9": (1024, 576)}
 VIDEO_ASPECTS = {"9:16": (480, 832), "16:9": (832, 480), "1:1": (640, 640), "3:4": (576, 768), "4:3": (768, 576)}
 MAX_IMAGES = 4
+MAX_REFERENCES = 4
+ROUTE_NAMES = {"gpu": "本机 GPU", "api": "第三方 API", "h3": "H3 网关"}
 VIDEO_SECONDS = (2, 10)
 FPS = 24
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 IMAGE_FORMATS = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
+
+
+def capabilities() -> dict:
+    """现在出图 / 出视频走哪条通道、出图能不能带参考图（工作台和 agent 据此决定界面和说法）。"""
+    image_route, video_route = imageapi.get_route(), h3gateway.get_video_route()
+    return {"image_route": image_route, "image_via": ROUTE_NAMES.get(image_route, image_route),
+            "image_references": imageapi.supports_references(), "max_references": MAX_REFERENCES,
+            "video_route": video_route, "video_via": "H3 网关" if video_route == "h3" else "本机 GPU"}
 
 
 class Denied(Exception):
@@ -91,17 +102,35 @@ def submit_cover(p: policy.Principal, trace_id: str, title: str, description: st
                    {"prompt": prompt, "title": title, "width": w, "height": h, "count": 3}, f"封面任务「{title}」")
 
 
-def submit_image(p: policy.Principal, trace_id: str, prompt: str, aspect: str = "1:1", count: int = 1) -> dict:
-    _check(p, trace_id, "image.generate", "文生图")
+def submit_image(p: policy.Principal, trace_id: str, prompt: str, aspect: str = "1:1", count: int = 1,
+                 references: list[bytes] | None = None) -> dict:
+    references = references or []
+    _check(p, trace_id, "image.generate", "参考图生图" if references else "文生图")
     if aspect not in IMAGE_ASPECTS:
         raise Denied(f"不支持的画幅 {aspect}，可选：{'、'.join(IMAGE_ASPECTS)}")
     if not prompt.strip():
         raise Denied("提示词不能为空。")
     count = max(1, min(int(count), MAX_IMAGES))
     w, h = IMAGE_ASPECTS[aspect]
-    return _submit(p, trace_id, "image.generate", _image_workflow(),
-                   {"prompt": prompt, "title": prompt[:20], "width": w, "height": h, "count": count},
-                   f"文生图任务（{aspect}，{count} 张）")
+    params = {"prompt": prompt, "title": prompt[:20], "width": w, "height": h, "count": count}
+    if references:
+        if len(references) > MAX_REFERENCES:
+            raise Denied(f"参考图最多 {MAX_REFERENCES} 张。")
+        if not imageapi.supports_references():
+            route = imageapi.get_route()
+            raise Denied(f"当前出图通道（{ROUTE_NAMES.get(route, route)}）不支持参考图，只有第三方 API 通道支持；"
+                         "请去掉参考图只用文字生成，或请管理员在控制台「模型」页把出图通道切到第三方 API。")
+        exts = [_image_ext(r) for r in references]  # 先全部校验，再落盘
+        params["_refs"] = []
+        for data, ext in zip(references, exts):
+            rel = f"_inputs/{uuid.uuid4().hex}{ext}"
+            dest = Path(settings.outputs_dir) / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            params["_refs"].append(rel)
+    kind = "参考图生图" if references else "文生图"
+    extra = f"，参考图 {len(references)} 张" if references else ""
+    return _submit(p, trace_id, "image.generate", _image_workflow(), params, f"{kind}任务（{aspect}，{count} 张{extra}）")
 
 
 def submit_video(p: policy.Principal, trace_id: str, prompt: str, aspect: str = "9:16", seconds: float = 4) -> dict:

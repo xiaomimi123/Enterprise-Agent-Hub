@@ -78,6 +78,26 @@ def create_image(body: ImageBody, authorization: str | None = Header(default=Non
     return _enqueue(generation.submit_image, authorization, x_hub_trace_id, **body.model_dump())
 
 
+@router.get("/capabilities")
+def get_capabilities(authorization: str | None = Header(default=None)):
+    """现在出图 / 出视频走哪条通道、出图能不能带参考图。"""
+    _principal(authorization)
+    return generation.capabilities()
+
+
+@router.post("/images/with-references", status_code=202)
+async def create_image_with_references(images: list[UploadFile] = File(...), prompt: str = Form(...),
+                                       aspect: str = Form("1:1"), count: int = Form(1),
+                                       authorization: str | None = Header(default=None),
+                                       x_hub_trace_id: str | None = Header(default=None)):
+    """参考图生图：上传 1–4 张参考图（PNG / JPEG / WEBP，每张 ≤ 10MB）。只有出图通道是第三方 API 时可用，否则 400。"""
+    if len(images) > generation.MAX_REFERENCES:
+        raise HTTPException(400, f"参考图最多 {generation.MAX_REFERENCES} 张。")
+    refs = [await f.read(generation.MAX_IMAGE_BYTES + 1) for f in images]
+    return _enqueue(generation.submit_image, authorization, x_hub_trace_id, prompt=prompt, aspect=aspect,
+                    count=max(1, min(count, generation.MAX_IMAGES)), references=refs)
+
+
 @router.post("/covers", status_code=202)
 def create_cover(body: CoverBody, authorization: str | None = Header(default=None),
                  x_hub_trace_id: str | None = Header(default=None)):

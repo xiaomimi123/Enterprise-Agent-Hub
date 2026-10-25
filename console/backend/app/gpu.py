@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -81,7 +82,8 @@ def wait_task(task_id: str, timeout: float) -> dict:
 
 def describe(t: dict) -> dict:
     """给 agent 看的任务结果。"""
-    out = {"task_id": t["id"], "status": {"queued": "排队中", "running": "生成中", "done": "已完成", "failed": "失败"}[t["status"]]}
+    out = {"task_id": t["id"], "status": {"queued": "排队中", "running": "生成中", "done": "已完成", "failed": "失败"}[t["status"]],
+           "via": VIA.get(t.get("workflow") or "", "本机 GPU")}  # 实际走的通道，agent 照这个告诉员工，别一律说「GPU」
     if t["status"] == "queued":
         out["ahead"] = db.queue_position(t["id"])
     if t["node_id"]:
@@ -98,7 +100,7 @@ def describe(t: dict) -> dict:
     return out
 
 
-VIA = {"api-image": "第三方 API", "h3-image": "H3 网关", "h3-video": "H3 网关"}
+VIA = {"api-image": "第三方 API", "h3-image": "H3 网关", "h3-video": "H3 网关"}  # 其余工作流是本机 GPU（ComfyUI）
 STATUS_TEXT = {"queued": "排队中", "running": "生成中", "done": "已完成", "failed": "失败"}
 
 
@@ -260,14 +262,24 @@ def _api_fail(t: dict, reason: str) -> None:
     log.warning("任务 %s 第三方 API 出图失败：%s", t["id"], reason)
 
 
+def _data_uri(f: Path) -> str:
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(f.suffix.lower(), "image/png")
+    return f"data:{mime};base64,{base64.b64encode(f.read_bytes()).decode()}"
+
+
 def _api_submit(t: dict, client_factory) -> None:
     provider = imageapi.default_provider()
     if provider is None:
         return _api_fail(t, "没有可用的出图 API，请在「模型」页添加并启用")
     p = t["params"]
     try:
+        refs = [_data_uri(Path(settings.outputs_dir) / rel) for rel in p.get("_refs") or []]
+    except OSError:
+        return _api_fail(t, "参考图文件不见了，请重新提交")
+    try:
         external = client_factory(provider["id"]).submit(p.get("prompt", ""), int(p.get("width", 1024)),
-                                                          int(p.get("height", 1024)), int(p.get("count", 1)))
+                                                          int(p.get("height", 1024)), int(p.get("count", 1)),
+                                                          image_urls=refs or None)
     except imageapi.ImageApiError as e:
         return _api_fail(t, str(e))
     # 先把第三方任务号落库：调度服务重启后凭它恢复轮询，不会重复提交（重复提交 = 重复付费）
@@ -308,7 +320,10 @@ def _api_collect(t: dict, client_factory, now: datetime) -> None:
             (folder / name).write_bytes(client.download(url))
             names.append(name)
     except (imageapi.ImageApiError, OSError) as e:
-        return _api_fail(t, f"下载图片失败：{e}")
+        # 第三方已经出好图、只是下载断了：不判失败，下一轮重新查询再下载（不会重新提交、不会重复付费），超时才失败
+        log.warning("任务 %s 下载图片失败，下一轮再试：%s", t["id"], e)
+        db.update_gpu_task(t["id"], error=f"下载图片暂时失败，正在重试：{e}"[:500])
+        return
     db.update_gpu_task(t["id"], status="done", images=names)
     _audit(t, f"第三方 API 生成 {len(names)} 张「{t['params'].get('title', '')}」，耗时 {elapsed:.0f} 秒", "通过")
     log.info("任务 %s 完成（第三方 API），%d 张", t["id"], len(names))

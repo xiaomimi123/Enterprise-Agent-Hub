@@ -132,3 +132,76 @@ def test_file_download_converts_to_png(monkeypatch, tmp_path):
     assert Image.open(io.BytesIO(r.content)).size == (8, 6)
     assert client.get(url("2.webp", "png")).status_code == 415
     assert client.get(f"/api/files/t1/1.webp?exp={exp}&sig=bad&fmt=png").status_code == 404
+
+
+def test_apimart_download_retries_network_errors_and_5xx_not_4xx():
+    import httpx
+    from app import imageapi
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        if req.url.path == "/flaky" and calls["n"] < 3:
+            raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+        if req.url.path == "/gone":
+            return httpx.Response(404)
+        if req.url.path == "/down":
+            return httpx.Response(502)
+        return httpx.Response(200, content=b"img")
+    c = imageapi.ApimartClient("https://x", "k", "m", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert c.download("https://cdn/flaky", wait=0) == b"img" and calls["n"] == 3
+    calls["n"] = 0
+    try:
+        c.download("https://cdn/gone", wait=0)
+        raise AssertionError("4xx 应该直接失败")
+    except imageapi.ImageApiError:
+        assert calls["n"] == 1
+    calls["n"] = 0
+    try:
+        c.download("https://cdn/down", wait=0)
+        raise AssertionError("一直 5xx 应该失败")
+    except imageapi.ImageApiError:
+        assert calls["n"] == 3
+
+
+def test_apimart_submit_sends_reference_images():
+    import httpx
+    import json as _json
+    from app import imageapi
+    seen = {}
+
+    def handler(req):
+        seen.update(_json.loads(req.content))
+        return httpx.Response(200, json={"data": [{"task_id": "t1"}]})
+    c = imageapi.ApimartClient("https://x", "k", "gpt-image-2", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert c.submit("猫", 1024, 1024, 1, image_urls=["data:image/png;base64,AA"]) == "t1"
+    assert seen["image_urls"] == ["data:image/png;base64,AA"] and seen["size"] == "1:1"
+    seen.clear()
+    c.submit("猫", 1024, 1024, 1)
+    assert "image_urls" not in seen
+
+
+def test_public_api_with_references_and_capabilities(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import generation, policy, public_api
+    from app.main import app
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL, pack={})
+    monkeypatch.setattr(public_api, "_principal", lambda auth: p)
+    got = {}
+
+    def fake(principal, trace_id, prompt, aspect, count, references):
+        got.update(prompt=prompt, aspect=aspect, count=count, refs=references)
+        if len(references) > 1:
+            raise generation.Denied("当前出图通道（本机 GPU）不支持参考图")
+        return {"id": "r1", "ahead": 0, "trace_id": trace_id}
+    monkeypatch.setattr(generation, "submit_image", fake)
+    monkeypatch.setattr(generation, "capabilities", lambda: {"image_via": "第三方 API", "image_references": True})
+    client = TestClient(app)
+    r = client.post("/api/v1/images/with-references", data={"prompt": "换背景", "aspect": "3:4", "count": "2"},
+                    files=[("images", ("a.png", b"A", "image/png"))])
+    assert r.status_code == 202 and got == {"prompt": "换背景", "aspect": "3:4", "count": 2, "refs": [b"A"]}
+    r = client.post("/api/v1/images/with-references", data={"prompt": "x"},
+                    files=[("images", ("a.png", b"A", "image/png")), ("images", ("b.png", b"B", "image/png"))])
+    assert r.status_code == 400 and "不支持参考图" in r.json()["detail"]
+    assert client.get("/api/v1/capabilities").json()["image_via"] == "第三方 API"

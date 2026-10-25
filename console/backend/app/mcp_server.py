@@ -29,12 +29,12 @@ from .skillstore import SkillError
 
 INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公司内部的资料、规范和算力。
 凡是和本公司有关的问题（产品、品牌、制度、违禁词、售后、历史爆款等），先用 search_knowledge 查公司资料，不要联网搜索或凭常识回答；
-写文案、做选题、出封面等工作，先用 list_skills / read_skill 看公司规定的做法；要生成图片或视频时，一律用这里的生成工具（公司 GPU，按岗位包授权、有审计），不要用你自带的生图 / 生视频功能；生成完用 report_work 上报。
+写文案、做选题、出封面等工作，先用 list_skills / read_skill 看公司规定的做法；要生成图片或视频时，一律用这里的生成工具（公司的生成服务，按岗位包授权、有审计），不要用你自带的生图 / 生视频功能；生成服务由管理员在控制台选通道（第三方 API、本机 GPU 或 H3 网关），结果里的 via 是实际走的通道，向员工说明时照它说，不要一律说成「GPU」；生成完用 report_work 上报。
 你可以：
 - whoami：查看当前员工身份和岗位包
 - list_skills / read_skill：读取岗位包内的技能（SKILL.md），按技能里的步骤完成工作
 - search_knowledge：检索有权限的企业知识库
-- generate_cover / generate_image / generate_video / generate_video_from_image：派发到公司 GPU 节点生成封面图、图片、带声音的短视频、图生视频（排队执行）
+- generate_cover / generate_image / generate_video / generate_video_from_image：用公司的生成服务出封面图、图片（可带参考图，仅第三方 API 通道）、带声音的短视频、图生视频（排队执行）
 - get_task：查询生成任务的进度和结果（视频较慢，超时后用它取结果，不要重复提交）
 - report_work：做完一项有交付物的工作（笔记草稿、对标报告、选题、封面、视频等）、或工作状态变化（待审核、受阻）时上报，老板和主管在看板上看的就是这些；my_work 查看自己已上报的
 - propose_improvement：发现公司技能或知识库文档有错、过时、缺步骤，或用户反复手动纠正同一处时，提交修改建议（只是建议，由主管审核后才生效）；my_proposals 查看自己建议的处理结果。不要每次任务都提，只在确有把握时提
@@ -193,21 +193,28 @@ def _generate(ctx: Context, submit, **args) -> str:
     return json.dumps(gpu.describe(gpu.wait_task(t["id"], WAIT_SECONDS)), ensure_ascii=False)
 
 
-@mcp.tool(description="生成小红书封面图：派发到公司 GPU 节点排队执行，一次出 3 版。"
+@mcp.tool(description="生成小红书封面图：交给公司的生成服务排队执行，一次出 3 版。"
                       "title 为封面主文案（8–12 字为宜），description 可补充画面风格。"
                       "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_task 查询")
 def generate_cover(title: str, ctx: Context, description: str | None = None) -> str:
     return _generate(ctx, generation.submit_cover, title=title, description=description)
 
 
-@mcp.tool(description="文生图（公司 GPU，优先于其他生图工具）：按提示词在公司 GPU 节点出图。aspect 画幅可选 3:4、1:1、4:3、9:16、16:9（默认 1:1），"
+@mcp.tool(description="出图（公司的生成服务，优先于其他生图工具）：按提示词出图。aspect 画幅可选 3:4、1:1、4:3、9:16、16:9（默认 1:1），"
                       "count 张数 1–4。提示词建议用中文或英文描述主体、场景、光线、风格。"
+                      "reference_urls 可选：1–4 张参考图，必须是中枢返回的图片链接（如之前 generate_image / generate_cover 的结果）；"
+                      "只有出图通道是第三方 API 时支持参考图，否则会返回不支持的说明。"
                       "90 秒内完成则直接返回图片链接，否则返回任务号，稍后用 get_task 查询")
-def generate_image(prompt: str, ctx: Context, aspect: str = "1:1", count: int = 1) -> str:
-    return _generate(ctx, generation.submit_image, prompt=prompt, aspect=aspect, count=count)
+def generate_image(prompt: str, ctx: Context, aspect: str = "1:1", count: int = 1,
+                   reference_urls: list[str] | None = None) -> str:
+    try:
+        refs = [generation.image_from_hub_url(u) for u in (reference_urls or [])]
+    except generation.Denied as e:
+        return str(e)
+    return _generate(ctx, generation.submit_image, prompt=prompt, aspect=aspect, count=count, references=refs)
 
 
-@mcp.tool(description="文生视频（公司 GPU，优先于其他生视频工具）：按提示词在公司 GPU 节点生成带声音的短视频（24fps）。aspect 画幅可选 9:16、16:9、1:1、3:4、4:3"
+@mcp.tool(description="文生视频（公司的生成服务，优先于其他生视频工具）：按提示词生成带声音的短视频（24fps）。aspect 画幅可选 9:16、16:9、1:1、3:4、4:3"
                       "（默认 9:16），seconds 时长 2–10 秒（默认 4）。生成需要几十秒到几分钟，"
                       "90 秒内完成则直接返回视频链接，否则返回任务号，请稍后用 get_task 查询，不要重复提交")
 def generate_video(prompt: str, ctx: Context, aspect: str = "9:16", seconds: float = 4) -> str:

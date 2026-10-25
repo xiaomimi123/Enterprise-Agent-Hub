@@ -55,17 +55,23 @@ class FakeClient:
         self.submitted = []
         self.key = "k"
 
-    def submit(self, prompt, width, height, count):
+    def submit(self, prompt, width, height, count, image_urls=None):
         if self.submit_error:
             raise imageapi.ImageApiError(self.submit_error)
         self.submitted.append((prompt, width, height, count))
+        self.image_urls = image_urls
         return f"ext-{len(self.submitted)}"
 
     def poll(self, task_id):
         state = self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
         return state, (self.urls if state == "done" else [])
 
+    download_errors = 0
+
     def download(self, url):
+        if self.download_errors:
+            self.download_errors -= 1
+            raise imageapi.ImageApiError("下载图片失败：[SSL: UNEXPECTED_EOF_WHILE_READING]")
         return b"IMG-" + url.encode()
 
 
@@ -184,3 +190,55 @@ def test_list_tasks_shows_channel(env, monkeypatch):
     monkeypatch.setattr(gpu, "file_url", lambda tid, n: f"u/{tid}/{n}")
     vias = {t["id"]: t["via"] for t in gpu.list_tasks()["tasks"]}
     assert vias[a["id"]] == "第三方 API" and vias[g["id"]] == "本机 GPU"
+
+
+def _png() -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_reference_images_only_on_api_route_and_sent_as_data_uri(env, monkeypatch):
+    for route in ("gpu", "h3"):
+        with pytest.raises(generation.Denied, match="不支持参考图"):
+            submit(env, monkeypatch, route, references=[_png()])
+    with pytest.raises(generation.Denied, match="不是有效的图片"):
+        submit(env, monkeypatch, "api", references=[b"not an image"])
+    with pytest.raises(generation.Denied, match="最多"):
+        submit(env, monkeypatch, "api", references=[_png()] * 5)
+    t = submit(env, monkeypatch, "api", references=[_png(), _png()])
+    assert t["workflow"] == "api-image" and len(t["params"]["_refs"]) == 2
+    client = FakeClient()
+    step(client)
+    assert len(client.image_urls) == 2 and client.image_urls[0].startswith("data:image/png;base64,")
+    plain = submit(env, monkeypatch, "api")
+    client2 = FakeClient()
+    step(client2)
+    assert client2.image_urls is None and "_refs" not in env.tasks[plain["id"]]["params"]
+
+
+def test_download_failure_retries_next_round_without_resubmitting(env, monkeypatch):
+    t = submit(env, monkeypatch, "api")
+    client = FakeClient()
+    step(client)                       # 提交
+    client.download_errors = 1
+    step(client)                       # 第三方已完成，下载断了：不判失败
+    row = env.tasks[t["id"]]
+    assert row["status"] == "running" and "正在重试" in row["error"]
+    step(client)                       # 下一轮重新下载成功
+    assert env.tasks[t["id"]]["status"] == "done" and len(client.submitted) == 1
+
+
+def test_capabilities_and_task_says_which_route(env, monkeypatch):
+    monkeypatch.setattr(imageapi, "get_route", lambda: "api")
+    monkeypatch.setattr(generation.h3gateway, "get_video_route", lambda: "h3")
+    c = generation.capabilities()
+    assert c["image_via"] == "第三方 API" and c["image_references"] is True and c["video_via"] == "H3 网关"
+    monkeypatch.setattr(imageapi, "get_route", lambda: "gpu")
+    assert generation.capabilities()["image_references"] is False
+    monkeypatch.setattr(gpu.db, "queue_position", lambda tid: 0)
+    row = {"id": "t1", "status": "queued", "node_id": None, "workflow": "api-image"}
+    assert gpu.describe(row)["via"] == "第三方 API"
+    assert gpu.describe({**row, "workflow": "image-gen"})["via"] == "本机 GPU"

@@ -67,8 +67,10 @@ class ApimartClient:
         data = body.get("data", body) if isinstance(body, dict) else body
         return (data[0] if data else {}) if isinstance(data, list) else (data or {})
 
-    def submit(self, prompt: str, width: int, height: int, count: int) -> str:
+    def submit(self, prompt: str, width: int, height: int, count: int, image_urls: list[str] | None = None) -> str:
         body = {"model": self.model, "prompt": prompt, "size": _ratio(width, height), "n": count, **self.params}
+        if image_urls:  # 参考图：apimart 收 image_urls（公网链接或 data URI）
+            body["image_urls"] = image_urls
         d = self._data(self._request("POST", f"{self.base_url}/v1/images/generations", json=body))
         task = d.get("task_id") or d.get("id")
         if not task:
@@ -88,14 +90,22 @@ class ApimartClient:
             urls += [u] if isinstance(u, str) else list(u or [])
         return "done", urls
 
-    def download(self, url: str) -> bytes:
-        try:
-            r = self.http.get(url)
-        except httpx.HTTPError as e:
-            raise ImageApiError(_scrub(f"下载图片失败：{e}", self.key)) from None
-        if r.status_code >= 400:
-            raise ImageApiError(f"下载图片失败：HTTP {r.status_code}")
-        return r.content
+    def download(self, url: str, retries: int = 2, wait: float = 1.5) -> bytes:
+        """第三方图床偶尔断流（SSL: UNEXPECTED_EOF_WHILE_READING 等）：网络错误和 5xx 再试 retries 次，4xx 不重试。"""
+        for attempt in range(retries + 1):
+            try:
+                r = self.http.get(url)
+            except httpx.HTTPError as e:
+                err = ImageApiError(_scrub(f"下载图片失败：{e}", self.key))
+            else:
+                if r.status_code < 400:
+                    return r.content
+                err = ImageApiError(f"下载图片失败：HTTP {r.status_code}")
+                if r.status_code < 500:
+                    raise err
+            if attempt < retries:
+                time.sleep(wait * (attempt + 1))
+        raise err
 
     def test(self) -> dict:
         """最小尺寸实际出一张，返回 {ok, seconds, error, preview}（preview 为成功时的图片 data URI，供页面确认图确实传回来了）；不计入员工任务。"""
@@ -154,6 +164,11 @@ def active_provider() -> dict | None:
     if p is None:
         return None
     return {**_view(p), "key": secretbox.decrypt(p["key_enc"])}
+
+
+def supports_references() -> bool:
+    """参考图生图只有第三方 API 通道支持（本机 ComfyUI 和 H3 网关的出图只有文生图）。"""
+    return get_route() == "api" and default_provider() is not None
 
 
 def client_for(provider: dict) -> ApimartClient:

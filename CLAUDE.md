@@ -73,6 +73,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **Windows 上工作台启动子进程都要 `windowsHide: true`**：工作台服务是无控制台（detached）启动的，它再启动的控制台程序不隐藏就会每次新开一个黑窗口（员工反馈「一直闪」）；服务自身的启动方式别改（加 windowsHide 实测会起不来）。批处理 `.cmd` 里别写中文：路径用 `%USERPROFILE%\...`。
 - **中枢 MCP 会话会失效**：`hub-mcp` 重启（每次重建中枢都会）或会话空闲超过 30 分钟，旧会话号就作废（带旧号 404，没号 400「Missing session ID」）。接入器的桥 0.5.7 起会自动重新握手再发；0.5.6 及以前会一直报错直到 agent 重启。改桥的转发逻辑时要保住这一点（`_forward_mcp`）。
 - **员工电脑上的 agent 会给工作台打本地补丁**（记在那台电脑的 `WorkBuddy/xhs-launcher/PATCHES.md`），升级后会被新版覆盖。发新版前先问有没有新的 PATCHES.md / 自检清单，把有效的修复吸收进官方版本，并在工作台 CHANGELOG 里写明「升级后哪几节不用再打」。
+- **采集节奏与额度**（工作台 0.8.11 起，`server/pace.mjs`）：总开关（默认关）/ 冷静期 / 时段 / 每日上限 / 采集间隔在**服务端**检查，账本由工作台自己记。策略放 `HUB_APP_STATE_DIR`（agent 碰不到）；CodeBuddy 的放行工具只有 Read / Glob / Grep / WebSearch / WebFetch，**没有 Bash 也写不了追加式文件**，所以手册里「让 agent 跑脚本 / 追加审计」这类要求都落不了地。两篇笔记检查点相隔不到 20 秒会自动停手并关总开关。`XHS_PACE_RELAX=1` 只给开发 / 自动测试，生产里不要设。这些数只控制读取量，**不保证不触发平台风控**；不要做「让自动化更像真人」的东西。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
@@ -84,13 +85,13 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 
 源码在 `D:\小红书运自动化运营系统\xhs-workbench1`，**有自己的 git 仓库和 GitHub 远程**（`xhs-workbench1`），不在本仓库里；通过本仓库 `apps/xhs-workbench/` 分发给员工。
 
-用户硬性要求：**自动化只能只读分析（学习博主、分析数据），不能自动发布**。工作台的操作手册（`playbooks/`）与中枢技能是**叠加**关系：中枢技能管业务标准（主管 / 老板在控制台维护），手册管怎么在工作台里做；冲突时格式 / 安全 / 不自动发布以手册为准，见工作台 `docs/hub-integration.md`。CodeBuddy 的浏览器权限默认是只读档，测试档需要用户明确授权，测完切回。
+用户硬性要求：**自动化只能只读分析（学习博主、分析数据），不能自动发布**；**采集只走 WorkBuddy 浏览器插件，不用 Playwright 直连**（0.8.11 起后台 Playwright 采集和登录核对已停用，只有开发 / 测试用 `XHS_ALLOW_WORKER_COLLECT=1` 放开）。工作台的操作手册（`playbooks/`）与中枢技能是**叠加**关系：中枢技能管业务标准（主管 / 老板在控制台维护），手册管怎么在工作台里做；冲突时格式 / 安全 / 不自动发布以手册为准，见工作台 `docs/hub-integration.md`。CodeBuddy 的浏览器权限默认是只读档，测试档需要用户明确授权，测完切回。
 
 **发布新版本（每次上传都必须升版本号）**：
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.10）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.11）。
 
 ## 开发与架构文档
 

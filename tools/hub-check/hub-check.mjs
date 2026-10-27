@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 const HOME = process.env.USERPROFILE || os.homedir();
 const QUIET = process.argv.includes('--quiet');
@@ -281,6 +281,27 @@ const sysBrowser = edge || (() => {
   return exists(c) ? c : '';
 })();
 (sysBrowser ? pass : fail)('采集能力', '⑤ 系统浏览器（Edge/Chrome）', sysBrowser || '没找到', sysBrowser ? '' : '中枢把浏览器能力判成不可用；装 Edge 或 Chrome');
+
+// ---------- 7.6 CodeBuddy 登录凭据（和 WorkBuddy 桌面共用一份存储） ----------
+// 出过的问题：登录完仍显示「Authentication required」，日志里是 missing-key / safe-delete（凭据读不出或写不进）。
+// 默认只看它留下的失败台账；加 --deep 会真的让 CodeBuddy 回一句话（约 5–30 秒，用掉很少的模型额度）来确认已登录。
+const DEEP = process.argv.includes('--deep');
+const CBX = path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'CodeBuddyExtension', 'Data', 'Public');
+const atRest = J(path.join(CBX, 'security', 'at-rest-failures-v1.json'));
+const stuck = (atRest?.entries || []).filter((e) => /missing-key/.test(JSON.stringify(e)) && Number(e.attempts || 0) >= 3);
+const LOGIN_FIX = '关掉 WorkBuddy 桌面和所有 codebuddy 窗口 → Win+R 输入 cmd 回车（自己开的窗口）→ 输入 codebuddy，再输 /login 授权，/exit → 还不行就把 %LOCALAPPDATA%\\CodeBuddyExtension\\Data\\Public\\auth 改名加 .bak 再登录一次（WorkBuddy 桌面也要重新登录）';
+(stuck.length ? warn : pass)('采集能力', 'CodeBuddy 凭据存储', stuck.length ? `失败台账里有 ${stuck.length} 条 missing-key（反复读不出登录凭据）` : '没有读写失败记录', stuck.length ? LOGIN_FIX : '');
+if (DEEP) {
+  if (cliOnPath) {
+    // 「没登录」的提示在 stderr 且退出码是 0，所以 stdout / stderr 都要取
+    const r = spawnSync('cmd.exe', ['/d', '/s', '/c', 'echo Reply with only PONG | codebuddy -p'], { encoding: 'utf8', timeout: 90000, windowsHide: true });
+    const out = `${r.stdout || ''} ${r.stderr || ''} ${r.error?.message || ''}`;
+    const text = out.replace(/\s+/g, ' ').trim();
+    if (/PONG/i.test(text)) pass('采集能力', 'CodeBuddy 已登录（实测回复 PONG）', '');
+    else if (/Authentication required/i.test(text)) fail('采集能力', 'CodeBuddy 没有登录（Authentication required）', '', LOGIN_FIX);
+    else fail('采集能力', 'CodeBuddy 实测没有正常回复', text.slice(0, 160) || '没有输出', '先在自己的 cmd 窗口里运行：echo Reply with only PONG | codebuddy -p ，看报什么错');
+  } else warn('采集能力', 'CodeBuddy 登录实测', '跳过：找不到 codebuddy 命令');
+} else add('PASS', '采集能力', 'CodeBuddy 登录实测', '没做（加 --deep 才会实际让它回一句话）');
 
 // ---------- 8. 浏览器与插件 ----------
 (edge ? pass : warn)('浏览器', 'Edge', edge || '没找到', edge ? '' : '纯插件模式要求员工自己机器上有浏览器并登录小红书；没有 Edge 就装 Edge 或在设置里改用其它浏览器');

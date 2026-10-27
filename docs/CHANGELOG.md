@@ -17,6 +17,7 @@
 - 其他：清单里的安装步骤和我们的实际流程不一致——正式流程是 Win+R 粘贴中枢「接入方式」页的一行命令（装 uv、Node、问是否装 CodeBuddy、下载接入器、登录、配置、建桌面图标），PowerShell 里 `%USERPROFILE%` 不会展开（要写 `$env:USERPROFILE`）。`hub-check` 收进 `tools/hub-check/`：修了 Chrome 路径写错（多了一串斜杠）、加了「接入器比中枢旧」的检查。
 - 验证：后端 393 项、工作台 442 项通过；对真实中枢验证了 nginx（>1MB 不再 413）和接入器自更新（假装 0.5.7 的副本连真实中枢更新到 0.5.8，备份在、再问被节流）。**没验证**：员工电脑上 0.8.12 的真实表现；后台取回在真实出图任务上的效果。
 - 0.8.12 已上传中枢（SHA-256 df674c82…，与工作台仓库的包一致）。
+- **新装机遇到「CodeBuddy 登录完仍显示 Authentication required」**（员工电脑的报告）：登录凭据和 WorkBuddy 桌面共用一份存储，日志里是 `AtRestEncryption missing-key` 加 `safe-delete … trash … Some operations were aborted`。这是 CodeBuddy / WorkBuddy 自己的凭据存储问题，我们改不了，**也没在本机复现**（本机只是普通未登录，没有这些日志）。报告里的根因分析（托管凭据引导、sidecar）是读它打包产物得出的推断，不是证据。能做的：处理步骤写进工作台「连接与设置」（0.8.13）和控制台「接入方式」常见问题；`tools/hub-check` 加 `--deep` 实测登录、并看失败台账。处理：关 WorkBuddy 桌面和所有 codebuddy 窗口，Win+R 开自己的 cmd 登录；不行就把 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Publicuth` 改名（WorkBuddy 也要重新登录）。顺带发现：工作台设置里「工作台独立浏览器」还写着（推荐）——已改成 WorkBuddy 插件推荐（0.8.13）。
 - **控制台「接入方式」页同步更新**：「需要 agent 自动操作浏览器」一块还是 Playwright 时代的流程（对 WorkBuddy 说「开启浏览器控制」、在设置里点「测试并使用」），已改成现在的：CodeBuddy 登录 → WorkBuddy 浏览器操控 + Edge 扩展 + 员工本人登录小红书 → 工作台选「WorkBuddy 浏览器插件」→ 采集总开关默认关；发给员工的话补了小红书采集准备一步；一键脚本说明里加了接入器自动更新；常见问题加了「400 Missing session ID」「采集提示只走插件」「换电脑别拷凭证和数据目录」；HTTP 接口页补了参考图生图、封面、通道能力和 422 说明。
 
 ## 2026-10-26

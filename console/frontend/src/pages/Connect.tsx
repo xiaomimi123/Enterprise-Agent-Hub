@@ -274,6 +274,7 @@ ${agentPrompt}
             <div><b>让 WorkBuddy 代跑卡住、被拦截（iex、启动进程、计划任务、注册表被拒绝）</b>：这是 agent 沙箱的安全策略，不是中枢的问题。改用 Win+R 粘贴命令自己运行；之后工作台等后台程序也最好用你自己的窗口或开始菜单启动，不要让 agent 拉起（agent 退出时会连带结束它拉起的程序）。</div>
             <div><b>浏览器登录页一直转圈</b>：确认命令窗口还在运行；浏览器要用你平时的那个，登录页可能开在后台标签里。仍不行就关掉命令重新运行一次，只保留一个登录页。</div>
             <div><b>电脑没有 winget、没有管理员权限</b>：脚本会自动改用 Node.js 官方便携版（校验 SHA-256，只装在你的用户目录，不需要管理员）。</div>
+            <div><b>CodeBuddy 登录完了，还是提示「Authentication required」</b>：CodeBuddy 的登录凭据和 WorkBuddy 桌面共用一份存储，偶尔会读不出 / 写不进（日志里是 missing-key、safe-delete）。关掉 WorkBuddy 桌面和所有 codebuddy 窗口 → Win+R 输入 <span className="mono">cmd</span> 回车（自己开的窗口，不要从 WorkBuddy 或工作台里开）→ 输入 <span className="mono">codebuddy</span>，再输 <span className="mono">/login</span> 授权，然后 <span className="mono">/exit</span>。还不行，把 <span className="mono">%LOCALAPPDATA%\\CodeBuddyExtension\\Data\\Public\\auth</span> 改名加 <span className="mono">.bak</span>（不要删）再登录一次——WorkBuddy 桌面也会要求重新登录。装机后可以用 <span className="mono">hub-check.cmd --deep</span> 提前发现。</div>
             <div><b>CodeBuddy 提示未登录</b>：CodeBuddy 要用它自己的账号登录（和中枢账号无关）：运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 完成一次即可。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
             <div><b>agent 报「400 Missing session ID」，中枢工具全部用不了</b>：接入器是旧版本（0.5.6 有这个缺陷：中枢重启或会话过期后不会重连）。重新运行一次接入命令换成最新版；0.5.8 起接入器会自动更新。临时办法：完全退出 agent 再打开。</div>

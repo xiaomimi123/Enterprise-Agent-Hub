@@ -93,6 +93,8 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
 能说出你的姓名、部门和岗位包，就接通了。
 ` +
     `5. 要用 CodeBuddy 做浏览器自动化的话，另开一个终端运行 codebuddy，输入 /login 登录你自己的 CodeBuddy 账号（只需一次）。
+` +
+    `6. 要用小红书运营工作台做对标采集：WorkBuddy →「设置 → 智能体 → 浏览器操控」打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；再在 Edge 里登录你自己的小红书。然后双击桌面的工作台图标，在「连接与设置 → 执行 Agent 与浏览器」里把浏览器方式选成「WorkBuddy 浏览器插件」（新电脑默认没选，漏了采集会被拒）。采集的总开关默认是关的，由你自己在「竞品对标 → 采集状态」里打开。
 
 ` +
     `【备选】让 WorkBuddy 代跑：把下面横线之间的整段话粘贴给它。它的沙箱可能拦截部分命令，卡住就改用上面推荐的方式：
@@ -153,7 +155,7 @@ ${agentPrompt}
             <div>② 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
             <div>③ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
             <div>④ 把 HubApps 登记为 WorkBuddy、CodeBuddy 允许读写的目录（原配置先备份），并为岗位包里的应用在桌面和开始菜单建快捷方式：<b>双击打开应用</b>，agent 退出也不会把它带走。</div>
-            <div>⑤ 之后令牌自动续期、岗位包技能自动同步，不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
+            <div>⑤ 之后令牌自动续期、岗位包技能自动同步，接入器本身也会自动更新（0.5.8 起；更早装的电脑重新运行一次这条命令就会带上），不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
               <span className="muted">自己运行（Win+R 粘贴）的命令：</span>
               <Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />
@@ -162,11 +164,13 @@ ${agentPrompt}
           </div>
         </Panel>
 
-        <Panel title="需要 agent 自动操作浏览器（采集 / 对标）" sub="WorkBuddy 等桌面 agent 在工作台里按设计只能「收件箱模式」，不开浏览器；要自动操作浏览器，用 CodeBuddy CLI">
+        <Panel title="小红书采集：只走 WorkBuddy 浏览器插件" sub="采集在员工自己的浏览器里、由 CodeBuddy 通过 WorkBuddy 的浏览器扩展完成，不再用 Playwright 直连；每台电脑一个员工、一个小红书号">
           <div className="stack-sm">
-            <div><Pill tone="accent" dot={false}>1</Pill> 上面的一键脚本装好 Node.js 和 CodeBuddy CLI（询问时选「是」）；装好后<b>再运行一次</b>脚本，写好中枢的 MCP 和岗位包允许的模型。</div>
-            <div><Pill tone="accent" dot={false}>2</Pill> 打开小红书工作台，在「连接与设置」里点 CodeBuddy 旁边的「测试并使用」。</div>
-            <div><Pill tone="accent" dot={false}>3</Pill> 回到 WorkBuddy，对它说「为小红书工作台开启浏览器控制」。第一次打开小红书会停在登录页，请员工<b>本人</b>扫码登录（agent 不碰密码和验证码）。</div>
+            <div><Pill tone="accent" dot={false}>1</Pill> 上面的一键脚本装好 Node.js 和 CodeBuddy CLI（询问时选「是」）；员工在自己的终端运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 登录一次 CodeBuddy 自己的账号。</div>
+            <div><Pill tone="accent" dot={false}>2</Pill> WorkBuddy →「设置 → 智能体 → 浏览器操控」：打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；然后员工<b>本人</b>在 Edge 里登录小红书（agent 不碰密码和验证码）。</div>
+            <div><Pill tone="accent" dot={false}>3</Pill> 双击桌面「小红书运营工作台」→「连接与设置 → 执行 Agent 与浏览器」：对话通道选 CodeBuddy，浏览器方式选<b>「WorkBuddy 浏览器插件」</b>，权限档保持「只读档」。<b>新电脑默认是「未选择」，漏了这步所有采集都会被拒</b>（采集卡片里也会提示）。</div>
+            <div><Pill tone="accent" dot={false}>4</Pill> 「竞品对标 → 采集状态」：采集总开关<b>默认关</b>，由运营本人打开；有每天笔记 / 主页上限、两次采集间隔、允许时段，遇到平台提示可以设冷静期。工作台只读分析，不会自动发布。</div>
+            <div className="muted">WorkBuddy 等桌面 agent 作为工作台的执行者只能「收件箱模式」，不开浏览器；工作台的默认执行者是 CodeBuddy CLI。</div>
           </div>
         </Panel>
 
@@ -249,7 +253,11 @@ ${agentPrompt}
                     <Code label="文生图" text={`curl -X POST ${d.api_base}/images -H "Authorization: Bearer <员工令牌>" -H "Content-Type: application/json" \\\n  -d '{"prompt": "一杯热拿铁放在木桌上", "aspect": "3:4", "count": 2}'`} />
                     <Code label="文生视频" text={`curl -X POST ${d.api_base}/videos -H "Authorization: Bearer <员工令牌>" -H "Content-Type: application/json" \\\n  -d '{"prompt": "蒸汽缓缓升起，镜头缓慢推进", "aspect": "9:16", "seconds": 4}'`} />
                     <Code label="图生视频" text={`curl -X POST ${d.api_base}/videos/from-image -H "Authorization: Bearer <员工令牌>" \\\n  -F image=@cover.png -F prompt="画面轻轻动起来" -F seconds=4`} />
-                    <Code label="查询任务" text={`curl ${d.api_base}/tasks/<任务号> -H "Authorization: Bearer <员工令牌>"`} />
+                    <Code label="参考图生图（1–4 张，每张 ≤10MB）" text={`curl -X POST ${d.api_base}/images/with-references -H "Authorization: Bearer <员工令牌>" \\\n  -F images=@ref.png -F prompt="换成暖色木桌背景" -F aspect=3:4 -F count=1`} />
+                    <Code label="小红书封面（3:4，一次 3 版）" text={`curl -X POST ${d.api_base}/covers -H "Authorization: Bearer <员工令牌>" -H "Content-Type: application/json" \\\n  -d '{"title": "秋天第一杯", "description": "暖色柔和"}'`} />
+                    <Code label="查询任务（结果里的 via 是实际走的通道）" text={`curl ${d.api_base}/tasks/<任务号> -H "Authorization: Bearer <员工令牌>"`} />
+                    <Code label="当前出图 / 出视频通道、能不能带参考图" text={`curl ${d.api_base}/capabilities -H "Authorization: Bearer <员工令牌>"`} />
+                    <p className="muted">参考图生图只有「模型」页把出图通道选成第三方 API 时可用，其他通道返回 400 并说明；JSON 接口多写或写错字段会返回 422（指出是哪个字段），不再被悄悄忽略。</p>
                   </div>
                 ),
               },
@@ -268,6 +276,9 @@ ${agentPrompt}
             <div><b>电脑没有 winget、没有管理员权限</b>：脚本会自动改用 Node.js 官方便携版（校验 SHA-256，只装在你的用户目录，不需要管理员）。</div>
             <div><b>CodeBuddy 提示未登录</b>：CodeBuddy 要用它自己的账号登录（和中枢账号无关）：运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 完成一次即可。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
+            <div><b>agent 报「400 Missing session ID」，中枢工具全部用不了</b>：接入器是旧版本（0.5.6 有这个缺陷：中枢重启或会话过期后不会重连）。重新运行一次接入命令换成最新版；0.5.8 起接入器会自动更新。临时办法：完全退出 agent 再打开。</div>
+            <div><b>工作台里点「开始采集」提示「采集只走 WorkBuddy 浏览器插件」</b>：浏览器方式还没选。到工作台「连接与设置 → 执行 Agent 与浏览器」选「WorkBuddy 浏览器插件」；按钮是灰的，就先在 WorkBuddy「设置 → 智能体 → 浏览器操控」里打开「让 WorkBuddy 控制浏览器」并装好 Edge 扩展。</div>
+            <div><b>换电脑 / 给新员工装机</b>：每台电脑重新运行接入命令、本人登录。<b>不要</b>把别的电脑上的 <span className="mono">~/.hub-agent/credentials.json</span> 或工作台数据目录 <span className="mono">XHS-Workbench</span> 拷过去：前者会让两台电脑变成同一个身份，后者会把别人的账号、采集记录和冷静期带过来。</div>
             <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>
           </div>
         </Panel>

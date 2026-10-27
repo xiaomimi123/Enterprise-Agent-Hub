@@ -54,3 +54,14 @@ def test_install_scripts_carry_hub_url():
         assert "__HUB_URL__" not in r.text and settings.public_url in r.text
         assert "charset=utf-8" in r.headers["content-type"]
     assert client.get("/api/agent/install.bat").status_code == 404
+
+
+def test_agent_config_announces_connector_version():
+    """接入器靠 config 里的 agent_version 决定要不要自动更新自己：必须和挂载的脚本里的 VERSION 一致"""
+    import re
+    from pathlib import Path
+
+    from app import agent_api
+    from app.config import settings
+    declared = re.search(r'^VERSION = "([^"]+)"', (Path(settings.agent_dir) / "hub_agent.py").read_text(encoding="utf-8"), re.M).group(1)
+    assert agent_api._agent_version() == declared and declared

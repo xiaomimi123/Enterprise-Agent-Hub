@@ -682,3 +682,82 @@ def test_bridge_reconnects_when_hub_session_expires(monkeypatch):
     assert r.status_code == 200 and r.json()["result"]["ok"] == "s3"
     reinit = [s for m, s in seen if m == "initialize"]
     assert len(reinit) == 3                                                  # 每次失效只重新握手一次
+
+
+# ---- 接入器自动更新自己（0.5.8）----
+
+def _installed(tmp_path, monkeypatch, version="0.5.7"):
+    """在假的 ~/.hub-agent 里放一份「装好的」接入器，让 maybe_self_update 认为自己是那一份"""
+    home = tmp_path / "hub-agent-home"
+    home.mkdir(parents=True, exist_ok=True)
+    script = home / "hub_agent.py"
+    script.write_text(f'VERSION = "{version}"\ndef cmd_mcp(): pass\ndef main(): pass\n', encoding="utf-8")
+    monkeypatch.setattr(hub_agent, "HOME", home)
+    monkeypatch.setattr(hub_agent, "__file__", str(script))
+    monkeypatch.setattr(hub_agent, "VERSION", version)
+    monkeypatch.delenv("HUB_AGENT_NO_UPDATE", raising=False)
+    return home, script
+
+
+def _hub(monkeypatch, remote, src=None, fail=False):
+    calls = []
+
+    class R:
+        def __init__(self, data=None, content=b""):
+            self._d, self.content = data, content
+
+        def json(self):
+            return self._d
+
+        def raise_for_status(self):
+            pass
+
+    def get(url, **kw):
+        calls.append(url)
+        if fail:
+            raise OSError("连不上中枢")
+        if url.endswith("/api/agent/config"):
+            return R({"agent_version": remote})
+        return R(content=(src if src is not None else f'VERSION = "{remote}"\ndef cmd_mcp(): pass\ndef main(): pass\n').encode("utf-8"))
+    monkeypatch.setattr(hub_agent.httpx, "get", get)
+    return calls
+
+
+def test_self_update_replaces_installed_copy_when_hub_is_newer(tmp_path, monkeypatch):
+    home, script = _installed(tmp_path, monkeypatch, "0.5.7")
+    calls = _hub(monkeypatch, "0.5.8")
+    assert hub_agent.maybe_self_update("http://hub") == "0.5.8"
+    assert 'VERSION = "0.5.8"' in script.read_text(encoding="utf-8")
+    assert 'VERSION = "0.5.7"' in (home / "hub_agent.py.bak-0.5.7").read_text(encoding="utf-8")   # 旧版本留了备份
+    assert not (home / "hub_agent.py.new").exists()
+    assert hub_agent.maybe_self_update("http://hub") is None and len(calls) == 2                 # 6 小时内不再问
+
+
+def test_self_update_leaves_things_alone_when_not_needed_or_unsafe(tmp_path, monkeypatch):
+    # 中枢上的不比本机新
+    home, script = _installed(tmp_path, monkeypatch, "0.5.8")
+    _hub(monkeypatch, "0.5.8")
+    assert hub_agent.maybe_self_update("http://hub") is None and 'VERSION = "0.5.8"' in script.read_text(encoding="utf-8")
+    # 新文件不是合法 Python / 版本号和宣告的不一致 / 缺主要入口：都不换
+    for src in ("这不是 python (", 'VERSION = "9.9.9"\ndef cmd_mcp(): pass\ndef main(): pass\n', 'VERSION = "0.5.9"\n'):
+        home, script = _installed(tmp_path / f"d{abs(hash(src)) % 10**6}", monkeypatch, "0.5.7")
+        _hub(monkeypatch, "0.5.9", src=src)
+        assert hub_agent.maybe_self_update("http://hub") is None
+        assert 'VERSION = "0.5.7"' in script.read_text(encoding="utf-8") and not (home / "hub_agent.py.new").exists()
+    # 连不上中枢：不报错
+    _installed(tmp_path / "net", monkeypatch, "0.5.7")
+    _hub(monkeypatch, "0.5.9", fail=True)
+    assert hub_agent.maybe_self_update("http://hub") is None
+
+
+def test_self_update_skips_dev_copy_and_respects_opt_out(tmp_path, monkeypatch):
+    home, script = _installed(tmp_path, monkeypatch, "0.5.7")
+    calls = _hub(monkeypatch, "0.5.8")
+    monkeypatch.setenv("HUB_AGENT_NO_UPDATE", "1")
+    assert hub_agent.maybe_self_update("http://hub") is None and calls == []
+    monkeypatch.delenv("HUB_AGENT_NO_UPDATE")
+    other = tmp_path / "repo" / "agent"                              # 开发时直接跑仓库里的脚本：不是装在 ~/.hub-agent 里的那一份，不动
+    other.mkdir(parents=True)
+    (other / "hub_agent.py").write_text('VERSION = "0.5.7"\n', encoding="utf-8")
+    monkeypatch.setattr(hub_agent, "__file__", str(other / "hub_agent.py"))
+    assert hub_agent.maybe_self_update("http://hub") is None and calls == []

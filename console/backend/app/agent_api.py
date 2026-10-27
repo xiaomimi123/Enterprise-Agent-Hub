@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from urllib.parse import unquote
 
@@ -57,10 +58,20 @@ def install_script(kind: str):
     return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
 
 
+def _agent_version() -> str:
+    """中枢上挂载的接入器版本号（读脚本里的 VERSION = "x.y.z"），接入器据此决定要不要自动更新自己；读不到就返回空，不影响登录"""
+    try:
+        m = re.search(r'^VERSION = "([^"]+)"', (Path(settings.agent_dir) / "hub_agent.py").read_text(encoding="utf-8"), re.M)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
 @router.get("/config")
 def config():
     client_id, _ = _agent_client()
     return {
+        "agent_version": _agent_version(),
         "org": settings.casdoor_org,
         "casdoor_url": settings.casdoor_public_url,
         "client_id": client_id,

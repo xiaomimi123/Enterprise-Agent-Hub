@@ -74,6 +74,8 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **中枢 MCP 会话会失效**：`hub-mcp` 重启（每次重建中枢都会）或会话空闲超过 30 分钟，旧会话号就作废（带旧号 404，没号 400「Missing session ID」）。接入器的桥 0.5.7 起会自动重新握手再发；0.5.6 及以前会一直报错直到 agent 重启。改桥的转发逻辑时要保住这一点（`_forward_mcp`）。
 - **员工电脑上的 agent 会给工作台打本地补丁**（记在那台电脑的 `WorkBuddy/xhs-launcher/PATCHES.md`），升级后会被新版覆盖。发新版前先问有没有新的 PATCHES.md / 自检清单，把有效的修复吸收进官方版本，并在工作台 CHANGELOG 里写明「升级后哪几节不用再打」。
 - **采集节奏与额度**（工作台 0.8.11 起，`server/pace.mjs`）：总开关（默认关）/ 冷静期 / 时段 / 每日上限 / 采集间隔在**服务端**检查，账本由工作台自己记。策略放 `HUB_APP_STATE_DIR`（agent 碰不到）；CodeBuddy 的放行工具只有 Read / Glob / Grep / WebSearch / WebFetch，**没有 Bash 也写不了追加式文件**，所以手册里「让 agent 跑脚本 / 追加审计」这类要求都落不了地。两篇笔记检查点相隔不到 20 秒会自动停手并关总开关。`XHS_PACE_RELAX=1` 只给开发 / 自动测试，生产里不要设。这些数只控制读取量，**不保证不触发平台风控**；不要做「让自动化更像真人」的东西。
+- **接入器会自动更新自己**（0.5.8 起）：中枢上挂载的 `agent/hub_agent.py` 比员工电脑新就会被替换，所以**改这个文件等于直接发布给所有已装 0.5.8 的电脑**——改完先用 `console/backend/.venv/Scripts/python -m pytest -q tests/test_hub_agent.py` 和真实中枢验证，VERSION 只增不减（版本号小于等于本机的不会更新）。
+- **中枢 nginx 有请求体上限**（`console/frontend/nginx.conf` 的 `client_max_body_size 50m`）：默认 1MB，新增任何要上传文件的接口都用大于 1MB 的真实文件测一遍，别只用小测试图（带参考图出图因此在员工电脑上 413 过）。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 

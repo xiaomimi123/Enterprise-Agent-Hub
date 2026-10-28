@@ -1,0 +1,21 @@
+# 让用到 RAGFlow 的服务加入 RAGFlow 自己的 Docker 网络，用容器名（http://ragflow-cpu:9380）访问，不依赖宿主机端口。
+#
+# 为什么：原来走 host.docker.internal:9380，要求 RAGFlow 的 9380 映射到宿主机。Windows 会动态保留一段 TCP 端口（实测 9320–9419），
+# 重启 Docker Desktop 后 RAGFlow 的端口映射就失败了，中枢连不上，知识库文档一直「待同步 / 未索引」（2026-10-28 遇到）。
+#
+# 只有部署了 RAGFlow 的环境才需要：在 hub/.env 里加这两行（先有 RAGFlow 的网络 docker_ragflow，即先 make ragflow-up）：
+#   COMPOSE_PATH_SEPARATOR=:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.ragflow-net.yml
+# 并把 RAGFLOW_ENDPOINT 设成 http://ragflow-cpu:9380 。没有 RAGFlow 的环境不要加，中枢会回退到本地关键词检索。
+services:
+  console-api:
+    networks: [default, ragflow]
+  hub-mcp:
+    networks: [default, ragflow]
+  hub-worker:
+    networks: [default, ragflow]
+
+networks:
+  ragflow:
+    external: true
+    name: docker_ragflow

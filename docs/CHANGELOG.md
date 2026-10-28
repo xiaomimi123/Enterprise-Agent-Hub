@@ -39,6 +39,16 @@
 - 验证：真实 `install.ps1`（隔离目录、`HUB_INSTALL_TOOLS=yes`）从底座装 Node，再用 npmmirror 装 CodeBuddy，102 个包 7 秒，`codebuddy` 2.177.1；后端测试 90 项通过（新增镜像参数测试，并修正一处按位置取包名的旧断言）
 - 没验证：`app-doctor` 的修复命令只有镜像一次、没有退回官方源；真正国内网络下的速度（本机能访问两边）；腾讯云镜像没作为备选写进脚本
 
+## 2026-10-28（知识库索引状态）
+
+**知识库文档「待同步 / 未索引」：中枢连不上 RAGFlow，改走 Docker 网络**
+- 现象：用户上传「小红书食品类目运营方法论」后，列表里新文档「待同步」、旧文档「未索引」
+- 状态含义：待同步 = 已发布但最新版本没同步成功；未索引 = 版本对得上但 RAGFlow 里没有这篇文件。详见 `docs/knowledge.md`「文档列表里的索引状态」
+- 根因：中枢后端日志全是「RAGFlow 不可达」。RAGFlow 容器本身正常（容器内、中枢用它的内网地址都能访问），但它的 9380–9384 没有映射到宿主机：Windows 动态保留了 TCP 端口 9320–9419（`netsh interface ipv4 show excludedportrange protocol=tcp`），Docker Desktop 今天 10:58 重启后端口映射失败；中枢配的是 `host.docker.internal:9380`，从那以后同步都失败。重启 RAGFlow 容器没有恢复映射
+- 修法：新增 `hub/docker-compose.ragflow-net.yml`（让 console-api / hub-mcp / hub-worker 加入 `docker_ragflow` 网络），本机 `hub/.env` 加 `COMPOSE_PATH_SEPARATOR=:`、`COMPOSE_FILE=docker-compose.yml:docker-compose.ragflow-net.yml`，并把 `RAGFLOW_ENDPOINT` 改成 `http://ragflow-cpu:9380`（`.env` 不进 git，原文件备份过）；重建三个服务后 `make kb-sync` 同步完成（新增 1、更新 9、未变 2），两篇文档都是「已索引」
+- 过程中我重启了 RAGFlow 容器（没有效果，数据在卷里没有丢）
+- 没验证：Docker Desktop 再次重启后是否仍然正常（走的是容器网络，理论上不受端口保留影响）；`hub/docker-compose.ragflow-net.yml` 要求 `docker_ragflow` 网络已存在（先 `make ragflow-up`），没有 RAGFlow 的环境不要启用；新机器部署时 `ragflow-bootstrap` 不会自动写 `COMPOSE_FILE`，要手动加
+
 ## 2026-10-28（接入方式页更新）
 
 **控制台「接入方式」页跟上这几天的变化**

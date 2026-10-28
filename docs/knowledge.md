@@ -25,6 +25,18 @@
 - 同步失败不影响文档已保存：列表里状态显示「待同步」，点「重试同步」。
 - 全量对齐：`make kb-sync`（`scripts/ragflow_sync.py`）配置了数据库时以数据库里的文档为准。
 
+### 文档列表里的索引状态
+
+| 状态 | 含义 | 常见原因 / 处理 |
+|---|---|---|
+| 已索引 | RAGFlow 里已解析完成，agent 能检索到 | 正常 |
+| 索引中 / 待索引 | RAGFlow 正在解析 / 排队 | 等一会儿；长时间不动看 RAGFlow 的任务队列 |
+| **待同步** | 文档已发布，但最新版本还没成功同步到 RAGFlow（`synced_version ≠ published_version`） | 发布后同步失败（RAGFlow 连不上 / 嵌入模型没就绪）。点「重试同步」或 `make kb-sync` |
+| **未索引** | 版本号对得上，但 RAGFlow 的知识库里没有这篇文件（被删了、库重建了，或从来没传上去） | 同上，`make kb-sync` 补齐 |
+| 索引失败 | RAGFlow 解析报错 | 看 RAGFlow 日志（文件太大、嵌入模型报错等） |
+
+**两个状态同时出现、而且整个知识库都这样，先查中枢能不能连上 RAGFlow**（控制台后端日志里有「RAGFlow 不可达」）。2026-10-28 的实例：Windows 动态保留了 TCP 端口 9320–9419，Docker Desktop 重启后 RAGFlow 的 9380 映射不出来，中枢走 `host.docker.internal:9380` 就一直连不上。现在 `hub/.env` 配 `COMPOSE_FILE` 加载 `hub/docker-compose.ragflow-net.yml`，让中枢加入 RAGFlow 的 Docker 网络并用 `http://ragflow-cpu:9380` 访问，不再依赖宿主机端口。排查：`netsh interface ipv4 show excludedportrange protocol=tcp`；`docker ps` 里 RAGFlow 一行没有 `0.0.0.0:9380->9380` 就是端口没映射出来。
+
 ## 接口（`kb_api.py`，都经过 `auth.console_user`）
 
 | 接口 | 说明 |

@@ -18,6 +18,8 @@
 #   HUB_INSTALL_BASE_ONLY=1 stop after the base runtime (for tests)   HUB_INSTALL_STOP=connector  stop after the connector libraries are ready (for tests)
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page.)
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5 draws a progress bar for downloads and Expand-Archive, which makes them many times slower (35 s instead of 5 s here, minutes inside a VM).
+$ProgressPreference = 'SilentlyContinue'
 # Never 'exit' below: under 'irm | iex' it would close the whole window and hide the error message. 'return' stops only this script.
 $Hub = '__HUB_URL__'
 $Dir = if ($env:HUB_AGENT_HOME) { $env:HUB_AGENT_HOME } else { Join-Path $env:USERPROFILE '.hub-agent' }
@@ -111,6 +113,7 @@ function Install-BundleComponent($Name, $C) {
         Invoke-WebRequest -UseBasicParsing "$Hub/api/agent/bundle/files/$($C.file)" -OutFile $zip
         $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
         if ($got -ne ('' + $C.sha256).ToLower()) { throw "SHA-256 check failed for $($C.file); nothing was installed." }
+        Write-Host "      Unpacking $($C.file) ..."
         Expand-Archive $zip -DestinationPath $tmp -Force
         $src = $tmp
         if ($C.strip) { $src = Join-Path $tmp $C.strip }

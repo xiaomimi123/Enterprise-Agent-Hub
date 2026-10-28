@@ -25,6 +25,12 @@
 - **验证**：沙盒（全新 Windows 10）第一次安装 4 个组件、预热成功，第二次"已是最新"，退出码 0；本机用死掉的 PyPI 地址对比：无 wheel 失败、只 FIND_LINKS 失败、FIND_LINKS+NO_INDEX 成功、预热后不再设任何变量仍成功；`bundle-install.mjs` 仍 6 项通过
 - **没验证**：沙盒有外网，"不访问 PyPI"靠 `UV_NO_INDEX` 保证，没有在真正断网的机器上验证；`uv cache clean` 之后在断网机器上再运行接入器会失败（缓存被清）
 
+**修复：安装在「解压底座」时看起来卡死（Windows PowerShell 5 的进度条）**
+- 现象：用户在 Parallels 虚拟机（Windows 11，PowerShell 5.1.26100）里装，停在「Downloading python-3.12-win-x64.zip …」很久。中枢日志显示三个文件都已发送完毕（Python 包 46.6 MB 约 26 秒），所以不是下载卡住，是员工机在 `Expand-Archive` 解压 6700 个小文件，而且这一步没有任何输出
+- 原因：Windows PowerShell 5 的进度条会让 `Expand-Archive`（和 `Invoke-WebRequest`）慢很多。本机实测同一个 Python 包：默认 35 秒，关进度条 5 秒，`tar.exe` / `ZipFile.ExtractToDirectory` 约 2 秒；虚拟机里终端输出更慢，可达数分钟。我们的沙盒验收没暴露，因为沙盒窗口输出快
+- 修复：`install.ps1`、`preflight.ps1` 开头 `$ProgressPreference = 'SilentlyContinue'`；解压前加一行「Unpacking …」提示。修复后本机完整装 4 个组件 8 秒；`bundle-install.mjs` 仍全部通过
+- 没验证：修复后在那台虚拟机上重试的结果；没有换成 `tar.exe`（进度条关掉后 `Expand-Archive` 已是 5 秒，够用）
+
 **CodeBuddy CLI 安装改走国内 npm 镜像（npmmirror），不再依赖外网**
 - 来源：用户问「安装 CodeBuddy CLI 为什么要外网，能不能换国内源」。原因是 `npm install` 默认走 registry.npmjs.org
 - 实测 npmmirror 和腾讯云镜像都有 `@tencent-ai/codebuddy-code`（2.177.1，与官方一致，无 postinstall）；用 npmmirror 把它和全部依赖（含 node-pty、sandbox-cli 等可选依赖）装到临时目录，`codebuddy --version` 正常，缓存里没有访问官方源的记录

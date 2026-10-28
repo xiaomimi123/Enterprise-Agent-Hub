@@ -10,6 +10,7 @@
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page. Chinese text is filled in by the hub.)
 param([switch]$Quiet)
 $ErrorActionPreference = 'Continue'
+$ProgressPreference = 'SilentlyContinue'
 $Hub = '__HUB_URL__'
 if ($env:HUB_URL) { $Hub = $env:HUB_URL }
 $Hub = $Hub.TrimEnd('/')

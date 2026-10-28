@@ -37,6 +37,19 @@ for (const [label, args] of [['scrolls=4', { scrolls: 4 }], ['scrolls=-1', { scr
 }
 check('xhs_read_me 不接受参数', (await call('xhs_read_me', { id: 'x' })).error === 'bad_argument');
 check('xhs_check_login 不接受参数', (await call('xhs_check_login', { x: 1 })).error === 'bad_argument');
+// 回归：脚本是写在模板字符串里的，正则里的单个反斜杠（\s、\d）会被吃成字母，必须写成两个。2026-10-28 就因此把「小红书号」的兜底正则写成了 [^s]+
+{
+  const src = fs.readFileSync(server, 'utf8');
+  const region = src.slice(src.indexOf('const COMMON = `'), src.indexOf('// ---------------- 运行 ego-browser'));
+  const BS = String.fromCharCode(92);                       // 反斜杠；不在正则里直接写，避免再被转义吃掉
+  const bad = [];
+  for (let i = 0; i < region.length; i++) {
+    if (region[i] !== BS) continue;
+    if (region[i + 1] === BS) { i++; continue; }              // 两个反斜杠：正确写法
+    if ('sdwSDW./?+*()[]^$|-'.includes(region[i + 1] || '')) bad.push(region.slice(Math.max(0, i - 15), i + 10).split(String.fromCharCode(10)).join(' '));
+  }
+  check('模板字符串里的正则没有会被吃掉的单反斜杠', bad.length === 0, JSON.stringify(bad));
+}
 check('未知工具被拒绝', (await call('xhs_like', {})).error === 'unknown_tool');
 
 if (!live) {

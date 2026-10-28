@@ -47,6 +47,8 @@
 - **规则措辞更新（CLAUDE.md）**：原来是「不要做让自动化更像真人的东西」，按用户要求改为：允许阅读本来就需要的真实操作（点开卡片、滚轮滚动），不做反检测伪装（随机停顿、轨迹抖动、模拟走神等）。用户曾要求连伪装也允许，我没有采纳，原因见方案文档第 5 节
 - **怎么验证的**：本机真实 ego lite、用户本人扫码登录后：公开页面 9/9；专用空间沿用登录态；读信息流、读笔记（图文 + 视频）、滚轮滚动信息流和笔记弹窗；`tools/ego-reader/test.mjs` 19 项校验 / 保护测试通过，`--live` 全流程通过。过程中读了十来篇笔记，节奏很慢，只读，没有点赞 / 收藏 / 关注 / 评论
 - **踩的坑**（都写进了 `tools/ego-reader/README.md`）：笔记链接直接打开会被拦；信息流每次刷新且是虚拟列表；链接可能带 `xsec_token`；固定导航栏盖住上方卡片；`ego-browser` 的输出在 stderr 且必须关掉标准输入
+- **规则：ego lite 只用一个任务空间**（用户定的）：封装固定使用 `hub-xhs-reader`，已写进 CLAUDE.md 和 `tools/ego-reader/README.md`；我多开的 `hub-xhs-login` 已关闭（只关空间，登录态保留，已确认专用空间仍是登录状态）
+- **虚拟机测试**：步骤见 `tools/ego-reader/虚拟机测试步骤.md`（装 ego lite → 登录小红书 → 跑测试 → 接 CodeBuddy → 记录表）；CodeBuddy 注册命令用 `codebuddy mcp add ego-reader --scope user -- <node> <server.mjs>`（本机查过 `mcp add --help`，没实际注册）
 - **没验证的**：验证码 / 风险提示时的 `handOff`；长时间登录态；批量读取是否触发风控；搜索、博主主页、评论区；国内下载 ego lite 的速度和安装包许可；没接 CodeBuddy、没接工作台。本机留着两个 ego lite 任务空间（`hub-xhs-login`、`hub-xhs-reader`）
 
 ## 2026-10-28

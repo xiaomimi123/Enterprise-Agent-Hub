@@ -4,6 +4,7 @@
 // 这里只有两个工具，脚本是固定模板，agent 只能传校验过的参数（笔记 id、滚动次数）。没有点赞/收藏/关注/评论/发布/输入文字的能力。
 //
 // 工具：
+//   xhs_check_login               检查是否真的登录（页面状态 loggedIn / guest），不读内容
 //   xhs_read_feed  {scrolls?: 0-3}   读首页信息流当前可见的笔记卡片（可先用鼠标滚轮向下滚动 0-3 次）
 //   xhs_read_note  {id, scroll_note?: 0-3}  点开当前可见的某张卡片，读标题、正文、话题、作者、互动数，读完关闭
 //
@@ -38,6 +39,15 @@ async function ensureFeed() {
   if (!/^https:\\/\\/www\\.xiaohongshu\\.com\\/explore$/.test(u)) await page.goto("https://www.xiaohongshu.com/explore");
   await page.waitForSelector("section.note-item a.cover", { state: "visible", timeout: 10000 });
 }
+// 登录状态只认页面自己的状态（小红书游客也能看信息流，所以「找不到登录按钮」不能说明已登录）
+const loginState = () => page.evaluate(() => {
+  try {
+    const unwrap = (x) => (x && typeof x === "object" && ("_rawValue" in x ? x._rawValue : "value" in x ? x.value : x));
+    const u = window.__INITIAL_STATE__.user;
+    const info = unwrap(u.userInfo) || {};
+    return { loggedIn: unwrap(u.loggedIn) === true, guest: info.guest === true };
+  } catch (e) { return { loggedIn: false, guest: null, unknown: true }; }
+});
 const visibleCards = () => page.evaluate(() => {
   const t = (el) => (el ? el.innerText.trim() : "");
   return Array.from(document.querySelectorAll("section.note-item")).map((s) => {
@@ -58,7 +68,11 @@ if (${scrolls} > 0) {
   await page.mouse.move(700, 500, { label: "move over feed" });
   for (let i = 0; i < ${scrolls}; i++) { await page.mouse.wheel(0, ${WHEEL_PX}, { label: "scroll feed" }); await page.waitForTimeout(${WHEEL_GAP_MS}); }
 }
-out({ ok: true, scrollY: await page.evaluate(() => Math.round(window.scrollY)), cards: await visibleCards() });
+out({ ok: true, ...(await loginState()), scrollY: await page.evaluate(() => Math.round(window.scrollY)), cards: await visibleCards() });
+`;
+const checkScript = () => `${COMMON}
+await ensureFeed();
+out({ ok: true, ...(await loginState()) });
 `;
 const noteScript = (id, scrollNote) => `${COMMON}
 await ensureFeed();
@@ -92,7 +106,7 @@ else {
   });
   await page.keyboard.press("Escape").catch(() => {});
   await page.waitForTimeout(800);
-  out({ ok: true, id: ${JSON.stringify(id)}, ...note });
+  out({ ok: true, id: ${JSON.stringify(id)}, ...(await loginState()), ...note });
 }
 `;
 
@@ -142,6 +156,11 @@ function recordNote(now = Date.now()) {
 // ---------------- 工具 ----------------
 const intIn = (v, lo, hi, dflt) => { if (v === undefined || v === null) return dflt; return Number.isInteger(v) && v >= lo && v <= hi ? v : NaN; };
 export async function callTool(name, args = {}) {
+  if (name === 'xhs_check_login') {
+    if (Object.keys(args).length) return { ok: false, error: 'bad_argument', detail: 'xhs_check_login takes no arguments' };
+    const stop = checkGuard(); if (stop && stop.error === 'stopped') return stop;
+    return runScript(checkScript());
+  }
   if (name === 'xhs_read_feed') {
     const scrolls = intIn(args.scrolls, 0, 3, 0);
     if (Number.isNaN(scrolls)) return { ok: false, error: 'bad_argument', detail: 'scrolls must be an integer 0-3' };
@@ -159,6 +178,8 @@ export async function callTool(name, args = {}) {
   return { ok: false, error: 'unknown_tool' };
 }
 export const TOOLS = [
+  { name: 'xhs_check_login', description: '只读：检查 ego lite 里的小红书是否真的登录了（返回 loggedIn / guest）。小红书游客也能看信息流，所以读内容前先用它确认；loggedIn 为 false 时请让用户在 ego lite 里自己扫码登录，不要继续。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'xhs_read_feed', description: '只读：读小红书首页信息流当前可见的笔记卡片（id、标题、作者、点赞）。可选先用鼠标滚轮向下滚动 0-3 次加载更多。需要用户已在 ego lite 里登录小红书。',
     inputSchema: { type: 'object', properties: { scrolls: { type: 'integer', minimum: 0, maximum: 3 } }, additionalProperties: false } },
   { name: 'xhs_read_note', description: '只读：点开信息流里当前可见的某张笔记卡片，读标题、正文、话题、作者、日期、图片数、互动数，然后关闭。id 必须来自刚才的 xhs_read_feed。两次读取至少间隔 20 秒，每小时最多 12 篇。不点赞、不收藏、不关注、不评论。',

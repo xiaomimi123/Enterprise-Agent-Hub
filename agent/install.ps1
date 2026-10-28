@@ -334,11 +334,20 @@ if ($ok -and (Test-Path $launchers)) {
         if ($items.Count -gt 0) {
             $dirs = if ($env:HUB_SHORTCUT_DIR) { @($env:HUB_SHORTCUT_DIR) } else { @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) }
             $ws = New-Object -ComObject WScript.Shell
+            # App icons come from the hub (best effort): without one a shortcut to a .cmd shows the blank "file" icon.
+            $iconDir = Join-Path $Root 'bin\icons'
+            New-Item -ItemType Directory -Force $iconDir | Out-Null
             foreach ($l in $items) {
+                $icon = Join-Path $iconDir ($l.id + '.ico')
+                try { Invoke-WebRequest -UseBasicParsing "$Hub/api/agent/icons/$($l.id).ico" -OutFile $icon -TimeoutSec 15 } catch { Remove-Item $icon -Force -ErrorAction SilentlyContinue }
+            }
+            foreach ($l in $items) {
+                $iconFile = Join-Path $iconDir ($l.id + '.ico')
                 foreach ($d in $dirs) {
                     New-Item -ItemType Directory -Force $d | Out-Null
                     $lnk = $ws.CreateShortcut((Join-Path $d ($l.name + '.lnk')))
                     $lnk.TargetPath = $l.path
+                    if (Test-Path $iconFile) { $lnk.IconLocation = $iconFile + ',0' }
                     $lnk.WorkingDirectory = $Root
                     $lnk.WindowStyle = 7
                     $lnk.Description = 'Open ' + $l.id + ' (Enterprise Agent Hub)'

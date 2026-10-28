@@ -236,6 +236,17 @@ def bundle_file(name: str):
     return FileResponse(p, media_type="application/zip", filename=name)
 
 
+@router.get("/icons/{name}")
+def app_icon(name: str):
+    """应用快捷方式图标（agent/icons/<应用 id>.ico，tools/icons/make-ico.ps1 生成）：公开下载，只认 [a-z0-9._-]+.ico，防路径穿越。"""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*\.ico", name):
+        raise HTTPException(404, "没有这个图标")
+    f = Path(settings.agent_dir) / "icons" / name
+    if not f.is_file():
+        raise HTTPException(404, "没有这个图标")
+    return FileResponse(f, media_type="image/x-icon", filename=name)
+
+
 @router.get("/preflight.ps1")
 def preflight_script():
     """安装前自检脚本（只读）：填好中枢地址和中文提示（ASCII 转义的 JSON），公开下载。"""

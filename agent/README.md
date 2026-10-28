@@ -159,3 +159,7 @@ uv run hub_agent.py app-doctor xhs-workbench
 ## 底座包
 
 `install.ps1` 自检之后优先从中枢下载固定版本的 Node / uv / Python（`/api/agent/bundle/manifest.json`），校验 SHA-256 后装进 `runtime/`，版本记在 `runtime/BASE_VERSION`；失败或中枢没有底座包时退回联网安装。构建和细节见 [../tools/build-bundle/README.md](../tools/build-bundle/README.md)。应用可在 `app.json` 的 `requires.base_min` 声明最低底座版本。
+
+## 应用快捷方式图标
+
+桌面 / 开始菜单的应用快捷方式指向 `.cmd`，没有图标会显示成空白文件。图标放在 `agent/icons/<应用 id>.ico`，中枢通过 `GET /api/agent/icons/<应用 id>.ico` 下发，`install.ps1` 创建快捷方式时下载并设置。生成：`powershell -ExecutionPolicy Bypass -File tools\icons\make-ico.ps1 -Text 运 -Out agent\icons\<应用 id>.ico`。测试：`node agent/tests/icon-shortcut.mjs`。

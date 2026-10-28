@@ -56,21 +56,6 @@ export default function Connect() {
     ? winCmd
     : macCmd
   const verifyPrompt = '请调用企业智能体中枢的 whoami，告诉我我是谁、在哪个部门、有哪些技能'
-  // 员工把这一段原样发给自己的 agent，由 agent 自己执行命令；不要求员工打开命令行
-  const agentPrompt = `请帮我把这台电脑接入公司的企业智能体中枢，按下面步骤做：
-` +
-    `1. 看一下我电脑的系统，在终端里执行对应的那一条命令（Windows 用 PowerShell 那条，macOS / Linux 用 curl 那条）：
-` +
-    `Windows：${winCmd}
-macOS / Linux：${macCmd}
-` +
-    `   如果 iex 或启动子进程被你的安全策略拦截，改成先下载再执行：Invoke-WebRequest ${d.hub_url}/api/agent/install.ps1 -OutFile $env:TEMP\\hub-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\hub-install.ps1
-` +
-    `2. 命令会打开浏览器让我登录公司账号，请等我自己登录完成（首次登录需要先修改初始密码），不要替我输入密码。如果浏览器没有自动打开，把输出里的那行登录链接完整发给我，让我自己在浏览器里打开；登录失败或超时不要反复重试，先告诉我。
-` +
-    `3. 如果输出提示缺少 Node.js 或 CodeBuddy CLI（你在终端里运行时它不会自己询问），先问我要不要装；我同意后，Windows 先执行 $env:HUB_INSTALL_TOOLS="yes"、macOS / Linux 先执行 export HUB_INSTALL_TOOLS=yes，再重新运行一遍同一条命令。
-` +
-    `4. 命令执行结束后，把最后几行输出告诉我，并提醒我完全退出、重新打开你自己；桌面上会出现公司应用（如小红书运营工作台）的图标，提醒我以后双击它打开，不要让你去启动。如果你的环境不允许执行这些命令，直接告诉我，我会自己在电脑上运行。`
   const welcome = `你好，公司「企业智能体中枢」账号已开通：
 账号：${account.trim() || '<账号>'}
 初始密码：${initPw.trim() || '<初始密码>'}（首次登录需要修改）
@@ -97,10 +82,7 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
     `6. 要用小红书运营工作台做对标采集：WorkBuddy →「设置 → 智能体 → 浏览器操控」打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；再在 Edge 里登录你自己的小红书。然后双击桌面的工作台图标，在「连接与设置 → 执行 Agent 与浏览器」里把浏览器方式选成「WorkBuddy 浏览器插件」（新电脑默认没选，漏了采集会被拒）。采集的总开关默认是关的，由你自己在「竞品对标 → 采集状态」里打开。
 
 ` +
-    `【备选】让 WorkBuddy 代跑：把下面横线之间的整段话粘贴给它。它的沙箱可能拦截部分命令，卡住就改用上面推荐的方式：
-----------
-${agentPrompt}
-----------`
+    `注意：请自己在 Win+R（Mac 用终端）里运行，不要让 WorkBuddy 等 agent 代跑——agent 的沙箱会拦截安装步骤（iex、启动进程、写启动项等），而且它退出时会把它拉起的程序一起结束。`
 
   const name = user.trim() || '<用户名>'
   const home = os === 'Windows' ? `C:\\Users\\${name}` : `/Users/${name}`
@@ -132,10 +114,10 @@ ${agentPrompt}
     <>
       <PageHeader
         title="接入方式"
-        sub="新员工接入只要两步：管理员建账号，把一段话发给员工。剩下的由员工的 agent 和一键脚本自动完成，包括检测并询问安装 Node.js 和 CodeBuddy CLI，不需要单独去装。"
+        sub="新员工接入只要两步：管理员建账号，把一段话发给员工。剩下的由一键脚本自动完成：先自检，再从中枢下载运行环境并询问是否安装 CodeBuddy CLI，不需要单独去装。员工要在自己的 Win+R 窗口里运行，不要让 agent 代跑。"
       />
       <div className="stack">
-        <Panel title="给新员工接入" sub="管理员建账号 → 把下面这段话发给员工 → 员工用 Win+R 粘贴一行命令（也可以让 agent 代跑）">
+        <Panel title="给新员工接入" sub="管理员建账号 → 把下面这段话发给员工 → 员工自己用 Win+R 粘贴一行命令（不要让 agent 代跑，会被沙箱拦截）">
           <div className="stack-sm">
             <div><Pill tone="accent" dot={false}>1</Pill> 在「成员与组织」页点「新建成员」（或「批量导入」），记下账号和初始密码，初始密码只显示一次。</div>
             <div><Pill tone="accent" dot={false}>2</Pill> 填入账号和初始密码，复制生成的话发给员工（钉钉 / 微信 / 邮件都行）。员工和公司在同一个局域网即可，不用改防火墙。</div>
@@ -292,7 +274,7 @@ ${agentPrompt}
             <div><b>密码输对了还是登录失败</b>：连续输错 5 次会被锁定 15 分钟，等一会儿再试；或请管理员在「成员与组织」页重置密码。</div>
             <div><b>提示「账号已被停用」</b>：账号被管理员停用了，请联系管理员启用。</div>
             <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
-            <div><b>让 WorkBuddy 代跑卡住、被拦截（iex、启动进程、计划任务、注册表被拒绝）</b>：这是 agent 沙箱的安全策略，不是中枢的问题。改用 Win+R 粘贴命令自己运行；之后工作台等后台程序也最好用你自己的窗口或开始菜单启动，不要让 agent 拉起（agent 退出时会连带结束它拉起的程序）。</div>
+            <div><b>之前让 WorkBuddy 等 agent 代跑，卡住或被拦截（iex、启动进程、计划任务、注册表被拒绝）</b>：这是 agent 沙箱的安全策略，不是中枢的问题。改用 Win+R 粘贴命令自己运行；之后工作台等后台程序也最好用你自己的窗口或开始菜单启动，不要让 agent 拉起（agent 退出时会连带结束它拉起的程序）。</div>
             <div><b>浏览器登录页一直转圈</b>：确认命令窗口还在运行；浏览器要用你平时的那个，登录页可能开在后台标签里。仍不行就关掉命令重新运行一次，只保留一个登录页。</div>
             <div><b>电脑没有 winget、没有管理员权限</b>：不需要。运行环境从中枢下载，装在你自己的用户目录；中枢没有底座包时脚本会改用 Node.js 官方便携版。</div>
             <div><b>命令一开始就停下，写着 [FAIL]</b>：这是「安装前自检」发现这台电脑照现在的状态装不上，什么都没装。看 FAIL 那几行和括号里的错误码（如 <span className="mono">PREFLIGHT_HUB_UNREACHABLE</span> 连不上中枢、<span className="mono">PREFLIGHT_PORT_CALLBACK</span> 登录端口被占用、<span className="mono">PREFLIGHT_AGENT_SANDBOX</span> 在 agent 里启动），按提示处理后重新运行。要把原因发给管理员，发 FAIL 那几行和 <span className="mono">%TEMP%\hub-preflight.json</span>。</div>

@@ -50,7 +50,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.8"
+VERSION = "0.5.9"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -972,7 +972,7 @@ def _cli_install_fix(cli: str, which) -> dict:
 
 
 def preflight(requires: dict, *, which=None, browser_finder=None, cached=None,
-              codebuddy_home: Path | None = None, profile: dict | None = None) -> dict:
+              codebuddy_home: Path | None = None, profile: dict | None = None, base_version: str | None = None) -> dict:
     """被动检查应用声明的依赖。返回 {checks, capabilities, missing}：
     checks 每项 {id, label, ok, warn, detail, fix}；capabilities 里每个能力 {ready, missing, fixes}；missing 是没通过的检查名。"""
     requires = requires or {}
@@ -990,6 +990,17 @@ def preflight(requires: dict, *, which=None, browser_finder=None, cached=None,
     def add(cid, label, ok, detail, fix=None, warn=False):
         checks.append({"id": cid, "label": label, "ok": bool(ok), "warn": bool(warn), "detail": detail, "fix": fix})
 
+    base_min = requires.get("base_min")
+    if base_min:
+        # 底座运行环境（便携 Node / uv / Python）的版本记在 runtime/BASE_VERSION；没有这个文件 = 早期装的，按最老算。不拦打开，只提示升级。
+        if base_version is None:
+            try:
+                base_version = (HUB_APPS / "runtime" / "BASE_VERSION").read_text(encoding="utf-8").strip()
+            except OSError:
+                base_version = ""
+        if _ver_tuple(base_version or "0") < _ver_tuple(str(base_min)):
+            add("base", "底座运行环境", False, f"本机 {base_version or '未记录（早期安装）'}，这个应用要求 {base_min} 或更新",
+                {"text": "重新运行安装命令升级底座运行环境（Win+R 粘贴中枢「接入方式」页的那一行命令）", "argv": None})
     if cli:
         label = CLI_LABELS.get(cli, cli)
         found = which(cli)

@@ -38,3 +38,6 @@ dist/
 
 # 应用发布物（zip 与 app.json 只在部署机上，不入库）
 apps/*/
+
+# 底座包构建产物（tools/build-bundle 生成，只在部署机上）
+bundle/

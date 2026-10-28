@@ -114,6 +114,9 @@ def test_download_route(root):
     ({"agent_cli": "codebuddy", "capabilities": "browser"}, False),
     ({"agent_cli": "codebuddy", "capabilities": ["browser"], "playwright_mcp": "latest"}, False),
     ({"node": 18}, False),
+    ({"base_min": "1.0.0"}, True),
+    ({"base_min": "1.0"}, False),
+    ({"base_min": 1}, False),
 ])
 def test_requires_capability_declaration_is_validated(root, requires, ok):
     make_app(root, requires=requires)

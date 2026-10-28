@@ -761,3 +761,22 @@ def test_self_update_skips_dev_copy_and_respects_opt_out(tmp_path, monkeypatch):
     (other / "hub_agent.py").write_text('VERSION = "0.5.7"\n', encoding="utf-8")
     monkeypatch.setattr(hub_agent, "__file__", str(other / "hub_agent.py"))
     assert hub_agent.maybe_self_update("http://hub") is None and calls == []
+
+def test_preflight_base_min_warns_when_base_runtime_is_older_but_does_not_disable_features(tmp_path):
+    r = hub_agent.preflight({"base_min": "1.1.0"}, which=lambda n: None, browser_finder=lambda: None, cached=lambda v: True, profile=PROFILE, base_version="1.0.0")
+    c = ids(r)["base"]
+    assert not c["ok"] and "1.1.0" in c["detail"] and "1.0.0" in c["detail"] and c["fix"]["argv"] is None
+    assert r["capabilities"] == {}                                   # 不影响任何能力，只在 missing / 提示里出现
+    assert "底座运行环境" in hub_agent.capability_notice("demo", r)
+
+
+def test_preflight_base_min_old_install_without_version_file_counts_as_oldest(tmp_path, monkeypatch):
+    monkeypatch.setattr(hub_agent, "HUB_APPS", tmp_path)            # runtime/BASE_VERSION 不存在
+    r = hub_agent.preflight({"base_min": "1.0.0"}, which=lambda n: None, browser_finder=lambda: None, cached=lambda v: True, profile=PROFILE)
+    assert not ids(r)["base"]["ok"] and "早期安装" in ids(r)["base"]["detail"]
+
+
+def test_preflight_base_min_satisfied_or_absent_adds_no_check(tmp_path):
+    for requires, base in (({"base_min": "1.0.0"}, "1.0.0"), ({"base_min": "1.0.0"}, "2.3.1"), ({}, "")):
+        r = hub_agent.preflight(requires, which=lambda n: None, browser_finder=lambda: None, cached=lambda v: True, profile=PROFILE, base_version=base)
+        assert "base" not in ids(r)

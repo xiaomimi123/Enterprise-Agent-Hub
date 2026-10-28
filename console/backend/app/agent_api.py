@@ -211,6 +211,31 @@ def app_health(body: HealthBody, authorization: str | None = Header(default=None
     return {"ok": True, "saved": saved, "skipped": len(body.events) - saved}
 
 
+@router.get("/bundle/manifest.json")
+def bundle_manifest():
+    """底座包清单（固定版本的 Node / uv / Python 及其 SHA-256）：公开下载。没构建过就 404，安装脚本会退回联网安装。"""
+    f = Path(settings.bundle_dir) / "manifest.json"
+    if not f.is_file():
+        raise HTTPException(404, "中枢没有底座包")
+    return FileResponse(f, media_type="application/json")
+
+
+@router.get("/bundle/files/{name}")
+def bundle_file(name: str):
+    """底座包的组件文件：只发 manifest.json 里列出的文件名，防止路径穿越。"""
+    f = Path(settings.bundle_dir) / "manifest.json"
+    try:
+        listed = {c.get("file") for c in json.loads(f.read_text(encoding="utf-8")).get("components", {}).values()}
+    except (OSError, ValueError):
+        raise HTTPException(404, "中枢没有底座包")
+    if name not in listed:
+        raise HTTPException(404, "没有这个文件")
+    p = Path(settings.bundle_dir) / name
+    if not p.is_file():
+        raise HTTPException(404, "没有这个文件")
+    return FileResponse(p, media_type="application/zip", filename=name)
+
+
 @router.get("/preflight.ps1")
 def preflight_script():
     """安装前自检脚本（只读）：填好中枢地址和中文提示（ASCII 转义的 JSON），公开下载。"""

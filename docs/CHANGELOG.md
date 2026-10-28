@@ -4,6 +4,19 @@
 
 > 约定：新条目加在最上面；日期用 `YYYY-MM-DD`；只写对后续开发有用的信息，别写流水账。
 
+## 2026-10-28（续）
+
+**底座包（发行包方案第 3 期）：固定版本的 Node / uv / Python 由中枢下发，应用层不变**
+- 来源：「有的电脑能装有的装不上」的根源之一是装机时要联网访问 nodejs.org、GitHub、Python 下载源。方案见 [drafts/发行包与安装前自检方案.md](drafts/发行包与安装前自检方案.md)（采纳了「底座 + 应用」两层：底座低频、应用保持打开即最新）。
+- **`tools/build-bundle/build.mjs`**：下载 Node 22 LTS（对照官方 SHASUMS256）、uv（对照 .sha256），用 uv 装一份 Python 3.12 打包，生成 `bundle/manifest.json`（不进 git）。当前产物 node 22.23.4 / uv 0.13.6 / python 3.12，共约 93 MB
+- **中枢**：`GET /api/agent/bundle/manifest.json`、`GET /api/agent/bundle/files/<名>`（只发清单里列出的文件名，防路径穿越）；`hub/docker-compose.yml` 挂载 `../bundle`，新增 `HUB_BUNDLE_DIR`
+- **`install.ps1`**：自检之后按清单安装底座（下载 → 校验 SHA-256 → 解压 → 换入，旧的留为 `.prev`，全部成功才写 `runtime/BASE_VERSION`）；失败记 `BUNDLE_FAILED` 并退回联网安装，中枢没有底座包也直接退回；装了 Python 后设用户环境变量 `UV_PYTHON_INSTALL_DIR`。新增 `HUB_BUNDLE=off`、`HUB_INSTALL_BASE_ONLY=1`
+- **`min_base` 约定**：`app.json` 的 `requires.base_min`（后端校验格式）；接入器 **0.5.9** 在应用预检里比较 `runtime/BASE_VERSION`，过旧就提示重新运行安装命令，不拦打开。**目前没有应用声明它。**接入器 0.5.9 已随挂载目录发布，已装 0.5.8 的电脑下次运行会自动更新
+- **错误码**：`BUNDLE_FAILED`、`BASE_OUTDATED`
+- **怎么验证的**：在真实中枢上用隔离的应用根目录走 `irm | iex`：首次装 3 个组件，再跑一次提示已是最新；装好后 node v22.23.4、uv 0.13.6 可运行，`uv python find 3.12` 找到的是自带的 Python；`agent/tests/bundle-install.mjs` 6 项（正确校验和装好并写版本；校验和不对不安装、不写版本、记 BUNDLE_FAILED、提示退回；中枢无底座包不报错）；后端 `test_hub_agent / test_apps / test_preflight / test_health` 共 89 项通过（含 `base_min` 新增 6 项）
+- **没验证的**：① 带着自带 Python 真跑完整的 `hub_agent.py setup`（含登录）——只验证了 uv 能找到这个 Python；用户环境变量 `UV_PYTHON_INSTALL_DIR` 对 agent 拉起的 uv 是否都生效没验证；② 在沙盒里用底座包装一遍（沙盒验收脚本仍是演练模式，演练不装底座）；③ 升级时覆盖正在运行的 node（应用正开着）会不会失败——换入失败会回滚，但没实测；④ 底座包只有 Windows x64；ARM Windows 和 macOS / Linux 仍联网安装；⑤ CodeBuddy CLI 仍联网安装（授权未确认）
+- 本机 `console/backend/.venv` 的 Python 仍是坏的，后端测试是在 `hub-backend:dev` 镜像里装 pytest 到临时目录跑的
+
 ## 2026-10-28
 
 **安装前自检（preflight）：装之前就分清「能不能装、缺什么」；干净机器验收脚本**

@@ -155,3 +155,7 @@ uv run hub_agent.py app-doctor xhs-workbench
 ## 安装前自检 `preflight.ps1`
 
 `install.ps1` 第 0 步先运行它（只读、纯 ASCII）：系统、PowerShell 模式、路径、磁盘、中枢 / 登录 / MCP 端口、时钟、代理、回调端口 27891、Edge、WorkBuddy、CodeBuddy、Defender 日志。有 FAIL 就停下，什么都不装；`HUB_PREFLIGHT=skip` 跳过。也可单独运行：`powershell -NoExit -ExecutionPolicy Bypass -c "irm http://<中枢>:8088/api/agent/preflight.ps1 | iex"`。详见 [../docs/app-health.md](../docs/app-health.md)。改动后用 `node agent/tests/preflight-faults.mjs` 做故障注入验证（Windows 上运行）。
+
+## 底座包
+
+`install.ps1` 自检之后优先从中枢下载固定版本的 Node / uv / Python（`/api/agent/bundle/manifest.json`），校验 SHA-256 后装进 `runtime/`，版本记在 `runtime/BASE_VERSION`；失败或中枢没有底座包时退回联网安装。构建和细节见 [../tools/build-bundle/README.md](../tools/build-bundle/README.md)。应用可在 `app.json` 的 `requires.base_min` 声明最低底座版本。

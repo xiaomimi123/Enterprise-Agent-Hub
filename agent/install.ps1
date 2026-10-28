@@ -8,13 +8,14 @@
 #   runtime\node  portable Node.js LTS (SHA-256 verified) + CodeBuddy CLI installed with it
 #   runtime\uv    uv, only when uv is not installed yet
 #   apps\  data\  logs\  bin\   company apps, their data, health events, double-click launchers
-# Steps: pre-install check -> uv -> portable Node.js -> (ask) CodeBuddy CLI -> download the connector -> browser sign-in -> configure your agents
+# Steps: pre-install check -> base runtime from the hub (versioned, falls back to the internet) -> uv -> portable Node.js -> (ask) CodeBuddy CLI -> download the connector -> browser sign-in -> configure your agents
 #        -> desktop / Start menu shortcuts for the apps in your role pack.
 # Environment variables:
 #   HUB_INSTALL_TOOLS=yes   install CodeBuddy CLI without asking      HUB_INSTALL_TOOLS=no   install nothing optional
 #   HUB_INSTALL_DRYRUN=1    only print what would be done (stops before sign-in)
 #   HUB_HEALTH=off          do not record install problems for the hub's "app health" page
-#   HUB_PREFLIGHT=skip      do not run the pre-install check
+#   HUB_PREFLIGHT=skip      do not run the pre-install check          HUB_BUNDLE=off  do not use the hub's base bundle
+#   HUB_INSTALL_BASE_ONLY=1 stop after the base runtime (for tests)
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page.)
 $ErrorActionPreference = 'Stop'
 # Never 'exit' below: under 'irm | iex' it would close the whole window and hide the error message. 'return' stops only this script.
@@ -95,6 +96,35 @@ function Install-NodePortable($Dest) {
     Copy-Item (Join-Path $tmp "node-$ver-win-$arch\*") $Dest -Recurse -Force
     Remove-Item $tmp, $zip -Recurse -Force -ErrorAction SilentlyContinue
 }
+function Get-HubBundle {
+    # Base bundle (fixed Node.js / uv / Python, SHA-256 verified) from the hub. Returns the manifest, or $null to fall back to downloading from the internet.
+    if ($env:HUB_BUNDLE -in 'off', '0', 'no' -or $DryRun) { return $null }
+    try { return (Invoke-RestMethod -UseBasicParsing -Uri "$Hub/api/agent/bundle/manifest.json" -TimeoutSec 15) } catch { if ($env:HUB_DEBUG) { Write-Host "bundle manifest: $_" }; return $null }
+}
+function Install-BundleComponent($Name, $C) {
+    # Download -> verify -> unpack beside the target -> swap in; the previous copy is kept as <dest>.prev so a failed swap can be rolled back.
+    $dest = Join-Path $Root ($C.dest -replace '/', '\')
+    $zip = Join-Path $env:TEMP $C.file
+    $tmp = Join-Path $env:TEMP ('bundle-' + $Name + '-' + [guid]::NewGuid().ToString('N'))
+    try {
+        Write-Host "      Downloading $($C.file) from the hub ($([math]::Round($C.size / 1MB)) MB) ..."
+        Invoke-WebRequest -UseBasicParsing "$Hub/api/agent/bundle/files/$($C.file)" -OutFile $zip
+        $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+        if ($got -ne ('' + $C.sha256).ToLower()) { throw "SHA-256 check failed for $($C.file); nothing was installed." }
+        Expand-Archive $zip -DestinationPath $tmp -Force
+        $src = $tmp
+        if ($C.strip) { $src = Join-Path $tmp $C.strip }
+        if (-not (Test-Path $src)) { throw "unexpected layout in $($C.file)" }
+        New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
+        $prev = $dest + '.prev'
+        if (Test-Path $prev) { Remove-Item $prev -Recurse -Force }
+        $hadOld = Test-Path $dest
+        if ($hadOld) { Move-Item $dest $prev }
+        try { Move-Item $src $dest } catch { if ($hadOld) { Move-Item $prev $dest -ErrorAction SilentlyContinue }; throw }
+    } finally {
+        Remove-Item $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 function Confirm-Install($What) {
     if ($env:HUB_INSTALL_TOOLS -eq 'yes') { return $true }
     if ($env:HUB_INSTALL_TOOLS -eq 'no') { return $false }
@@ -129,6 +159,39 @@ if ($env:HUB_PREFLIGHT -ne 'skip') {
         return
     }
 }
+# ---- 0.5 Base bundle from the hub (versioned). Falls back to the old internet downloads below when the hub has none or HUB_BUNDLE=off.
+$BaseFile = Join-Path $Root 'runtime\BASE_VERSION'
+$bundle = Get-HubBundle
+if ($bundle -and $bundle.base) {
+    $have = ''
+    if (Test-Path $BaseFile) { $have = (Get-Content $BaseFile -Raw).Trim() }
+    if ($have -eq $bundle.base) {
+        Write-Host "[0/5] Base runtime $have is up to date."
+    } else {
+        Write-Host "[0/5] Installing base runtime $($bundle.base) from the hub (was: $(if ($have) { $have } else { 'none' }))..."
+        $allOk = $true
+        foreach ($p in $bundle.components.PSObject.Properties) {
+            try { Install-BundleComponent $p.Name $p.Value } catch {
+                $allOk = $false
+                Write-Health 'BUNDLE_FAILED' "base runtime component $($p.Name) failed: $_"
+                Write-Host "      $($p.Name) could not be installed from the hub: $_"
+            }
+        }
+        if ($allOk) {
+            New-Item -ItemType Directory -Force (Split-Path $BaseFile -Parent) | Out-Null
+            [IO.File]::WriteAllText($BaseFile, $bundle.base)
+        } else { Write-Host '      Falling back to downloading the missing pieces from the internet.' }
+    }
+    $pyDir = Join-Path $Root 'runtime\python'
+    if (Test-Path $pyDir) {
+        # uv looks for Python here; set for this run and for later uv runs (agents, launchers).
+        $env:UV_PYTHON_INSTALL_DIR = $pyDir
+        if (-not $DryRun -and $env:HUB_INSTALL_NO_USER_PATH -ne '1') { [Environment]::SetEnvironmentVariable('UV_PYTHON_INSTALL_DIR', $pyDir, 'User') }
+    }
+}
+
+if ($env:HUB_INSTALL_BASE_ONLY -eq '1') { Write-Host '[0/5] HUB_INSTALL_BASE_ONLY=1: stopping after the base runtime.'; return }
+
 # ---- 1. uv (runs the connector). Reuse an existing one; otherwise install it into the app root.
 $Uv = $null
 foreach ($c in (Join-Path $RtUv 'uv.exe'), (Join-Path $env:USERPROFILE '.local\bin\uv.exe')) { if (-not $Uv -and (Test-Path $c)) { $Uv = $c } }

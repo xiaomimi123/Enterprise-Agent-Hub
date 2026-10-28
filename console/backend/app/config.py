@@ -37,6 +37,7 @@ class Settings:
     vault_dir: str = os.getenv("HUB_VAULT_DIR", str(ROOT / "vault"))
     # 员工端接入器（agent/hub_agent.py）所在目录，控制台「接入方式」页提供下载
     agent_dir: str = os.getenv("HUB_AGENT_DIR", str(ROOT / "agent"))
+    bundle_dir: str = os.getenv("HUB_BUNDLE_DIR", str(ROOT / "bundle"))
     # 应用发布目录：apps/<应用 id>/app.json + <版本>.zip，员工通过 open_app 取得启动凭证
     apps_dir: str = os.getenv("HUB_APPS_DIR", str(ROOT / "apps"))
 

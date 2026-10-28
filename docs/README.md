@@ -24,6 +24,7 @@
 | [work-report.md](work-report.md) | 工作成果与进度：员工上报、控制台看板、老板 agent 日报 |
 | [测试流程-WorkBuddy浏览器插件.md](测试流程-WorkBuddy浏览器插件.md) | 发给新电脑上的 WorkBuddy 执行的测试流程：CodeBuddy CLI 经 WorkBuddy Edge 插件操作浏览器（工作台 0.8.3） |
 | [app-health.md](app-health.md) | 应用健康：员工电脑上安装 / 登录 / 打开应用的报错自动回传，管理员看失败率和常见报错 |
+| [员工电脑安装说明.md](员工电脑安装说明.md) | 给员工的安装步骤：Win+R 一行命令、自检结果怎么看、常见问题按错误码查 |
 
 **员工端与接入**
 

@@ -28,7 +28,7 @@
 | &nbsp;&nbsp;`generation.py` / `gpu.py` | 出图出视频统一入口 / 任务队列与调度（本机 ComfyUI、第三方 API、H3 网关三个分支） |
 | &nbsp;&nbsp;`imageapi.py` / `h3gateway.py` | 第三方出图 API / H3 生成网关（配置存数据库，密钥加密） |
 | `console/frontend/src/pages/` | 控制台页面（React 19 + Ant Design 6）；`api.ts` 接口类型 |
-| `agent/` | 员工端接入器 `hub_agent.py`、一键安装脚本 `install.ps1` / `install.sh` |
+| `agent/` | 员工端接入器 `hub_agent.py`、一键安装脚本 `install.ps1` / `install.sh`、安装前自检 `preflight.ps1`（故障注入测试 `agent/tests/preflight-faults.mjs`，干净机器验收 `tools/clean-room/`） |
 | `hub/` | `docker-compose.yml`、`Makefile`、`.env` 生成、Casdoor 静态资源 `casdoor-static/` |
 | `apps/` | 应用发布目录（zip 和 `app.json` 被 `.gitignore`，只在部署机上） |
 | `gpu-node/workflows/` | ComfyUI 工作流模板；`skills/`、`vault/` 岗位技能与知识库 |

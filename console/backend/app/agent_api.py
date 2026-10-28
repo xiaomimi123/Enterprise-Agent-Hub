@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from urllib.parse import unquote
@@ -208,6 +209,40 @@ def app_health(body: HealthBody, authorization: str | None = Header(default=None
     saved = db.add_health_events(c["owner"], c["name"], c.get("displayName") or c["name"], policy.dept_from_groups(c.get("groups")),
                                  events, health.RETENTION_DAYS)
     return {"ok": True, "saved": saved, "skipped": len(body.events) - saved}
+
+
+@router.get("/preflight.ps1")
+def preflight_script():
+    """安装前自检脚本（只读）：填好中枢地址和中文提示（ASCII 转义的 JSON），公开下载。"""
+    f = Path(settings.agent_dir) / "preflight.ps1"
+    if not f.is_file():
+        raise HTTPException(404, "中枢未挂载自检脚本")
+    zh = {k: f"{v[0]}：{v[1]}" for k, v in health.CODES.items() if k.startswith("PREFLIGHT_")}
+    zh_json = json.dumps(zh, ensure_ascii=True).replace("'", "''")  # 放进 PowerShell 单引号字符串
+    text = f.read_text(encoding="utf-8").replace("__HUB_URL__", settings.public_url.rstrip("/")).replace("__ZH_JSON__", zh_json)
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
+class PreflightBody(BaseModel):
+    device_id: str = ""
+    os: str = ""
+    os_version: str = ""
+    arch: str = ""
+    results: list = []
+
+
+@router.post("/preflight")
+def preflight_report(body: PreflightBody):
+    """安装前自检的匿名上报（装不上的电脑没有登录，没法走 /health）：只收错误码和去过隐私的一句话，限流，写进应用健康。"""
+    dev, events = health.preflight_events(body.model_dump())
+    if not events:
+        return {"ok": True, "saved": 0}
+    if not dev or not health.allow("preflight", dev, len(events)) or not health.allow("preflight", "*", len(events)):
+        raise HTTPException(429, "上报太频繁，稍后再试")
+    if not settings.database_url:
+        return {"ok": True, "saved": 0}
+    saved = db.add_health_events(settings.casdoor_org, f"device-{dev[:8]}", f"未登录设备 {dev[:6]}（安装前自检）", "", events, health.RETENTION_DAYS)
+    return {"ok": True, "saved": saved}
 
 
 @router.post("/enroll")

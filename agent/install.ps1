@@ -8,12 +8,13 @@
 #   runtime\node  portable Node.js LTS (SHA-256 verified) + CodeBuddy CLI installed with it
 #   runtime\uv    uv, only when uv is not installed yet
 #   apps\  data\  logs\  bin\   company apps, their data, health events, double-click launchers
-# Steps: uv -> portable Node.js -> (ask) CodeBuddy CLI -> download the connector -> browser sign-in -> configure your agents
+# Steps: pre-install check -> uv -> portable Node.js -> (ask) CodeBuddy CLI -> download the connector -> browser sign-in -> configure your agents
 #        -> desktop / Start menu shortcuts for the apps in your role pack.
 # Environment variables:
 #   HUB_INSTALL_TOOLS=yes   install CodeBuddy CLI without asking      HUB_INSTALL_TOOLS=no   install nothing optional
 #   HUB_INSTALL_DRYRUN=1    only print what would be done (stops before sign-in)
 #   HUB_HEALTH=off          do not record install problems for the hub's "app health" page
+#   HUB_PREFLIGHT=skip      do not run the pre-install check
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page.)
 $ErrorActionPreference = 'Stop'
 # Never 'exit' below: under 'irm | iex' it would close the whole window and hide the error message. 'return' stops only this script.
@@ -110,6 +111,24 @@ function Invoke-Step($Description, [scriptblock]$Action) {
 }
 
 Write-Host "App root: $Root"
+# ---- 0. Pre-install check (read-only). Stops here when something would make the install fail; HUB_PREFLIGHT=skip bypasses it.
+if ($env:HUB_PREFLIGHT -ne 'skip') {
+    Write-Host '[0/5] Checking this computer (changes nothing)...'
+    $global:HubPreflight = $null
+    try {
+        $pf = (Invoke-WebRequest -UseBasicParsing "$Hub/api/agent/preflight.ps1" -TimeoutSec 15).Content
+        & ([scriptblock]::Create($pf))
+    } catch {
+        Write-Health 'NET_UNREACHABLE' "cannot download the pre-install check from $Hub : $_"
+        Write-Host "      Cannot reach the hub at $Hub ($_)."
+        Write-Host '      Check that this computer is on the same network as the hub: open the address in a browser; you should see the sign-in page.'
+        return
+    }
+    if ($global:HubPreflight -and $global:HubPreflight.Fail -gt 0) {
+        Write-Host '      Nothing was installed. Fix the items marked FAIL above and run the command again (HUB_PREFLIGHT=skip ignores this check).'
+        return
+    }
+}
 # ---- 1. uv (runs the connector). Reuse an existing one; otherwise install it into the app root.
 $Uv = $null
 foreach ($c in (Join-Path $RtUv 'uv.exe'), (Join-Path $env:USERPROFILE '.local\bin\uv.exe')) { if (-not $Uv -and (Test-Path $c)) { $Uv = $c } }

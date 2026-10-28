@@ -4,6 +4,19 @@
 
 > 约定：新条目加在最上面；日期用 `YYYY-MM-DD`；只写对后续开发有用的信息，别写流水账。
 
+## 2026-10-28
+
+**安装前自检（preflight）：装之前就分清「能不能装、缺什么」；干净机器验收脚本**
+- 来源：「有的电脑能装有的电脑装不上，只能靠员工反馈一台一台排」。方案见 [drafts/发行包与安装前自检方案.md](drafts/发行包与安装前自检方案.md)，这次做第 1、2 期。
+- **`agent/preflight.ps1`（只读，纯 ASCII）**：检查系统版本、PowerShell 语言模式 / 执行策略、是否被 agent 拉起、安装路径（中文 / 空格 / 过长）、磁盘空间、目录可写、中枢可达与响应时间、电脑时间与中枢是否相差 5 分钟以上、登录服务端口和 MCP 端口、系统代理是否指向没在跑的程序、登录回调端口 27891、Edge、WorkBuddy、CodeBuddy CLI、Defender 日志。FAIL = 照现状装不上，WARN = 能装但某项功能受影响。中文提示由中枢下发时填进去（ASCII 转义的 JSON，避开 PowerShell 5 管道执行的编码问题）
+- **`install.ps1` 第 0 步先跑它**：有 FAIL 就停下，什么都不装；`HUB_PREFLIGHT=skip` 可跳过。中枢连不上时直接说明并停下
+- **匿名上报**：装不上的电脑没有登录，走不了 `/api/agent/health`，所以新增 `POST /api/agent/preflight`（不需要登录，只收 `PREFLIGHT_*` 错误码和去过隐私的一句话，按设备号和全局限流），写进「应用健康」，显示为「未登录设备 xxxxxx（安装前自检）」。`HUB_PREFLIGHT_UPLOAD=off` 可关
+- **错误码**：`health.CODES` 新增 16 个 `PREFLIGHT_*`（带中文处理办法），阶段新增 `preflight`；`/api/agent/preflight.ps1` 公开下载
+- **干净机器验收**：`tools/clean-room/`（Windows 沙盒脚本，见其 README）
+- **怎么验证的**：`agent/tests/preflight-faults.mjs` 故障注入 12 项全过（Windows PowerShell 5.1，本机假中枢：中枢连不上、登录端口不通、MCP 端口不通、时钟差 1 小时、响应慢、回调端口被占、磁盘不够、路径含中文和空格、目录不可写、被 agent 拉起、代理指向死端口，加干净环境无 FAIL）；真实中枢上走 `irm | iex` 的 install.ps1 演练：正常通过，回调端口被占时停在第 0 步且没有创建任何目录；匿名上报真实写入了「应用健康」（测完已删）；后端 `tests/test_preflight.py` 4 项
+- **没验证的**：`PREFLIGHT_PS_CONSTRAINED`、`PREFLIGHT_EXEC_POLICY`、`PREFLIGHT_OS_UNSUPPORTED`、`PREFLIGHT_AV_BLOCK`、`PREFLIGHT_NO_EDGE` 没有注入测试（需要特定系统环境）；控制台「应用健康」页里新阶段的显示没有在浏览器里看；Windows 沙盒脚本没有运行过（本机的 Windows 沙盒功能是「已禁用」，需要你自己开启并重启）；Defender 日志在普通员工账号下是否可读不确定，读不到时会显示「未检查」
+- **环境提醒**：本机 `console/backend/.venv` 的 Python（`%APPDATA%/uv/python`）已不存在，pytest 跑不起来；这次后端测试是在 `hub-backend:dev` 镜像里用一个小脚本跑的。要恢复需要重新安装 uv 和 Python 再 `uv sync`
+
 ## 2026-10-27
 
 **新设备上架验收（员工电脑的清单和自检脚本）：中枢 nginx 413、接入器 0.5.8 自动更新、工作台 0.8.12**

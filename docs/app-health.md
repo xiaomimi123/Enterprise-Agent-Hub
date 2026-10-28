@@ -91,3 +91,13 @@
 ```bash
 docker compose exec -T console-api python - < ../console/backend/scripts/e2e_health.py
 ```
+
+## 安装前自检（2026-10-28）
+
+安装脚本第 0 步运行 `agent/preflight.ps1`（只读），把「这台电脑能不能装、缺什么」在装之前分清。装不上的电脑没有登录，走不了 `/api/agent/health`，所以单独有一条**匿名**上报：
+
+- `POST /api/agent/preflight`：不需要登录；只收 `PREFLIGHT_*` 错误码（FAIL 和 WARN）和去过隐私的一句话；按设备号和全局限流；写进同一张表，阶段为 `preflight`，用户显示为「未登录设备 xxxxxx（安装前自检）」。
+- `GET /api/agent/preflight.ps1`：公开下载，下发时填入中枢地址和中文提示。
+- 错误码和处理办法见 `health.py` 的 `CODES`（`PREFLIGHT_` 开头）。员工本机的输出是英文加中文提示，管理员在「应用健康」页看聚合。
+- 关闭：`HUB_PREFLIGHT_UPLOAD=off` 不上报；`HUB_PREFLIGHT=skip` 跳过自检。
+- 验证：`node agent/tests/preflight-faults.mjs`（故障注入）；干净机器验收见 `tools/clean-room/README.md`。

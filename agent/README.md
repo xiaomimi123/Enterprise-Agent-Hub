@@ -151,3 +151,7 @@ uv run hub_agent.py app-doctor xhs-workbench
 ```
 
 设计说明见 [docs/agent.md](../docs/agent.md)。
+
+## 安装前自检 `preflight.ps1`
+
+`install.ps1` 第 0 步先运行它（只读、纯 ASCII）：系统、PowerShell 模式、路径、磁盘、中枢 / 登录 / MCP 端口、时钟、代理、回调端口 27891、Edge、WorkBuddy、CodeBuddy、Defender 日志。有 FAIL 就停下，什么都不装；`HUB_PREFLIGHT=skip` 跳过。也可单独运行：`powershell -NoExit -ExecutionPolicy Bypass -c "irm http://<中枢>:8088/api/agent/preflight.ps1 | iex"`。详见 [../docs/app-health.md](../docs/app-health.md)。改动后用 `node agent/tests/preflight-faults.mjs` 做故障注入验证（Windows 上运行）。

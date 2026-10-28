@@ -16,7 +16,7 @@ RETENTION_DAYS = 7
 MAX_BATCH = 50
 MAX_MESSAGE = 300
 RATE_LIMIT = 1000  # 每人每小时最多收这么多条，防止某台电脑的死循环刷爆表
-STAGES = {"install": "安装", "login": "登录", "launch": "打开应用", "doctor": "自检", "task": "运行任务", "runtime": "运行"}
+STAGES = {"install": "安装", "login": "登录", "launch": "打开应用", "doctor": "自检", "task": "运行任务", "runtime": "运行", "preflight": "安装前自检"}
 
 # 错误码目录：本机和控制台显示同一句处理办法。没有对应码的归为 UNKNOWN，方便决定下一个要补哪个码
 CODES: dict[str, tuple[str, str]] = {
@@ -37,6 +37,23 @@ CODES: dict[str, tuple[str, str]] = {
     "APP_LAUNCH_FAILED": ("应用启动失败", "看报错原文；仍不行把应用自己的日志发给管理员。"),
     "ACCESS_LOCKED": ("自动访问已锁定", "账号的自动访问锁在生效；确认平台没有限制后，在工作台网页里人工解除。"),
     "STALE_COPY": ("本机有应用的旧副本", "agent 的技能目录里有早期整包发的应用副本，agent 会直接运行它而绕开中枢。删掉那个文件夹（数据不在里面），以后双击桌面快捷方式或对 agent 说「打开某应用」。"),
+    # 安装前自检（agent/preflight.ps1）。FAIL 表示照现状装不上，WARN 表示能装但某项功能会受影响
+    "PREFLIGHT_OS_UNSUPPORTED": ("系统版本不支持", "需要 64 位 Windows 10 1809（17763）或更新版本。"),
+    "PREFLIGHT_PS_CONSTRAINED": ("PowerShell 被限制", "安全软件把 PowerShell 限制成受限语言模式，脚本跑不起来。请 IT 放行，或换一台电脑安装。"),
+    "PREFLIGHT_EXEC_POLICY": ("PowerShell 执行策略过严", "磁盘上的 .ps1 脚本不能直接运行。用 powershell -ExecutionPolicy Bypass -File <脚本> 运行。"),
+    "PREFLIGHT_AGENT_SANDBOX": ("在 agent 里启动", "这条命令是被 agent（WorkBuddy 等）拉起的：沙箱可能拦截步骤、agent 退出时会结束它启动的程序。请关掉 agent，自己按 Win+R 粘贴命令运行。"),
+    "PREFLIGHT_PATH_UNSAFE": ("安装目录路径不稳妥", "路径含中文、空格或过长，批处理启动器容易出错。把 HUB_APPS_ROOT 设成纯英文目录（如 C:/HubApps）后重新运行。"),
+    "PREFLIGHT_DISK_LOW": ("磁盘空间不足", "安装盘剩余空间不足 1.5 GB。清理空间，或把 HUB_APPS_ROOT 设到别的盘。"),
+    "PREFLIGHT_NOT_WRITABLE": ("安装目录不可写", "受控文件夹访问或权限规则拦住了写入。放行该目录，或把 HUB_APPS_ROOT 设到别处。"),
+    "PREFLIGHT_HUB_UNREACHABLE": ("连不上中枢", "浏览器打开中枢地址，打不开就检查网络 / VPN；这台电脑必须能访问中枢。"),
+    "PREFLIGHT_HUB_SLOW": ("到中枢的网络很慢", "响应超过 2 秒，下载可能超时。换到更稳的网络再试。"),
+    "PREFLIGHT_CLOCK_SKEW": ("电脑时间不准", "与中枢相差超过 5 分钟，登录令牌可能被拒绝。把日期、时间、时区设为自动。"),
+    "PREFLIGHT_CASDOOR_UNREACHABLE": ("连不上登录服务", "登录服务的端口被网络拦住了（中枢能通但登录端口不通）。请 IT 放行该端口，或换到和中枢同一网络。"),
+    "PREFLIGHT_MCP_UNREACHABLE": ("连不上中枢 MCP", "MCP 端口被网络拦住了。请 IT 放行该端口，或换到和中枢同一网络。"),
+    "PREFLIGHT_PROXY_DEAD": ("系统代理指向未运行的程序", "设置了本机代理但那个程序没在运行。关掉系统代理，或先启动那个代理程序。"),
+    "PREFLIGHT_PORT_CALLBACK": ("登录回调端口被占用", "关闭占用该端口的程序（或重启电脑）后重试，登录需要这个端口。"),
+    "PREFLIGHT_NO_EDGE": ("没有 Edge 浏览器", "页面采集需要装了 WorkBuddy 扩展的 Edge；其他功能不受影响。"),
+    "PREFLIGHT_AV_BLOCK": ("杀毒软件拦截过我们的文件", "最近 7 天 Defender 拦截或标记过安装目录里的文件。把安装目录加入杀毒软件排除项后重试。"),
     "UNKNOWN": ("未分类", "看报错原文；常见的话请让开发补一个错误码。"),
 }
 
@@ -246,3 +263,20 @@ def demo_presence(now: datetime | None = None) -> dict[str, dict]:
             "wangwu": {"client": "WorkBuddy", "version": "0.4.0", "os": "Windows 10", "last_seen": now - timedelta(hours=20)},
             "sunqi": {"client": "CodeBuddy CLI", "version": "0.4.0", "os": "Windows 10", "last_seen": now - timedelta(minutes=1)},
             "zhouba": {"client": None, "version": None, "os": None, "last_seen": now - timedelta(days=2)}}
+
+
+def preflight_events(body: dict, now: datetime | None = None) -> tuple[str, list[dict]]:
+    """安装前自检的匿名上报：只收 FAIL / WARN 的错误码；返回 (设备号, 已清洗的事件)。设备号只取字母数字，限长。"""
+    now = now or datetime.now(timezone.utc)
+    dev = re.sub(r"[^0-9a-zA-Z]", "", str(body.get("device_id") or ""))[:32]
+    base = {k: str(body.get(k) or "").strip()[:n] for k, n in _FIELDS.items()}
+    base["device_id"] = dev
+    events = []
+    for r in (body.get("results") or [])[:50]:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").upper()
+        if not code.startswith("PREFLIGHT_") or code not in CODES:
+            continue
+        events.append({**base, "stage": "preflight", "ok": False, "code": code, "message": redact(r.get("message") or ""), "at": now})
+    return dev, events

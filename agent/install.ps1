@@ -15,7 +15,7 @@
 #   HUB_INSTALL_DRYRUN=1    only print what would be done (stops before sign-in)
 #   HUB_HEALTH=off          do not record install problems for the hub's "app health" page
 #   HUB_PREFLIGHT=skip      do not run the pre-install check          HUB_BUNDLE=off  do not use the hub's base bundle
-#   HUB_INSTALL_BASE_ONLY=1 stop after the base runtime (for tests)
+#   HUB_INSTALL_BASE_ONLY=1 stop after the base runtime (for tests)   HUB_INSTALL_STOP=connector  stop after the connector libraries are ready (for tests)
 # (ASCII only on purpose: Windows PowerShell 5 may decode piped scripts with the system code page.)
 $ErrorActionPreference = 'Stop'
 # Never 'exit' below: under 'irm | iex' it would close the whole window and hide the error message. 'return' stops only this script.
@@ -273,6 +273,33 @@ try {
     return
 }
 
+# Connector libraries: when the hub's base bundle brought them (runtime\wheels), install from there only. uv needs NO_INDEX as well as FIND_LINKS,
+# otherwise it still asks PyPI first. Process-scoped; the first run fills uv's cache, so later runs work even when PyPI is unreachable.
+$Wheels = Join-Path $Root 'runtime\wheels'
+$wheelEnv = $false
+if ((Test-Path $Wheels) -and $env:HUB_BUNDLE -notin 'off', '0', 'no') {
+    $env:UV_FIND_LINKS = $Wheels
+    $env:UV_NO_INDEX = '1'
+    $wheelEnv = $true
+}
+if (-not $DryRun -and $Uv) {
+    Write-Host '      Preparing the connector libraries...'
+    $env:PYTHONUTF8 = '1'
+    # uv prints progress ("Installed 8 packages") on stderr; with ErrorActionPreference=Stop Windows PowerShell 5 would turn that into an exception.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $warm = & $Uv run (Join-Path $Dir 'hub_agent.py') --help 2>&1 | Out-String
+    $warmCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($warmCode -ne 0) {
+        Write-Health 'BUNDLE_FAILED' ("connector libraries could not be prepared: " + $warm.Substring(0, [Math]::Min(250, $warm.Length)))
+        Write-Host '      The connector libraries could not be prepared:'
+        Write-Host $warm
+        if ($wheelEnv) { Remove-Item Env:UV_FIND_LINKS, Env:UV_NO_INDEX -ErrorAction SilentlyContinue; $wheelEnv = $false; Write-Host '      Retrying with the internet...' }
+    }
+}
+if ($env:HUB_INSTALL_STOP -eq 'connector') { Write-Host '[4/5] HUB_INSTALL_STOP=connector: stopping after the connector libraries are ready.'; if ($wheelEnv) { Remove-Item Env:UV_FIND_LINKS, Env:UV_NO_INDEX -ErrorAction SilentlyContinue }; return }
+
 if ($DryRun) { Write-Host '[5/5] [dry-run] stopping before sign-in.'; return }
 # ---- 5. Sign in and configure the agents (the connector also registers the app root with WorkBuddy / CodeBuddy and writes app launchers).
 Write-Host '[5/5] Signing in (a browser window will open) and configuring your agents...'
@@ -282,6 +309,7 @@ $env:PYTHONUNBUFFERED = '1'
 $env:HUB_APPS_ROOT = $Root
 & $Uv run (Join-Path $Dir 'hub_agent.py') setup --hub $Hub
 $ok = ($LASTEXITCODE -eq 0)
+if ($wheelEnv) { Remove-Item Env:UV_FIND_LINKS, Env:UV_NO_INDEX -ErrorAction SilentlyContinue }
 if (-not $ok) {
     # Failures before the connector itself runs (for example uv could not install its dependencies) leave no other trace.
     Write-Health 'UNKNOWN' "connector setup exited with code $LASTEXITCODE (dependency install, sign-in or agent configuration failed; see the messages above)"

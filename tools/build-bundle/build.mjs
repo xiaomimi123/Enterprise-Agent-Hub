@@ -1,6 +1,6 @@
 // 构建「底座包」：固定版本的 Node.js + uv + Python，逐个校验后放进 bundle/，并生成 manifest.json。
 // 在有外网的 Windows x64 机器上运行：node tools/build-bundle/build.mjs [--base 1.0.0] [--node 22.x.y] [--python 3.12]
-// 产物（不进 git）：bundle/manifest.json、bundle/node-<v>-win-x64.zip、bundle/uv-x86_64-pc-windows-msvc.zip、bundle/python-<v>-win-x64.zip
+// 产物（不进 git）：bundle/manifest.json、bundle/wheels-<hash>.zip（接入器依赖）、bundle/node-<v>-win-x64.zip、bundle/uv-x86_64-pc-windows-msvc.zip、bundle/python-<v>-win-x64.zip
 // 中枢把 bundle/ 挂载为 /data/bundle，员工端 install.ps1 优先从中枢下载并按 manifest 校验 SHA-256。
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const out = path.join(root, 'bundle');
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
-const BASE = args.base || '1.0.0';
+const BASE = args.base || '1.0.1';
 const PY = args.python || '3.12';
 const UV_ZIP = 'uv-x86_64-pc-windows-msvc.zip';
 
@@ -79,6 +79,23 @@ console.log('uv', uvVer, 'ok');
   zipDir(pyDir, file);
   components.python = { version: pyVer, file: name, sha256: sha256(file), size: fs.statSync(file).size, strip: '', dest: 'runtime/python' };
   console.log('python', pyVer, 'ok');
+}
+
+// ---- 接入器依赖：把 hub_agent.py 头部声明的依赖（及其依赖）下载成 wheel，员工端装机时用本地 wheel，不再访问 PyPI
+{
+  const src = fs.readFileSync(path.join(root, 'agent', 'hub_agent.py'), 'utf8');
+  const deps = JSON.parse((src.match(/^# dependencies = (\[.*\])$/m) || [])[1] || 'null');
+  if (!deps) throw new Error('hub_agent.py 头部没有 dependencies');
+  const wh = path.join(work, 'wheels');
+  fs.mkdirSync(wh);
+  run('python', ['-m', 'pip', 'download', '--quiet', '--dest', wh, '--platform', 'win_amd64', '--python-version', PY, '--implementation', 'cp', '--only-binary=:all:', ...deps]);
+  const files = fs.readdirSync(wh).sort();
+  const digest = createHash('sha256').update(files.join('\n')).digest('hex').slice(0, 8);   // 依赖集合变了，文件名就变
+  const name = `wheels-${digest}.zip`;
+  const file = path.join(out, name);
+  zipDir(wh, file);
+  components.wheels = { version: files.length + ' wheels', file: name, sha256: sha256(file), size: fs.statSync(file).size, strip: '', dest: 'runtime/wheels', deps };
+  console.log('wheels', files.length, 'ok');
 }
 
 // 旧版本的组件文件不留（manifest 只认当前这一套）

@@ -1,12 +1,12 @@
 # 底座包构建（tools/build-bundle）
 
-底座包 = 固定版本的 **Node.js 22 LTS + uv + Python 3.12**（Windows x64），由中枢托管，员工装机时优先从中枢下载并校验 SHA-256，不再依赖员工电脑访问 nodejs.org / GitHub / PyPI 的 Python 下载。**不含** 工作台、接入器（它们继续「打开即最新」）、WorkBuddy、Edge 扩展、Playwright、CodeBuddy CLI。
+底座包 = 固定版本的 **Node.js 22 LTS + uv + Python 3.12 + 接入器依赖的 wheel**（Windows x64），由中枢托管，员工装机时优先从中枢下载并校验 SHA-256，不再依赖员工电脑访问 nodejs.org / GitHub / PyPI 的 Python 下载。**不含** 工作台、接入器（它们继续「打开即最新」）、WorkBuddy、Edge 扩展、Playwright、CodeBuddy CLI。
 
 ## 构建（在有外网的 Windows 机器上，一般就是部署机）
 
 ```bash
-node tools/build-bundle/build.mjs                # 底座版本默认 1.0.0
-node tools/build-bundle/build.mjs --base 1.0.1   # 升级底座：改了任何组件版本就要升底座版本号
+node tools/build-bundle/build.mjs                # 底座版本默认 1.0.1
+node tools/build-bundle/build.mjs --base 1.0.2   # 升级底座：改了任何组件或接入器依赖就要升底座版本号（构建机需要 python + pip）
 ```
 
 产物在 `bundle/`（`.gitignore` 里，不进 git）：`manifest.json` + 三个 zip。`hub/docker-compose.yml` 已把它挂载成 `/data/bundle`，**构建完不用重启中枢**。

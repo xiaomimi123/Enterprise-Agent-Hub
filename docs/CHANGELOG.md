@@ -18,6 +18,13 @@
 - **沙盒真装底座（10-28）**：`tools/clean-room` 改成真装（`HUB_INSTALL_BASE_ONLY=1`，装完底座就停，不登录）。全新 Windows 10 里：自检 16 项全 PASS → 首次从中枢下载并安装 node / uv / python 三个组件 → 第二次提示已是最新；`BASE_VERSION 1.0.0`、node v22.23.4、uv 0.13.6、`uv python find 3.12` 找到的是 `runtime\python` 下自带的 Python；用它真跑了 `hub_agent.py --help` 成功（接入器依赖库 httpx / pyyaml 仍从 PyPI 装，这一步需要外网，只作信息）。仍没验证：完整 `setup`（含登录）、沙盒里应用正在运行时升级底座。
 - 本机 `console/backend/.venv` 的 Python 仍是坏的，后端测试是在 `hub-backend:dev` 镜像里装 pytest 到临时目录跑的
 
+**底座包补充：接入器依赖库（httpx / pyyaml 及其依赖）也进底座，装机不再访问 PyPI；底座升到 1.0.1**
+- 构建时按 `hub_agent.py` 头部 `dependencies` 用 `pip download --platform win_amd64 --python-version 3.12` 下载 8 个 wheel（约 0.7 MB），作为第四个组件 `wheels`，装到 `runtime/wheels`。加了组件所以底座版本从 1.0.0 升到 1.0.1（已装 1.0.0 的机器重跑安装命令会补上）
+- **uv 的坑（本机实测）**：只设 `UV_FIND_LINKS` 不行，uv 仍会先去 PyPI 查，PyPI 不通就报错；必须同时设 `UV_NO_INDEX=1`。`install.ps1` 只在装机这个进程里设这两个变量（不写进用户环境），先预热一次 `uv run hub_agent.py --help`，之后 uv 缓存是热的，实测 PyPI 不通时也能运行。预热失败记 `BUNDLE_FAILED` 并退回联网。新增 `HUB_INSTALL_STOP=connector`（测试用，预热完就停）
+- **沙盒真装发现并修掉一个缺陷**：Windows PowerShell 5 在 `$ErrorActionPreference='Stop'` 下，会把 uv 写在 stderr 的正常提示（"Installed 8 packages"）当成异常，预热步骤会让首次安装中断。演练和假中枢测试都发现不了，沙盒真装才暴露；已在预热处局部改成 `Continue`
+- **验证**：沙盒（全新 Windows 10）第一次安装 4 个组件、预热成功，第二次"已是最新"，退出码 0；本机用死掉的 PyPI 地址对比：无 wheel 失败、只 FIND_LINKS 失败、FIND_LINKS+NO_INDEX 成功、预热后不再设任何变量仍成功；`bundle-install.mjs` 仍 6 项通过
+- **没验证**：沙盒有外网，"不访问 PyPI"靠 `UV_NO_INDEX` 保证，没有在真正断网的机器上验证；`uv cache clean` 之后在断网机器上再运行接入器会失败（缓存被清）
+
 ## 2026-10-28
 
 **安装前自检（preflight）：装之前就分清「能不能装、缺什么」；干净机器验收脚本**

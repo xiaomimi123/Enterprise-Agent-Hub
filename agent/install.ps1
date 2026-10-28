@@ -104,7 +104,7 @@ function Get-HubBundle {
     try { return (Invoke-RestMethod -UseBasicParsing -Uri "$Hub/api/agent/bundle/manifest.json" -TimeoutSec 15) } catch { if ($env:HUB_DEBUG) { Write-Host "bundle manifest: $_" }; return $null }
 }
 function Install-BundleComponent($Name, $C) {
-    # Download -> verify -> unpack beside the target -> swap in; the previous copy is kept as <dest>.prev so a failed swap can be rolled back.
+    # Download -> verify -> unpack beside the target -> swap in; the previous copy is kept as <dest>.prev during the swap so a failure rolls back (removed once everything succeeded).
     $dest = Join-Path $Root ($C.dest -replace '/', '\')
     $zip = Join-Path $env:TEMP $C.file
     $tmp = Join-Path $env:TEMP ('bundle-' + $Name + '-' + [guid]::NewGuid().ToString('N'))
@@ -122,8 +122,26 @@ function Install-BundleComponent($Name, $C) {
         $prev = $dest + '.prev'
         if (Test-Path $prev) { Remove-Item $prev -Recurse -Force }
         $hadOld = Test-Path $dest
-        if ($hadOld) { Move-Item $dest $prev }
-        try { Move-Item $src $dest } catch { if ($hadOld) { Move-Item $prev $dest -ErrorAction SilentlyContinue }; throw }
+        if ($hadOld -and $Name -eq 'node') {
+            # Older installs put global npm packages (CodeBuddy CLI and its codebuddy.cmd launchers) inside the Node folder itself.
+            # Carry over whatever the new Node does not already have (its own npm / corepack stay), otherwise upgrading would silently remove CodeBuddy CLI.
+            foreach ($item in Get-ChildItem $dest -Force) {
+                if ($item.Name -eq 'node_modules') {
+                    foreach ($m in Get-ChildItem $item.FullName -Force) {
+                        $target = Join-Path (Join-Path $src 'node_modules') $m.Name
+                        if (-not (Test-Path $target)) { Copy-Item $m.FullName $target -Recurse -Force }
+                    }
+                } else {
+                    $target = Join-Path $src $item.Name
+                    if (-not (Test-Path $target)) { Copy-Item $item.FullName $target -Recurse -Force }
+                }
+            }
+        }
+        if ($hadOld) {
+            # A running node.exe / python.exe from the old folder blocks the move: say so plainly instead of leaving a half-done upgrade.
+            try { Move-Item $dest $prev -ErrorAction Stop } catch { throw "the old $($C.dest) is in use (close the company app / agent windows that are running and run the command again): $_" }
+        }
+        try { Move-Item $src $dest -ErrorAction Stop } catch { if ($hadOld) { Move-Item $prev $dest -ErrorAction SilentlyContinue }; throw }
     } finally {
         Remove-Item $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -183,6 +201,8 @@ if ($bundle -and $bundle.base) {
         if ($allOk) {
             New-Item -ItemType Directory -Force (Split-Path $BaseFile -Parent) | Out-Null
             [IO.File]::WriteAllText($BaseFile, $bundle.base)
+            # Everything swapped in fine: the .prev copies (hundreds of MB) are no longer needed.
+            foreach ($p in $bundle.components.PSObject.Properties) { Remove-Item ((Join-Path $Root ($p.Value.dest -replace '/', '\')) + '.prev') -Recurse -Force -ErrorAction SilentlyContinue }
         } else { Write-Host '      Falling back to downloading the missing pieces from the internet.' }
     }
     $pyDir = Join-Path $Root 'runtime\python'

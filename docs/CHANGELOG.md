@@ -29,6 +29,7 @@
 - 现象：用户在 Parallels 虚拟机（Windows 11，PowerShell 5.1.26100）里装，停在「Downloading python-3.12-win-x64.zip …」很久。中枢日志显示三个文件都已发送完毕（Python 包 46.6 MB 约 26 秒），所以不是下载卡住，是员工机在 `Expand-Archive` 解压 6700 个小文件，而且这一步没有任何输出
 - 原因：Windows PowerShell 5 的进度条会让 `Expand-Archive`（和 `Invoke-WebRequest`）慢很多。本机实测同一个 Python 包：默认 35 秒，关进度条 5 秒，`tar.exe` / `ZipFile.ExtractToDirectory` 约 2 秒；虚拟机里终端输出更慢，可达数分钟。我们的沙盒验收没暴露，因为沙盒窗口输出快
 - 修复：`install.ps1`、`preflight.ps1` 开头 `$ProgressPreference = 'SilentlyContinue'`；解压前加一行「Unpacking …」提示。修复后本机完整装 4 个组件 8 秒；`bundle-install.mjs` 仍全部通过
+- **虚拟机完整安装通过（用户反馈，Parallels，Windows 11 ARM64，PowerShell 5.1.26100）**：自检 16 项全 PASS → 底座 1.0.1 → CodeBuddy CLI（国内镜像，102 个包）→ 接入器依赖预热 → 浏览器登录并改密码 → 同步模型和 9 个技能 → 桌面和开始菜单出现「小红书运营工作台」图标。说明底座里的 x64 组件在 ARM64 Windows 上靠系统转译能跑。注意：这次 npm 安装用了 3 分钟（本机 7 秒），原因没查（虚拟机网络或镜像速度）；粘贴的输出里没有「Unpacking」行，可能是修复前的脚本
 - 没验证：修复后在那台虚拟机上重试的结果；没有换成 `tar.exe`（进度条关掉后 `Expand-Archive` 已是 5 秒，够用）
 
 **CodeBuddy CLI 安装改走国内 npm 镜像（npmmirror），不再依赖外网**

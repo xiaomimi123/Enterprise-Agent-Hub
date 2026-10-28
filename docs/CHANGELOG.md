@@ -15,6 +15,7 @@
 - **错误码**：`BUNDLE_FAILED`、`BASE_OUTDATED`
 - **怎么验证的**：在真实中枢上用隔离的应用根目录走 `irm | iex`：首次装 3 个组件，再跑一次提示已是最新；装好后 node v22.23.4、uv 0.13.6 可运行，`uv python find 3.12` 找到的是自带的 Python；`agent/tests/bundle-install.mjs` 6 项（正确校验和装好并写版本；校验和不对不安装、不写版本、记 BUNDLE_FAILED、提示退回；中枢无底座包不报错）；后端 `test_hub_agent / test_apps / test_preflight / test_health` 共 89 项通过（含 `base_min` 新增 6 项）
 - **没验证的**：① 带着自带 Python 真跑完整的 `hub_agent.py setup`（含登录）——只验证了 uv 能找到这个 Python；用户环境变量 `UV_PYTHON_INSTALL_DIR` 对 agent 拉起的 uv 是否都生效没验证；② 在沙盒里用底座包装一遍（沙盒验收脚本仍是演练模式，演练不装底座）；③ 升级时覆盖正在运行的 node（应用正开着）会不会失败——换入失败会回滚，但没实测；④ 底座包只有 Windows x64；ARM Windows 和 macOS / Linux 仍联网安装；⑤ CodeBuddy CLI 仍联网安装（授权未确认）
+- **沙盒真装底座（10-28）**：`tools/clean-room` 改成真装（`HUB_INSTALL_BASE_ONLY=1`，装完底座就停，不登录）。全新 Windows 10 里：自检 16 项全 PASS → 首次从中枢下载并安装 node / uv / python 三个组件 → 第二次提示已是最新；`BASE_VERSION 1.0.0`、node v22.23.4、uv 0.13.6、`uv python find 3.12` 找到的是 `runtime\python` 下自带的 Python；用它真跑了 `hub_agent.py --help` 成功（接入器依赖库 httpx / pyyaml 仍从 PyPI 装，这一步需要外网，只作信息）。仍没验证：完整 `setup`（含登录）、沙盒里应用正在运行时升级底座。
 - 本机 `console/backend/.venv` 的 Python 仍是坏的，后端测试是在 `hub-backend:dev` 镜像里装 pytest 到临时目录跑的
 
 ## 2026-10-28

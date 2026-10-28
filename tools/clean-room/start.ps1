@@ -34,4 +34,4 @@ while ((Get-Date) -lt $deadline) {
 }
 if (Test-Path $report) { Get-Content $report } else { Write-Host 'No report appeared (the sandbox did not start or could not run the script).' }
 Write-Host "Close the sandbox window when you are done. Files: $work"
-if ((Test-Path $report) -and ((Get-Content $report -Raw) -match 'RESULT preflight fail=0')) { exit 0 } else { exit 1 }
+if ((Test-Path $report) -and ((Get-Content $report -Raw) -match 'RESULT preflight fail=0') -and ((Get-Content $report -Raw) -match 'RESULT base-runtime installed=True')) { exit 0 } else { exit 1 }

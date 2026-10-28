@@ -16,15 +16,40 @@ foreach ($h in @($hu.Host, $gw) | Where-Object { $_ } | Select-Object -Unique) {
     $r = Test-NetConnection -ComputerName $h -Port $hu.Port -WarningAction SilentlyContinue -InformationLevel Quiet
     Say ("tcp " + $h + ":" + $hu.Port + " -> " + $r)
 }
-$env:HUB_INSTALL_DRYRUN = '1'
+# Real install of the base runtime (no sign-in): HUB_INSTALL_BASE_ONLY stops right after Node / uv / Python are in place.
+$env:HUB_INSTALL_BASE_ONLY = '1'
 $env:HUB_INSTALL_TOOLS = 'no'
 $env:HUB_PREFLIGHT_UPLOAD = 'off'
-try {
-    # the same one line an employee pastes into Win+R:  irm <hub>/api/agent/install.ps1 | iex
-    $text = (Invoke-WebRequest -UseBasicParsing ($cfg.hub + '/api/agent/install.ps1') -TimeoutSec 30).Content
-    $out = & ([scriptblock]::Create($text)) *>&1 | Out-String
-    Say $out
-} catch { Say ("install.ps1 raised: " + $_) }
+$root = Join-Path $env:USERPROFILE 'HubApps'
+function Run-Install($title) {
+    Say ("--- " + $title)
+    try {
+        $text = (Invoke-WebRequest -UseBasicParsing ($cfg.hub + '/api/agent/install.ps1') -TimeoutSec 30).Content
+        Say (& ([scriptblock]::Create($text)) *>&1 | Out-String)
+    } catch { Say ("install.ps1 raised: " + $_) }
+}
+Run-Install 'first run (should download and install the base runtime)'
+Run-Install 'second run (should say it is up to date)'
+Say '--- what is installed'
+$bv = Join-Path $root 'runtime\BASE_VERSION'
+if (Test-Path $bv) { Say ("BASE_VERSION " + (Get-Content $bv -Raw).Trim()) } else { Say 'BASE_VERSION missing' }
+$node = Join-Path $root 'runtime\node\node.exe'; $uv = Join-Path $root 'runtime\uv\uv.exe'
+if (Test-Path $node) { Say ("node " + (& $node -v)) } else { Say 'node missing' }
+if (Test-Path $uv) { Say ("uv " + (& $uv --version)) } else { Say 'uv missing' }
+$env:UV_PYTHON_INSTALL_DIR = Join-Path $root 'runtime\python'
+if (Test-Path $uv) { Say ("python " + (& $uv python find 3.12 2>&1)) }
+# Information only: the connector's own libraries (httpx, pyyaml) still come from PyPI, so this step needs internet.
+if (Test-Path $uv) {
+    try {
+        Invoke-WebRequest -UseBasicParsing ($cfg.hub + '/api/agent/hub_agent.py') -OutFile C:\out\hub_agent.py -TimeoutSec 30
+        $env:PYTHONUTF8 = '1'
+        $o = & $uv run --python 3.12 C:\out\hub_agent.py --help 2>&1 | Out-String
+        Say ("connector --help: " + $(if ($LASTEXITCODE -eq 0) { 'OK (uses the bundled Python)' } else { 'FAILED' }))
+        Say ($o.Substring(0, [Math]::Min(300, $o.Length)))
+    } catch { Say ("connector run raised: " + $_) }
+}
+$ok = (Test-Path $bv) -and (Test-Path $node) -and (Test-Path $uv)
+Say ("RESULT base-runtime installed=" + $ok)
 Copy-Item (Join-Path $env:TEMP 'hub-preflight.json') C:\out\preflight.json -ErrorAction SilentlyContinue
 $pf = $global:HubPreflight
 if ($pf) { Say ("RESULT preflight fail=" + $pf.Fail + " warn=" + $pf.Warn + " codes=" + ($pf.Codes -join ',')) } else { Say 'RESULT preflight did not run' }

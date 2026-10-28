@@ -426,6 +426,9 @@ export interface ConnectInfo {
   mcp_url: string
   api_base: string
   script_url: string
+  /** 底座包（Node / uv / Python / 依赖库，tools/build-bundle 构建）；没构建过为 null，员工装机会退回联网下载 */
+  bundle: { base: string; built_at: string; components: { name: string; version: string; size: number }[] } | null
+  agent_version: string
 }
 
 export interface ModelPrice {

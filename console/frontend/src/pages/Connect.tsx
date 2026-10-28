@@ -151,11 +151,13 @@ ${agentPrompt}
 
         <Panel title="一键脚本会自动做什么">
           <div className="stack-sm">
-            <div>① 所有东西装进员工自己的 <span className="mono">%USERPROFILE%\HubApps</span>（不需要管理员权限）：自带便携版 <b>Node.js</b>（官方包，校验 SHA-256）；<b>CodeBuddy CLI</b> 会<b>先询问</b>再装（没有交互终端时跳过）。</div>
-            <div>② 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
-            <div>③ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
-            <div>④ 把 HubApps 登记为 WorkBuddy、CodeBuddy 允许读写的目录（原配置先备份），并为岗位包里的应用在桌面和开始菜单建快捷方式：<b>双击打开应用</b>，agent 退出也不会把它带走。</div>
-            <div>⑤ 之后令牌自动续期、岗位包技能自动同步，接入器本身也会自动更新（0.5.8 起；更早装的电脑重新运行一次这条命令就会带上），不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
+            <div>① 先做<b>安装前自检</b>（Windows，只读，不改任何东西）：系统版本、PowerShell 是否被限制、磁盘空间、到中枢和登录 / MCP 端口的网络、登录回调端口、杀毒软件等。有会导致装不上的问题就<b>停下</b>并写明原因和处理办法；错误码会匿名回传到「应用健康」页。</div>
+            <div>② 所有东西装进员工自己的 <span className="mono">%USERPROFILE%\HubApps</span>（不需要管理员权限）：从<b>中枢</b>下载并校验（SHA-256）固定版本的<b>底座</b>——Node.js 22、uv、Python 3.12 和接入器的依赖库，装机不再依赖员工电脑访问外网；<b>CodeBuddy CLI</b> 会<b>先询问</b>再装（没有交互终端时跳过），默认走国内 npm 镜像，失败退回官方源。</div>
+            <div>③ 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
+            <div>④ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
+            <div>⑤ 把 HubApps 登记为 WorkBuddy、CodeBuddy 允许读写的目录（原配置先备份），并为岗位包里的应用在桌面和开始菜单建<b>带应用图标</b>的快捷方式：<b>双击打开应用</b>，agent 退出也不会把它带走。</div>
+            <div>⑥ 之后令牌自动续期、岗位包技能自动同步，接入器本身也会自动更新（0.5.8 起；更早装的电脑重新运行一次这条命令就会带上），不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
+            <div><b>以前装过的电脑怎么升级</b>：重新运行同一条命令即可，<b>不需要先卸载或清理</b>。底座按版本号比对、只在不同时更新（旧版里装在 Node 目录下的 CodeBuddy 会保留）；接入器重新下载；工作台下次打开自动更新；快捷方式重建并补上图标；工作台数据和 CodeBuddy 登录不受影响。只有一种情况要手工处理：以前在 agent 的技能目录里留下的工作台旧副本（安装输出会提示，删掉那个文件夹）。</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
               <span className="muted">自己运行（Win+R 粘贴）的命令：</span>
               <Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />
@@ -169,7 +171,8 @@ ${agentPrompt}
             <div><Pill tone="accent" dot={false}>1</Pill> 上面的一键脚本装好 Node.js 和 CodeBuddy CLI（询问时选「是」）；员工在自己的终端运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 登录一次 CodeBuddy 自己的账号。</div>
             <div><Pill tone="accent" dot={false}>2</Pill> WorkBuddy →「设置 → 智能体 → 浏览器操控」：打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；然后员工<b>本人</b>在 Edge 里登录小红书（agent 不碰密码和验证码）。</div>
             <div><Pill tone="accent" dot={false}>3</Pill> 双击桌面「小红书运营工作台」→「连接与设置 → 执行 Agent 与浏览器」：对话通道选 CodeBuddy，浏览器方式选<b>「WorkBuddy 浏览器插件」</b>，权限档保持「只读档」。<b>新电脑默认是「未选择」，漏了这步所有采集都会被拒</b>（采集卡片里也会提示）。</div>
-            <div><Pill tone="accent" dot={false}>4</Pill> 「竞品对标 → 采集状态」：采集总开关<b>默认关</b>，由运营本人打开；有每天笔记 / 主页上限、两次采集间隔、允许时段，遇到平台提示可以设冷静期。工作台只读分析，不会自动发布。</div>
+            <div><Pill tone="accent" dot={false}>4</Pill> 「账号管理 → 在浏览器里登录这个账号」：agent 在员工自己的浏览器里<b>只读</b>核对登录的小红书号，并根据主页自动填好账号的<b>定位 / 目标人群 / 内容风格</b>（只填空的、可以再改）。核对结果会保存，刷新页面还在；没有已发布笔记时，「数据复盘」只能读到账号概览。</div>
+            <div><Pill tone="accent" dot={false}>5</Pill> 「竞品对标 → 采集状态」：采集总开关<b>默认关</b>，由运营本人打开；有每天笔记 / 主页上限、两次采集间隔、允许时段，遇到平台提示可以设冷静期。工作台只读分析，不会自动发布。</div>
             <div className="muted">WorkBuddy 等桌面 agent 作为工作台的执行者只能「收件箱模式」，不开浏览器；工作台的默认执行者是 CodeBuddy CLI。</div>
           </div>
         </Panel>
@@ -186,6 +189,24 @@ ${agentPrompt}
           </div>
         </Panel>
 
+        <Panel title="底座包与安装前自检（Windows）" sub="员工装机从中枢下载固定版本的运行环境，装之前先自检；这里看当前状态">
+          <div className="stack-sm">
+            {d.bundle ? (
+              <div>
+                <Pill tone="ok">已发布</Pill> 底座版本 <b>{d.bundle.base}</b>（构建于 {d.bundle.built_at.slice(0, 16).replace('T', ' ')} UTC）：
+                {d.bundle.components.map((c) => ` ${c.name} ${c.version}（${(c.size / 1048576).toFixed(1)} MB）`).join('、')}。接入器版本 <b>{d.agent_version || '未知'}</b>。
+              </div>
+            ) : (
+              <div><Pill tone="warn">没有底座包</Pill> 员工装机会退回到联网下载 Node.js / uv / Python（需要员工电脑能访问外网，更容易装不上）。在部署机上构建后即时生效，不用重启：</div>
+            )}
+            <Code label="构建 / 升级底座包（在有外网的部署机上，仓库根目录）" text={['node tools/build-bundle/build.mjs            # 默认版本号见脚本', 'node tools/build-bundle/build.mjs --base 1.0.2   # 改了组件或接入器依赖就升版本号'].join('\n')} />
+            <div className="muted">应用要求最低底座版本：应用的 <span className="mono">app.json</span> 里写 <span className="mono">requires.base_min</span>，员工机底座过旧时打开应用会提示重新运行安装命令（不拦打开）。</div>
+            <div><b>安装前自检</b>：装之前只读检查员工电脑，有问题就停下并写明原因。失败的电脑没有登录，所以走匿名上报，错误码（<span className="mono">PREFLIGHT_*</span>）会出现在「应用健康」页，显示为「未登录设备 xxxxxx（安装前自检）」。单独运行：</div>
+            <Code label="只做自检、不安装（员工电脑 Win+R）" text={`powershell -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/preflight.ps1 | iex"`} />
+            <div className="muted">可用的环境变量（先设再运行安装命令）：<span className="mono">HUB_PREFLIGHT=skip</span> 跳过自检；<span className="mono">HUB_BUNDLE=off</span> 不用底座包（退回联网下载）；<span className="mono">HUB_NPM_REGISTRY</span> 换 npm 镜像；<span className="mono">HUB_INSTALL_TOOLS=yes</span> 不询问直接装 CodeBuddy。</div>
+            <div className="muted">发版前的干净机器验收：Windows 沙盒 / 虚拟机里跑一遍安装命令，见仓库 <span className="mono">tools/clean-room/README.md</span>。</div>
+          </div>
+        </Panel>
         <Panel title="中枢地址">
           <div className="connect-grid">
             <Field k="MCP 地址（Streamable HTTP）" v={d.mcp_url} />
@@ -198,7 +219,7 @@ ${agentPrompt}
         <Panel title="手动安装 Node.js 和 CodeBuddy CLI（一键脚本没装成功时）" extra={<Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />}>
           <div className="stack-sm">
             <Code label={quickOs === 'Windows' ? '安装 Node.js（PowerShell）' : '安装 Node.js（macOS 用 Homebrew；Linux 用系统包管理器或 nodejs.org）'} text={quickOs === 'Windows' ? 'winget install -e --id OpenJS.NodeJS.LTS' : 'brew install node'} />
-            <Code label="安装 CodeBuddy CLI（装好 Node.js 后；Windows 装完要重新打开终端）" text={quickOs === 'Windows' ? 'npm install -g @tencent-ai/codebuddy-code' : 'npm install -g --prefix ~/.local @tencent-ai/codebuddy-code'} />
+            <Code label="安装 CodeBuddy CLI（装好 Node.js 后；Windows 装完要重新打开终端）" text={quickOs === 'Windows' ? 'npm install -g --registry https://registry.npmmirror.com @tencent-ai/codebuddy-code' : 'npm install -g --prefix ~/.local --registry https://registry.npmmirror.com @tencent-ai/codebuddy-code'} />
             <Code label="想让一键脚本不再询问、直接装好（先设环境变量，再运行一键命令）" text={quickOs === 'Windows' ? '$env:HUB_INSTALL_TOOLS = "yes"' : 'export HUB_INSTALL_TOOLS=yes'} />
             <Code label="验证 CodeBuddy 已用上中枢模型（在员工电脑的终端里）" text={'codebuddy -p "你好，请用一句话介绍你自己"'} />
             <p className="muted">岗位包选「自带模型」时，中枢不下发模型，CodeBuddy 用员工自己的模型和积分。CodeBuddy 每次请求带的上下文很大，月度模型额度会消耗得比较快，额度不足时请在「岗位包」页调高。</p>
@@ -273,7 +294,11 @@ ${agentPrompt}
             <div><b>agent 里看不到中枢的工具</b>：确认接入命令执行完成，并且已经<b>完全退出</b>再重新打开 agent（只关窗口不够）。</div>
             <div><b>让 WorkBuddy 代跑卡住、被拦截（iex、启动进程、计划任务、注册表被拒绝）</b>：这是 agent 沙箱的安全策略，不是中枢的问题。改用 Win+R 粘贴命令自己运行；之后工作台等后台程序也最好用你自己的窗口或开始菜单启动，不要让 agent 拉起（agent 退出时会连带结束它拉起的程序）。</div>
             <div><b>浏览器登录页一直转圈</b>：确认命令窗口还在运行；浏览器要用你平时的那个，登录页可能开在后台标签里。仍不行就关掉命令重新运行一次，只保留一个登录页。</div>
-            <div><b>电脑没有 winget、没有管理员权限</b>：脚本会自动改用 Node.js 官方便携版（校验 SHA-256，只装在你的用户目录，不需要管理员）。</div>
+            <div><b>电脑没有 winget、没有管理员权限</b>：不需要。运行环境从中枢下载，装在你自己的用户目录；中枢没有底座包时脚本会改用 Node.js 官方便携版。</div>
+            <div><b>命令一开始就停下，写着 [FAIL]</b>：这是「安装前自检」发现这台电脑照现在的状态装不上，什么都没装。看 FAIL 那几行和括号里的错误码（如 <span className="mono">PREFLIGHT_HUB_UNREACHABLE</span> 连不上中枢、<span className="mono">PREFLIGHT_PORT_CALLBACK</span> 登录端口被占用、<span className="mono">PREFLIGHT_AGENT_SANDBOX</span> 在 agent 里启动），按提示处理后重新运行。要把原因发给管理员，发 FAIL 那几行和 <span className="mono">%TEMP%\hub-preflight.json</span>。</div>
+            <div><b>窗口停在 Downloading / Unpacking 很久</b>：正在下载或解压运行环境（约 95 MB，解压有几千个小文件），虚拟机里可能要几十秒到几分钟，别关窗口。0.5 版以前的脚本在虚拟机里会因为进度条显得像卡死，重新运行命令即可用上新版。</div>
+            <div><b>桌面上的应用图标是空白的</b>：重新运行一次安装命令，会下载图标并重建快捷方式；仍是空白就刷新桌面（F5）或重启资源管理器，Windows 有图标缓存。</div>
+            <div><b>CodeBuddy 装不上（npm 报错）</b>：默认走国内镜像，失败会退回官方源。两边都不通时检查网络或代理，管理员可以用环境变量 <span className="mono">HUB_NPM_REGISTRY</span> 指定公司内部镜像。</div>
             <div><b>CodeBuddy 登录完了，还是提示「Authentication required」</b>：CodeBuddy 的登录凭据和 WorkBuddy 桌面共用一份存储，偶尔会读不出 / 写不进（日志里是 missing-key、safe-delete）。关掉 WorkBuddy 桌面和所有 codebuddy 窗口 → Win+R 输入 <span className="mono">cmd</span> 回车（自己开的窗口，不要从 WorkBuddy 或工作台里开）→ 输入 <span className="mono">codebuddy</span>，再输 <span className="mono">/login</span> 授权，然后 <span className="mono">/exit</span>。还不行，把 <span className="mono">%LOCALAPPDATA%\\CodeBuddyExtension\\Data\\Public\\auth</span> 改名加 <span className="mono">.bak</span>（不要删）再登录一次——WorkBuddy 桌面也会要求重新登录。装机后可以用 <span className="mono">hub-check.cmd --deep</span> 提前发现。</div>
             <div><b>CodeBuddy 提示未登录</b>：CodeBuddy 要用它自己的账号登录（和中枢账号无关）：运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 完成一次即可。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>

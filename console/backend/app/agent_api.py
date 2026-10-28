@@ -211,6 +211,16 @@ def app_health(body: HealthBody, authorization: str | None = Header(default=None
     return {"ok": True, "saved": saved, "skipped": len(body.events) - saved}
 
 
+def bundle_info() -> dict | None:
+    """控制台「接入方式」页要看的底座包状态：没有构建过返回 None（员工装机会退回联网下载）。只含版本、时间和各组件的版本 / 大小。"""
+    try:
+        m = json.loads((Path(settings.bundle_dir) / "manifest.json").read_text(encoding="utf-8"))
+        comps = [{"name": k, "version": str(v.get("version", "")), "size": int(v.get("size", 0))} for k, v in (m.get("components") or {}).items()]
+        return {"base": str(m.get("base", "")), "built_at": str(m.get("built_at", "")), "components": comps}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
 @router.get("/bundle/manifest.json")
 def bundle_manifest():
     """底座包清单（固定版本的 Node / uv / Python 及其 SHA-256）：公开下载。没构建过就 404，安装脚本会退回联网安装。"""

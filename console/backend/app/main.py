@@ -258,7 +258,8 @@ def work_report(days: int = 7, person: str | None = None, user: dict = Depends(a
 def connect():
     """控制台「接入方式」页：员工的 agent 怎么连中枢。"""
     return {"hub_url": settings.public_url, "mcp_url": settings.mcp_public_url,
-            "api_base": f"{settings.public_url}/api/v1", "script_url": f"{settings.public_url}/api/agent/hub_agent.py"}
+            "api_base": f"{settings.public_url}/api/v1", "script_url": f"{settings.public_url}/api/agent/hub_agent.py",
+            "bundle": agent_api.bundle_info(), "agent_version": agent_api._agent_version()}
 
 
 @api.get("/usage")

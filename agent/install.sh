@@ -72,7 +72,7 @@ else
   echo "      CodeBuddy CLI：未安装（只有工作台里的浏览器自动化需要；只用 WorkBuddy 的话可以不装）"
   if command -v npm >/dev/null 2>&1; then
     if confirm "CodeBuddy CLI（npm install -g，装到 ~/.local，不需要 sudo）"; then
-      run "npm install -g --prefix ~/.local @tencent-ai/codebuddy-code" npm install -g --prefix "$HOME/.local" @tencent-ai/codebuddy-code
+      run "npm install -g --prefix ~/.local --registry ${HUB_NPM_REGISTRY:-https://registry.npmmirror.com} @tencent-ai/codebuddy-code" npm install -g --prefix "$HOME/.local" --registry "${HUB_NPM_REGISTRY:-https://registry.npmmirror.com}" @tencent-ai/codebuddy-code
       if [ "$HUB_INSTALL_DRYRUN" != "1" ]; then
         if "$HOME/.local/bin/codebuddy" --version >/dev/null 2>&1; then echo "      CodeBuddy CLI 已装好（$("$HOME/.local/bin/codebuddy" --version 2>/dev/null)）"; else echo "      CodeBuddy CLI 没有装成功，可以忽略（只用 WorkBuddy 不需要），或稍后手动：npm install -g @tencent-ai/codebuddy-code"; fi
       fi

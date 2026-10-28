@@ -284,7 +284,7 @@ def test_preflight_cold_playwright_is_only_a_hint(tmp_path):
     notice = hub_agent.capability_notice("x", r)
     assert "提示" in notice and "首次使用要下载" in notice
     pinned = pf(requires={**REQ, "playwright_mcp": "0.0.83"}, warm=False, cb_home=cb_home_with_model(tmp_path / "b"))
-    assert "@playwright/mcp@0.0.83" in ids(pinned)["playwright_mcp"]["fix"]["argv"][2]
+    assert "@playwright/mcp@0.0.83" in ids(pinned)["playwright_mcp"]["fix"]["argv"]
 
 
 def test_apps_without_requirements_are_not_checked():
@@ -780,3 +780,12 @@ def test_preflight_base_min_satisfied_or_absent_adds_no_check(tmp_path):
     for requires, base in (({"base_min": "1.0.0"}, "1.0.0"), ({"base_min": "1.0.0"}, "2.3.1"), ({}, "")):
         r = hub_agent.preflight(requires, which=lambda n: None, browser_finder=lambda: None, cached=lambda v: True, profile=PROFILE, base_version=base)
         assert "base" not in ids(r)
+
+
+def test_npm_installs_default_to_the_china_mirror_and_can_be_overridden():
+    fix = hub_agent._cli_install_fix("codebuddy", lambda n: f"/bin/{n}")
+    assert ["--registry", hub_agent.NPM_REGISTRY] == fix["argv"][fix["argv"].index("--registry"):fix["argv"].index("--registry") + 2]
+    assert fix["argv"][-1] == "@tencent-ai/codebuddy-code"                       # 包名仍在最后
+    assert hub_agent.NPM_REGISTRY == "https://registry.npmmirror.com"             # 没设 HUB_NPM_REGISTRY 时
+    warm = ids(pf(warm=False, cb_home=None))["playwright_mcp"]["fix"]["argv"]
+    assert warm[:4] == ["npx", "-y", "--registry", hub_agent.NPM_REGISTRY]

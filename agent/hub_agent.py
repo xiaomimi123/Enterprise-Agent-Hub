@@ -50,7 +50,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.9"
+VERSION = "0.5.10"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -930,6 +930,8 @@ def _write_hub_mcp_config() -> Path:
 
 CAPABILITIES_DIR = HOME / "capabilities"
 CLI_PACKAGES = {"codebuddy": "@tencent-ai/codebuddy-code"}
+# npm 默认源在国内常不通或很慢：安装 CLI / 预热 Playwright 默认走国内镜像（实测 CodeBuddy CLI 及全部依赖都能从它取到）；HUB_NPM_REGISTRY 可改
+NPM_REGISTRY = os.environ.get("HUB_NPM_REGISTRY") or "https://registry.npmmirror.com"
 CLI_LABELS = {"codebuddy": "CodeBuddy CLI"}
 CLI_MIN_BROWSER_FIXES = "安装 Microsoft Edge（https://www.microsoft.com/edge）或 Google Chrome"
 
@@ -967,7 +969,8 @@ def _cli_install_fix(cli: str, which) -> dict:
     pkg = CLI_PACKAGES[cli]
     if not which("npm"):
         return {"text": f"先安装 Node.js，再执行：npm install -g {pkg}", "argv": None}
-    argv = ["npm", "install", "-g", pkg] if sys.platform == "win32" else ["npm", "install", "-g", "--prefix", str(Path.home() / ".local"), pkg]
+    reg = ["--registry", NPM_REGISTRY]
+    argv = ["npm", "install", "-g", *reg, pkg] if sys.platform == "win32" else ["npm", "install", "-g", "--prefix", str(Path.home() / ".local"), *reg, pkg]
     return {"text": " ".join(argv), "argv": argv}
 
 
@@ -1039,7 +1042,7 @@ def preflight(requires: dict, *, which=None, browser_finder=None, cached=None,
         add("playwright_mcp", "Playwright MCP", True,
             "已在本机缓存" if warm else "首次使用要下载（约 1-2 分钟，期间浏览器任务会显示「仍在连接中」）",
             None if warm or not npx else {"text": f"预热：npx -y @playwright/mcp{'@' + ver if ver else ''} --help",
-                                          "argv": ["npx", "-y", f"@playwright/mcp{'@' + ver if ver else ''}", "--help"]}, warn=not warm)
+                                          "argv": ["npx", "-y", "--registry", NPM_REGISTRY, f"@playwright/mcp{'@' + ver if ver else ''}", "--help"]}, warn=not warm)
 
     def cap(ids: list[str]) -> dict:
         bad = [c for c in checks if c["id"] in ids and not c["ok"]]

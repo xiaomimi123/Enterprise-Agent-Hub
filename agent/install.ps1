@@ -244,8 +244,14 @@ if (Test-Cmd codebuddy) {
         if (Confirm-Install 'CodeBuddy CLI') {
             try {
                 # npm.cmd on purpose: with a Restricted execution policy PowerShell refuses to run npm.ps1.
-                Invoke-Step "npm install -g --prefix $RtNode @tencent-ai/codebuddy-code" {
-                    & $npm install -g --prefix $RtNode '@tencent-ai/codebuddy-code'
+                # China mirror first (the default npm registry is often unreachable or very slow there; HUB_NPM_REGISTRY overrides), then the default one.
+                $mirror = if ($env:HUB_NPM_REGISTRY) { $env:HUB_NPM_REGISTRY } else { 'https://registry.npmmirror.com' }
+                Invoke-Step "npm install -g --prefix $RtNode @tencent-ai/codebuddy-code (registry $mirror)" {
+                    & $npm install -g --prefix $RtNode --registry $mirror '@tencent-ai/codebuddy-code'
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host '      The mirror failed; trying the default npm registry...'
+                        & $npm install -g --prefix $RtNode '@tencent-ai/codebuddy-code'
+                    }
                     if ($LASTEXITCODE -ne 0) { throw "npm exited with code $LASTEXITCODE" }
                 }
                 Update-SessionPath

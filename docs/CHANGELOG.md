@@ -39,6 +39,13 @@
 - 验证：真实 `install.ps1`（隔离目录、`HUB_INSTALL_TOOLS=yes`）从底座装 Node，再用 npmmirror 装 CodeBuddy，102 个包 7 秒，`codebuddy` 2.177.1；后端测试 90 项通过（新增镜像参数测试，并修正一处按位置取包名的旧断言）
 - 没验证：`app-doctor` 的修复命令只有镜像一次、没有退回官方源；真正国内网络下的速度（本机能访问两边）；腾讯云镜像没作为备选写进脚本
 
+## 2026-10-28（工作台 0.8.18）
+
+**工作台 0.8.18 上传到中枢（0.8.17 → 0.8.18）：新增浏览器方式「ego lite 浏览器」（实验）**
+- 来源：用户想试 ego lite 代替 WorkBuddy 浏览器插件。做法、范围和没验证的部分见工作台 CHANGELOG v0.8.18：「连接与设置」多一个选项，CodeBuddy 通过随包的只读 MCP 小服务 `ego-reader` 做账号登录核对和主页分析；ego-reader 随工作台包下发，**虚拟机里不用手动拷文件、不用重装**
+- 上传：`apps/xhs-workbench/0.8.18.zip` + `app.json` 改 0.8.18，中枢不用重启
+- 没验证：真实 CodeBuddy → ego-reader → ego lite 整条链；已登录页面上 `xhs_read_me` 的选择器
+
 ## 2026-10-28（ego lite 更正）
 
 **更正：之前「ego lite 里已登录、专用空间沿用登录态」的结论是错的**

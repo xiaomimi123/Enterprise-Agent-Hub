@@ -5,6 +5,7 @@
 //
 // 工具：
 //   xhs_check_login               检查是否真的登录（页面状态 loggedIn / guest），不读内容
+//   xhs_read_me                   核对登录并读自己的主页（昵称、小红书号、简介、标签、可见笔记标题）
 //   xhs_read_feed  {scrolls?: 0-3}   读首页信息流当前可见的笔记卡片（可先用鼠标滚轮向下滚动 0-3 次）
 //   xhs_read_note  {id, scroll_note?: 0-3}  点开当前可见的某张卡片，读标题、正文、话题、作者、互动数，读完关闭
 //
@@ -73,6 +74,43 @@ out({ ok: true, ...(await loginState()), scrollY: await page.evaluate(() => Math
 const checkScript = () => `${COMMON}
 await ensureFeed();
 out({ ok: true, ...(await loginState()) });
+`;
+const meScript = () => `${COMMON}
+await ensureFeed();
+const st = await loginState();
+if (!st.loggedIn) { out({ ok: true, ...st, hint: "not logged in: ask the user to scan the QR code in ego lite themselves, then call xhs_check_login" }); }
+else {
+  const ids = await page.evaluate(() => {
+    const unwrap = (x) => (x && typeof x === "object" && ("_rawValue" in x ? x._rawValue : "value" in x ? x.value : x));
+    const info = unwrap(window.__INITIAL_STATE__.user.userInfo) || {};
+    return { userId: typeof info.userId === "string" ? info.userId : "", token: typeof info.xsecToken === "string" ? info.xsecToken : "" };
+  });
+  if (!/^[0-9a-f]{24}$/.test(ids.userId)) { out({ ok: false, error: "no_user_id", ...st }); }
+  else {
+    // 页面自己拼主页链接的方式：userId + 页面状态里的 xsecToken
+    await page.goto("https://www.xiaohongshu.com/user/profile/" + ids.userId + "?xsec_token=" + encodeURIComponent(ids.token) + "&xsec_source=pc_feed");
+    await page.waitForSelector(".user-name, .user-info, section.note-item", { state: "visible", timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+    const me = await page.evaluate(() => {
+      const t = (sel) => { const e = document.querySelector(sel); return e ? e.innerText.trim() : ""; };
+      const body = document.body.innerText;
+      const pick = (re) => { const m = body.match(re); return m ? m[1].trim() : ""; };
+      const redText = t(".user-redId") || pick(/小红书号[:：]\s*([^\s]+)/);
+      return {
+        nickname: t(".user-name").slice(0, 40),
+        xhsId: (redText.match(/小红书号[:：]?\s*([^\s]+)/) || [null, redText])[1] || "",
+        ip: pick(/IP属地[:：]\s*([^\s]+)/),
+        bio: t(".user-desc").slice(0, 300),
+        tags: Array.from(document.querySelectorAll(".user-tags > *")).map((e) => e.innerText.trim()).filter(Boolean).slice(0, 10),
+        counts: t(".user-interactions").replace(/\s+/g, " ").slice(0, 80),
+        noteTitles: Array.from(document.querySelectorAll("section.note-item .title, section.note-item [class*='title']")).map((e) => e.innerText.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).slice(0, 12),
+        gone: /页面不见了|无法浏览/.test(body.slice(0, 300)),
+      };
+    });
+    await page.goto("https://www.xiaohongshu.com/explore");
+    out({ ok: true, ...st, ...me });
+  }
+}
 `;
 const noteScript = (id, scrollNote) => `${COMMON}
 await ensureFeed();
@@ -156,6 +194,12 @@ function recordNote(now = Date.now()) {
 // ---------------- 工具 ----------------
 const intIn = (v, lo, hi, dflt) => { if (v === undefined || v === null) return dflt; return Number.isInteger(v) && v >= lo && v <= hi ? v : NaN; };
 export async function callTool(name, args = {}) {
+  if (name === 'xhs_read_me') {
+    if (Object.keys(args).length) return { ok: false, error: 'bad_argument', detail: 'xhs_read_me takes no arguments' };
+    const g = checkGuard(); if (g) return g;
+    recordNote();                                          // 读自己的主页也算一次页面访问，和读笔记共用间隔和每小时上限
+    return runScript(meScript());
+  }
   if (name === 'xhs_check_login') {
     if (Object.keys(args).length) return { ok: false, error: 'bad_argument', detail: 'xhs_check_login takes no arguments' };
     const stop = checkGuard(); if (stop && stop.error === 'stopped') return stop;
@@ -178,6 +222,8 @@ export async function callTool(name, args = {}) {
   return { ok: false, error: 'unknown_tool' };
 }
 export const TOOLS = [
+  { name: 'xhs_read_me', description: '只读：核对登录并读取「我自己」的主页——是否登录（loggedIn）、昵称、小红书号、IP 属地、简介、标签、关注/粉丝/获赞、主页上可见的笔记标题。未登录时只返回 loggedIn:false，不读别的。只打开自己的主页这一页，不点开笔记，不改任何东西。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'xhs_check_login', description: '只读：检查 ego lite 里的小红书是否真的登录了（返回 loggedIn / guest）。小红书游客也能看信息流，所以读内容前先用它确认；loggedIn 为 false 时请让用户在 ego lite 里自己扫码登录，不要继续。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'xhs_read_feed', description: '只读：读小红书首页信息流当前可见的笔记卡片（id、标题、作者、点赞）。可选先用鼠标滚轮向下滚动 0-3 次加载更多。需要用户已在 ego lite 里登录小红书。',

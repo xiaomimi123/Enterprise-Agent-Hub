@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const init = await rpc('initialize', { protocolVersion: '2024-11-05' });
 check('initialize 返回 serverInfo', init.result.serverInfo.name === 'ego-reader');
 const tools = (await rpc('tools/list', {})).result.tools;
-check('只有三个只读工具', tools.map((t) => t.name).sort().join() === 'xhs_check_login,xhs_read_feed,xhs_read_note');
+check('只有四个只读工具', tools.map((t) => t.name).sort().join() === 'xhs_check_login,xhs_read_feed,xhs_read_me,xhs_read_note');
 check('工具参数只有 scrolls / id / scroll_note（没有脚本、命令、选择器、网址、文字输入）', JSON.stringify(tools.flatMap((t) => Object.keys(t.inputSchema.properties)).sort()) === JSON.stringify(['id', 'scroll_note', 'scrolls']), JSON.stringify(tools.map((t) => Object.keys(t.inputSchema.properties))));
 
 // 参数校验：注入、越界、类型错误都应在启动浏览器之前被拒绝
@@ -35,6 +35,7 @@ for (const [label, args] of [['scroll_note=9', { id: 'a'.repeat(24), scroll_note
 for (const [label, args] of [['scrolls=4', { scrolls: 4 }], ['scrolls=-1', { scrolls: -1 }], ['scrolls="2"', { scrolls: '2' }]]) {
   const r = await call('xhs_read_feed', args); check('xhs_read_feed 拒绝：' + label, r.error === 'bad_argument', JSON.stringify(r));
 }
+check('xhs_read_me 不接受参数', (await call('xhs_read_me', { id: 'x' })).error === 'bad_argument');
 check('xhs_check_login 不接受参数', (await call('xhs_check_login', { x: 1 })).error === 'bad_argument');
 check('未知工具被拒绝', (await call('xhs_like', {})).error === 'unknown_tool');
 

@@ -14,7 +14,8 @@
 - **错误码**：`health.CODES` 新增 16 个 `PREFLIGHT_*`（带中文处理办法），阶段新增 `preflight`；`/api/agent/preflight.ps1` 公开下载
 - **干净机器验收**：`tools/clean-room/`（Windows 沙盒脚本，见其 README）
 - **怎么验证的**：`agent/tests/preflight-faults.mjs` 故障注入 12 项全过（Windows PowerShell 5.1，本机假中枢：中枢连不上、登录端口不通、MCP 端口不通、时钟差 1 小时、响应慢、回调端口被占、磁盘不够、路径含中文和空格、目录不可写、被 agent 拉起、代理指向死端口，加干净环境无 FAIL）；真实中枢上走 `irm | iex` 的 install.ps1 演练：正常通过，回调端口被占时停在第 0 步且没有创建任何目录；匿名上报真实写入了「应用健康」（测完已删）；后端 `tests/test_preflight.py` 4 项
-- **没验证的**：`PREFLIGHT_PS_CONSTRAINED`、`PREFLIGHT_EXEC_POLICY`、`PREFLIGHT_OS_UNSUPPORTED`、`PREFLIGHT_AV_BLOCK`、`PREFLIGHT_NO_EDGE` 没有注入测试（需要特定系统环境）；控制台「应用健康」页里新阶段的显示没有在浏览器里看；Windows 沙盒脚本没有运行过（本机的 Windows 沙盒功能是「已禁用」，需要你自己开启并重启）；Defender 日志在普通员工账号下是否可读不确定，读不到时会显示「未检查」
+- **没验证的**：`PREFLIGHT_PS_CONSTRAINED`、`PREFLIGHT_EXEC_POLICY`、`PREFLIGHT_OS_UNSUPPORTED`、`PREFLIGHT_AV_BLOCK`、`PREFLIGHT_NO_EDGE` 没有注入测试（需要特定系统环境）；控制台「应用健康」页里新阶段的显示没有在浏览器里看；Windows 沙盒脚本已在本机跑通一次（见下条）；Defender 日志在普通员工账号下是否可读不确定，读不到时会显示「未检查」
+- **沙盒验收结果（10-28）**：全新 Windows 10（PowerShell 5.1）里走 `install.ps1` 演练：自检 16 项全 PASS，装到登录前（演练）正常，退出码 0。要点：沙盒网段进不来本机端口时需放行防火墙入站规则（172.16.0.0/12 → 8088/8000/8200，用户自己加的）；沙盒只证明「环境干净时能走通」，不含浏览器采集、CodeBuddy 登录、WorkBuddy 代跑。
 - **环境提醒**：本机 `console/backend/.venv` 的 Python（`%APPDATA%/uv/python`）已不存在，pytest 跑不起来；这次后端测试是在 `hub-backend:dev` 镜像里用一个小脚本跑的。要恢复需要重新安装 uv 和 Python 再 `uv sync`
 
 ## 2026-10-27

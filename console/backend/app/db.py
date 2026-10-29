@@ -597,6 +597,13 @@ def denied_by_day(org: str, days: int) -> dict[str, int]:
     return {r["d"]: r["n"] for r in rows}
 
 
+def last_event_by_user(org: str) -> dict[str, datetime]:
+    """每个员工在审计里最近一条事件的时间（成员列表的「最近活跃」用）。"""
+    with connect() as conn:
+        rows = conn.execute("SELECT user_name, max(ts) AS ts FROM audit_events WHERE org = %s GROUP BY user_name", (org,)).fetchall()
+    return {r["user_name"]: r["ts"] for r in rows if r["user_name"]}
+
+
 def presence_rows(org: str) -> dict[str, dict]:
     with connect() as conn:
         return {r["user_name"]: r for r in conn.execute("SELECT * FROM agent_presence WHERE org = %s", (org,)).fetchall()}

@@ -206,7 +206,9 @@ def demo_rows(now: datetime | None = None) -> list[dict]:
 
 # ---------------- 在线状态与接入器版本（来自接入器每分钟的心跳，每人一条） ----------------
 
-ONLINE_SECONDS = 180  # 心跳每分钟一次，3 分钟内有心跳算在线
+from .presence import ONLINE_MINUTES  # noqa: E402
+
+ONLINE_SECONDS = ONLINE_MINUTES * 60  # 和成员页、总览同一个窗口（5 分钟）；原来这里是 3 分钟，同一个人在两个页面一个在线一个离线
 
 
 def version_tuple(v: str | None) -> tuple:

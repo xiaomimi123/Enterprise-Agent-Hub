@@ -78,3 +78,24 @@ def test_heartbeat_body_may_be_empty_so_the_workbench_does_not_overwrite_the_con
     from app.agent_api import Heartbeat
     hb = Heartbeat.model_validate({})
     assert (hb.client, hb.version, hb.os) == ("", "", "")        # 空值走 touch_presence 的 `or None`，库里原来的值保留
+
+
+def test_latest_activity_takes_the_latest_of_signin_presence_and_audit_event():
+    """成员页「最近活跃」曾只读 Casdoor 的 lastSigninTime（10-21），而同一个人今天还在用工作台。"""
+    signin = "2026-10-21T09:32:46+08:00"
+    seen = datetime(2026, 10, 29, 1, 48, 23, tzinfo=timezone.utc)          # 09:48 +08:00
+    event = datetime(2026, 10, 29, 1, 47, 6, tzinfo=timezone.utc)
+    assert presence.latest_activity(signin, seen, event) == seen.isoformat()
+    assert presence.latest_activity(signin, None, event) == event.isoformat()
+    assert presence.latest_activity(signin, None, None) == datetime.fromisoformat(signin).isoformat()   # 只有登录时间：照旧
+    assert presence.latest_activity(None, None, None) is None
+    assert presence.latest_activity("not a date", None, event) == event.isoformat()                      # 坏数据忽略
+    assert presence.latest_activity("2026-10-30T00:00:00Z", seen, event) == "2026-10-30T00:00:00+00:00"   # 登录时间最晚就用登录时间
+    naive = datetime(2026, 10, 29, 3, 0, 0)                                                              # 没有时区的按 UTC 处理，不抛异常
+    assert presence.latest_activity(None, naive, None) == naive.replace(tzinfo=timezone.utc).isoformat()
+
+
+def test_health_and_member_pages_use_the_same_online_window():
+    """应用健康页原来是 3 分钟、成员页和总览是 5 分钟：同一个人可能一个页面在线、另一个离线。"""
+    from app import health
+    assert health.ONLINE_SECONDS == presence.ONLINE_MINUTES * 60 == 300

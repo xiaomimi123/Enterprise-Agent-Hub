@@ -70,6 +70,27 @@ def daily_ops(online: dict[str, int], denied: dict[str, int], today: date, days:
     return out
 
 
+def _as_dt(v) -> datetime | None:
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    if isinstance(v, str) and v:
+        try:
+            d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def latest_activity(signin, seen, event) -> str | None:
+    """成员列表的「最近活跃」：Casdoor 上次密码登录、在线记录、审计里最近一条事件三者取最晚的。
+
+    只用 Casdoor 的 lastSigninTime 会错：员工接入后用令牌静默续期，不会再输入密码登录，这个时间永远停在首次登录那天，
+    而同一个人今天还在用工作台（2026-10-29 成员页写「8 天前」，实时活动里却有 1 小时前的记录）。"""
+    cands = [d for d in (_as_dt(signin), _as_dt(seen), _as_dt(event)) if d]
+    return max(cands).isoformat() if cands else None
+
+
 def member_agent(row: dict | None, now: datetime) -> dict:
     """把在线记录转成控制台成员列表的三个字段。"""
     if not row:

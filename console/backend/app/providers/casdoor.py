@@ -89,6 +89,10 @@ class CasdoorProvider(DemoProvider):
         members = []
         presence.sync_from_gateway(self.org)   # 模型网关里 5 分钟内调用过中枢模型的人也算在线（20 秒缓存）
         seen, now = db.presence_rows(self.org), datetime.now().astimezone()
+        try:
+            last_event = db.last_event_by_user(self.org)
+        except Exception:  # noqa: BLE001 读不到审计时「最近活跃」退回登录时间 / 在线记录
+            last_event = {}
         for u in self._users.values():
             group = next((g.split("/", 1)[-1] for g in (u.get("groups") or []) if g.split("/", 1)[-1] in dept_names), UNASSIGNED)
             pack = assigned.get(u["name"])
@@ -106,7 +110,7 @@ class CasdoorProvider(DemoProvider):
                 "is_admin": bool(u.get("isAdmin")),
                 "phone": u.get("phone") or "",
                 "email": u.get("email") or "",
-                "last_active": u.get("lastSigninTime") or u.get("createdTime"),
+                "last_active": presence.latest_activity(u.get("lastSigninTime") or u.get("createdTime"), (seen.get(u["name"]) or {}).get("last_seen"), last_event.get(u["name"])),
             })
 
         departments = []

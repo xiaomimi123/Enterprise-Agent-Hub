@@ -76,7 +76,16 @@
 - **CI**：新增 `.github/workflows/ci.yml`（后端 pytest、前端 tsc + oxlint、接入器语法、Windows 上的安装脚本测试）和本地入口 `tools/check.sh`（同样的检查）。本机跑 `check.sh` 全部通过：后端 427 项、tsc、oxlint（只有已有的 fast-refresh 警告）。**没验证**：GitHub 上真实运行（还没推送，远程是否启用 Actions 未知）；Windows 任务里三个 `agent/tests/*.mjs` 在 GitHub runner 上能否跑通。
 - **指标口径**：「在线」的判断收到 `presence.is_online`，成员页和应用健康都调它；新增 `tests/test_metric_consistency.py`：同一份在线记录在成员页 / 应用健康 / 顶部人数必须一致（含 5 分钟边界）；源码检查禁止 `presence.py` 之外引用在线窗口常量；花费只能经 `NewApi.repriced_quota` 重算（直接读记录里 `quota` 的文件限定为 `newapi.py` 和 `db.py` 的退路）。后端现 430 项通过。
 - 顺带：开发机上 `console/backend/.venv` 依赖的 uv 管理的 Python 目录（`%APPDATA%/uv/python`）不见了，`pytest` 起不来（原因不明）；用 `pip install --user uv` + `uv sync --frozen` 重建，现在是系统 Python 3.14（CI 用 3.12）。不影响容器。
-- 下一步：接入器灰度与回滚（计划第 2 项）。
+- 下一步：接入器灰度与回滚（计划第 2 项，见下一条）。
+
+## 2026-10-29（工程加固 2：接入器灰度与回滚，接入器 0.5.12）
+
+- **做了什么**：中枢可以决定谁拿哪个接入器版本。`agent/rollout.json`（stable / candidate / canary_users / force_stable）+ `agent/releases/<版本>/hub_agent.py` 快照；新接口 `/api/agent/update`、`/api/agent/hub_agent.py?version=`；老接入器问的 `/config` 和默认下载在有灰度配置时只给 stable。接入器 0.5.12 先问 `/update`，中枢标 force 才允许降级；旧中枢没有该接口就退回原来的做法。工具 `tools/release-agent.py`。
+- **为什么**：接入器自动更新，改一次文件就发给所有人，版本号只增不减、发错无法回退（评审建议第 2 项）。
+- **本机现状**：已快照 0.5.11、0.5.12，`rollout.json` = stable 0.5.11、candidate 0.5.12、灰度名单为空——**没有任何电脑会自动升到 0.5.12**，要放量时用 `tools/release-agent.py set` 填灰度名单，观察后再把 stable 设成 0.5.12。
+- **验证**：后端 438 项通过（新增 `test_rollout.py` 7 项、`test_hub_agent.py` 1 项）；重建中枢后对真实接口：`/config` 返回 0.5.11、默认下载是 0.5.11、`?version=0.5.12` 能取、`?version=9.9.9` 返回 404、`/update` 返回 stable；隔离目录里的 0.5.12 接入器对真实中枢：无 force 不动，`force_stable` 后退回 0.5.11 并留 `.bak-0.5.12`，之后已恢复配置。
+- **没验证**：真实员工电脑；灰度用户拿到 candidate 的真实令牌路径（单元测试覆盖）。
+- 文档：`docs/agent.md` 新增一节，`CLAUDE.md` 的坑里加了发布流程。
 
 ## 2026-10-29（总览与成员页数据不一致）
 

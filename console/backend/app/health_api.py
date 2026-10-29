@@ -5,12 +5,9 @@
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
 from fastapi import APIRouter, Query
 
-from . import db, health, presence
+from . import db, health, presence, rollout
 from .config import settings
 
 router = APIRouter(tags=["health"])
@@ -24,20 +21,10 @@ def _names() -> dict[str, str]:
         return {}
 
 
-_LATEST: dict = {}
-
-
 def latest_connector() -> str:
-    """中枢正在发布的接入器版本（agent/hub_agent.py 里的 VERSION），按文件修改时间缓存。"""
-    f = Path(settings.agent_dir) / "hub_agent.py"
-    try:
-        mtime = f.stat().st_mtime
-        if _LATEST.get("mtime") != mtime:
-            m = re.search(r'^VERSION = "([^"]+)"', f.read_text(encoding="utf-8"), re.M)
-            _LATEST.update(mtime=mtime, version=m.group(1) if m else "")
-        return _LATEST["version"]
-    except OSError:
-        return ""
+    """中枢正在发布给大家的接入器版本：有灰度配置时是 stable，否则是 agent/hub_agent.py 里的 VERSION。
+    旧版标记据此判断；灰度中的 candidate 不算「最新」，免得没升级的人都被标成旧版。"""
+    return rollout.stable_version(settings.agent_dir)
 
 
 @router.get("/health/summary")

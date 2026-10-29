@@ -41,3 +41,7 @@ apps/*/
 
 # 底座包构建产物（tools/build-bundle 生成，只在部署机上）
 bundle/
+
+# 接入器灰度发布（只在部署机上，见 tools/release-agent.py）
+agent/rollout.json
+agent/releases/

@@ -23,7 +23,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from . import accounts, app_access, apps, content, db, health, policy, skillstore, work
+from . import accounts, app_access, apps, content, db, health, policy, rollout, skillstore, work
 from .auth import _jwks_client
 from .config import settings
 from .newapi import SESSION_KEY_TTL, NewApi, NewApiError, plan_key, session_token_name, token_name
@@ -39,11 +39,12 @@ def _agent_client() -> tuple[str, str]:
 
 
 @router.get("/hub_agent.py")
-def agent_script():
-    """员工端接入器脚本：公开下载（不含任何密钥），控制台「接入方式」页里给出下载链接。"""
-    f = Path(settings.agent_dir) / "hub_agent.py"
-    if not f.is_file():
-        raise HTTPException(404, "中枢未挂载接入器脚本")
+def agent_script(version: str | None = None):
+    """员工端接入器脚本：公开下载（不含任何密钥），控制台「接入方式」页里给出下载链接。
+    有灰度配置（agent/rollout.json）时默认给 stable；`?version=` 只能取 stable / candidate（见 rollout.py）。"""
+    f = rollout.script_for(settings.agent_dir, version)
+    if not f:
+        raise HTTPException(404, "中枢没有这个版本的接入器脚本")
     return FileResponse(f, media_type="text/x-python; charset=utf-8", filename="hub_agent.py")
 
 
@@ -60,12 +61,20 @@ def install_script(kind: str):
 
 
 def _agent_version() -> str:
-    """中枢上挂载的接入器版本号（读脚本里的 VERSION = "x.y.z"），接入器据此决定要不要自动更新自己；读不到就返回空，不影响登录"""
+    """老版本接入器问的版本号：有灰度配置时是 stable，没有就是挂载文件里的 VERSION；读不到就返回空，不影响登录"""
+    return rollout.stable_version(settings.agent_dir)
+
+
+@router.get("/update")
+def update_plan(authorization: str | None = Header(default=None)):
+    """新版接入器（0.5.12 起）问「我该用哪个版本」：灰度名单里的人拿 candidate，其他人拿 stable；force 为真时允许降级（回滚）。
+    令牌可选且无效也不报错，按普通员工（stable）处理，更新检查不能因为登录问题失败。"""
+    user = None
     try:
-        m = re.search(r'^VERSION = "([^"]+)"', (Path(settings.agent_dir) / "hub_agent.py").read_text(encoding="utf-8"), re.M)
-        return m.group(1) if m else ""
-    except OSError:
-        return ""
+        user = _verify_agent_token(authorization)["name"]
+    except HTTPException:
+        pass
+    return rollout.choose(settings.agent_dir, user)
 
 
 @router.get("/config")

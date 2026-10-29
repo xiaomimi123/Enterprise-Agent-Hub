@@ -81,6 +81,16 @@ New API 不会记录客户端传来的任何自定义信息（请求头 `X-Reque
 
 **New API 限流**：`/api/token/search` 被全局限流（约每分钟 10 次，且所有请求共用一个管理员身份），几个人同时领取配置就会触发（HTTP 429、空响应）。现在改用列表接口 `/api/token/`（无此限流）分页取全部 key、按名字建索引缓存 30 秒（跨实例共享）；限流或非 JSON 响应统一报「New API … 返回 HTTP 429」。实测连续领取 7 次 2.3 秒内全部成功。
 
+## 接入器的灰度发布与回滚（0.5.12 起）
+
+接入器会自动更新自己，所以以前改一次 `agent/hub_agent.py` 就是发给所有人，而且版本号只增不减，发错了没法退回。现在中枢可以决定「谁拿哪个版本」（`app/rollout.py`）：
+
+- 部署机上放 `agent/rollout.json`（不进 git，示例见 `agent/rollout.example.json`）：`stable` 是大家默认拿的版本，`candidate` 只给 `canary_users` 里的人，`force_stable: true` 表示所有人退回 stable（回滚，允许比本机版本低）。每个版本的文件放 `agent/releases/<版本>/hub_agent.py`。
+- 新接口 `GET /api/agent/update`（令牌可选）返回这个人该用的 `{version, force}`；`GET /api/agent/hub_agent.py?version=` 只能取 stable / candidate。**老接入器（0.5.8–0.5.11）只问 `/api/agent/config` 和默认下载，这两个在有 rollout.json 时只给 stable**，所以老电脑拿不到灰度版本。「应用健康」里的“旧版”也是对照 stable。
+- 没有 rollout.json（或写坏了）时和以前完全一样：所有人拿挂载的那份。
+- 工具：`python tools/release-agent.py status | snapshot | set | clear`。发布：升 VERSION → `snapshot` → `set --stable 旧 --candidate 新 --canary 用户名…` → 在应用健康观察 → `set --stable 新`（放量）；出问题：`set --stable 旧 --force-stable`。电脑最多每 6 小时问一次，所以回滚最长 6 小时生效。
+- 验证：`tests/test_rollout.py`（选版本、回滚、非法版本、配置写坏）、`tests/test_hub_agent.py`（自更新跟随灰度 / 回滚 / 拒绝文件版本对不上）；对真实中枢：隔离目录里的 0.5.12 在 stable=0.5.11 时不动，加 `force_stable` 后退回 0.5.11 并留备份。**没验证**：真实员工电脑上的自动更新（只在隔离目录模拟）；灰度名单里的人拿到 candidate 走的是带令牌的真实路径，只用单元测试覆盖。
+
 ## 打开公司应用（open_app）
 
 员工对 agent 说「打开小红书工作台」→ agent 调 `open_app` → 本机 MCP 桥拦截中枢返回的启动凭证 → 检查 Node → 下载 zip 并核对 SHA-256 → 安全解压（拒绝绝对路径、`..`、符号链接、超限）到 `~/.hub-agent/apps/<应用>/<版本>/` → 执行应用的 `setup` / `start` → 把网址回报给员工，并向中枢回报启动结果（审计 `app.open` + `app.launch` 同一 trace ID）。同一应用并发打开串行化；运行中的实例不会被重启，新版本只提示升级。不走 MCP 桥的客户端（如 Hermes）用 `hub_agent.py open-app <应用 id>`。应用里的底层 agent 通过 `HUB_MCP_SERVERS_FILE`（`~/.hub-agent/hub-mcp.json`，嵌套桥 `--nested`，沿用 `HUB_TRACE_ID`）接入同一个中枢。设计见 [spec](superpowers/specs/2026-10-19-app-launcher-design.md)，发布方式见 [apps/README.md](../apps/README.md)。

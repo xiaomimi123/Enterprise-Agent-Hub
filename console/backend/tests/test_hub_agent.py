@@ -699,7 +699,7 @@ def _installed(tmp_path, monkeypatch, version="0.5.7"):
     return home, script
 
 
-def _hub(monkeypatch, remote, src=None, fail=False):
+def _hub(monkeypatch, remote, src=None, fail=False, plan=None):
     calls = []
 
     class R:
@@ -716,6 +716,8 @@ def _hub(monkeypatch, remote, src=None, fail=False):
         calls.append(url)
         if fail:
             raise OSError("连不上中枢")
+        if url.endswith("/api/agent/update"):
+            return R(plan)                                             # None = 旧中枢没有这个接口，接入器退回 /config
         if url.endswith("/api/agent/config"):
             return R({"agent_version": remote})
         return R(content=(src if src is not None else f'VERSION = "{remote}"\ndef cmd_mcp(): pass\ndef main(): pass\n').encode("utf-8"))
@@ -730,7 +732,7 @@ def test_self_update_replaces_installed_copy_when_hub_is_newer(tmp_path, monkeyp
     assert 'VERSION = "0.5.8"' in script.read_text(encoding="utf-8")
     assert 'VERSION = "0.5.7"' in (home / "hub_agent.py.bak-0.5.7").read_text(encoding="utf-8")   # 旧版本留了备份
     assert not (home / "hub_agent.py.new").exists()
-    assert hub_agent.maybe_self_update("http://hub") is None and len(calls) == 2                 # 6 小时内不再问
+    assert hub_agent.maybe_self_update("http://hub") is None and len(calls) == 3                 # 6 小时内不再问（第一次：update、config、下载）
 
 
 def test_self_update_leaves_things_alone_when_not_needed_or_unsafe(tmp_path, monkeypatch):
@@ -789,3 +791,26 @@ def test_npm_installs_default_to_the_china_mirror_and_can_be_overridden():
     assert hub_agent.NPM_REGISTRY == "https://registry.npmmirror.com"             # 没设 HUB_NPM_REGISTRY 时
     warm = ids(pf(warm=False, cb_home=None))["playwright_mcp"]["fix"]["argv"]
     assert warm[:4] == ["npx", "-y", "--registry", hub_agent.NPM_REGISTRY]
+
+
+def test_self_update_follows_rollout_plan_canary_and_rollback(tmp_path, monkeypatch):
+    # 灰度名单里的人：中枢说该用 0.5.9（比 /config 的 stable 0.5.8 新）→ 升到 0.5.9
+    home, script = _installed(tmp_path / "canary", monkeypatch, "0.5.7")
+    _hub(monkeypatch, "0.5.8", plan={"version": "0.5.9", "force": False}, src='VERSION = "0.5.9"\ndef cmd_mcp(): pass\ndef main(): pass\n')
+    assert hub_agent.maybe_self_update("http://hub", "tok") == "0.5.9"
+    # 回滚：本机 0.5.9，中枢说 stable 是 0.5.8 且 force → 降级，旧文件留备份
+    home, script = _installed(tmp_path / "rollback", monkeypatch, "0.5.9")
+    _hub(monkeypatch, "0.5.9", plan={"version": "0.5.8", "force": True}, src='VERSION = "0.5.8"\ndef cmd_mcp(): pass\ndef main(): pass\n')
+    assert hub_agent.maybe_self_update("http://hub", "tok") == "0.5.8"
+    assert 'VERSION = "0.5.8"' in script.read_text(encoding="utf-8") and (home / "hub_agent.py.bak-0.5.9").exists()
+    # 没有 force 就不降级；同版本不动
+    home, script = _installed(tmp_path / "nodown", monkeypatch, "0.5.9")
+    _hub(monkeypatch, "0.5.9", plan={"version": "0.5.8", "force": False})
+    assert hub_agent.maybe_self_update("http://hub") is None and 'VERSION = "0.5.9"' in script.read_text(encoding="utf-8")
+    home, script = _installed(tmp_path / "same", monkeypatch, "0.5.8")
+    _hub(monkeypatch, "0.5.8", plan={"version": "0.5.8", "force": True})
+    assert hub_agent.maybe_self_update("http://hub") is None
+    # 中枢给的版本号和下载到的文件对不上（拿错文件）：即使 force 也不换
+    home, script = _installed(tmp_path / "mismatch", monkeypatch, "0.5.9")
+    _hub(monkeypatch, "0.5.9", plan={"version": "0.5.8", "force": True}, src='VERSION = "0.5.7"\ndef cmd_mcp(): pass\ndef main(): pass\n')
+    assert hub_agent.maybe_self_update("http://hub") is None and 'VERSION = "0.5.9"' in script.read_text(encoding="utf-8")

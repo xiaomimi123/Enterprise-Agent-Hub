@@ -50,7 +50,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.11"
+VERSION = "0.5.12"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -1497,7 +1497,7 @@ def report_app_event(creds: dict, hub: str, ticket: dict, result: dict) -> None:
 def cmd_open_app(args) -> None:
     """open-app <应用 id>：向中枢取启动凭证并在本机打开（给不走 MCP 桥的客户端，如 Hermes）。"""
     creds = fresh_creds()
-    maybe_self_update(creds["hub"])
+    maybe_self_update(creds["hub"], creds.get("access_token"))
     os.environ.setdefault("HUB_TRACE_ID", new_trace_id())
     r = httpx.post(f"{creds['hub']}/api/agent/open-app", timeout=30, json={"app_id": args.app_id},
                    headers={"Authorization": f"Bearer {creds['access_token']}", "X-Hub-Trace-Id": os.environ["HUB_TRACE_ID"]})
@@ -1645,13 +1645,14 @@ def _ver_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
 
 
-def maybe_self_update(hub: str) -> str | None:
+def maybe_self_update(hub: str, token: str | None = None) -> str | None:
     """中枢上的接入器比本机新，就把自己换成新版本（下次运行生效）；返回新版本号，没更新返回 None。
 
     为什么：接入器以前只能靠重新跑安装命令升级，员工电脑停在装机时的版本（0.5.6 的会话失效缺陷就是这样一直留在员工电脑上）。
     保守做法：只更新「装在 ~/.hub-agent 里的那一份」（开发时直接跑仓库里的脚本不动）；新文件必须是合法 Python、
     版本号和中枢宣告的一致、含主要入口，才原子替换，旧文件留一份备份；任何一步出错都当没更新；每 6 小时最多问一次。
-    HUB_AGENT_NO_UPDATE=1 可关闭。"""
+    灰度与回滚（0.5.12 起，中枢侧见 console/backend/app/rollout.py）：先问 /api/agent/update 得到「这个人该用的版本」，中枢标 force 时
+    允许降级。HUB_AGENT_NO_UPDATE=1 可关闭。"""
     if os.environ.get("HUB_AGENT_NO_UPDATE") == "1":
         return None
     try:
@@ -1662,10 +1663,21 @@ def maybe_self_update(hub: str) -> str | None:
         if mark.exists() and time.time() - mark.stat().st_mtime < SELF_UPDATE_EVERY:
             return None
         mark.write_text(str(int(time.time())), encoding="utf-8")  # 先记下：失败也不要每次运行都重试
-        remote = str(httpx.get(f"{hub}/api/agent/config", timeout=8).json().get("agent_version") or "")
-        if not remote or _ver_tuple(remote) <= _ver_tuple(VERSION):
+        # 0.5.12 起先问「我该用哪个版本」：灰度名单里的人拿候选版本，force 表示回滚（允许比本机低）；
+        # 中枢没有这个接口（旧中枢）或没配灰度时，退回原来的做法：问 /config 里的版本号，只升不降
+        plan, force = None, False
+        try:
+            j = httpx.get(f"{hub}/api/agent/update", headers={"Authorization": f"Bearer {token}"} if token else {}, timeout=8).json()
+            if isinstance(j, dict) and j.get("version"):
+                plan, force = j, bool(j.get("force"))
+        except Exception:  # noqa: BLE001
+            plan = None
+        remote = str(plan["version"]) if plan else str(httpx.get(f"{hub}/api/agent/config", timeout=8).json().get("agent_version") or "")
+        if not remote or not _ver_tuple(remote):
             return None
-        r = httpx.get(f"{hub}/api/agent/hub_agent.py", timeout=30)
+        if _ver_tuple(remote) == _ver_tuple(VERSION) or (_ver_tuple(remote) < _ver_tuple(VERSION) and not force):
+            return None
+        r = httpx.get(f"{hub}/api/agent/hub_agent.py", params={"version": remote} if plan else None, timeout=30)
         r.raise_for_status()
         src = r.content.decode("utf-8")
         ast.parse(src)
@@ -1702,7 +1714,7 @@ def cmd_mcp(args=None) -> None:
         threading.Thread(target=_outbox_loop, daemon=True).start()
     creds = fresh_creds()
     if not nested:
-        maybe_self_update(creds["hub"])
+        maybe_self_update(creds["hub"], creds.get("access_token"))
     mcp_url = httpx.get(f"{creds['hub']}/api/agent/config", timeout=15).json()["mcp_url"]
     headers = bridge_headers()
     session: dict = {}  # 记下 agent 的 initialize 请求，会话失效时用它重新握手

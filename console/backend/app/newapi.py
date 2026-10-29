@@ -258,14 +258,39 @@ class NewApi:
                     out.append(m.strip())
         return out
 
+    def price_table(self, models) -> dict[str, tuple[float, float]]:
+        """已配置价格的模型 → (输入, 输出) 美元 / 百万 token。读不到价格就返回空，调用方退回调用记录里的额度（不会因此报错）。"""
+        models = sorted({m for m in models if m})
+        if not models:
+            return {}
+        try:
+            rows = self.get_pricing(models)
+        except Exception:  # noqa: BLE001 价格读不到不能让用量页面 / 领取配置失败
+            return {}
+        return {r["model"]: (float(r.get("input_per_m") or 0), float(r.get("output_per_m") or 0)) for r in rows if r.get("configured")}
+
+    @staticmethod
+    def repriced_quota(log: dict, table: dict[str, tuple[float, float]]) -> int:
+        """一条调用记录按**当前配置的价格**重算的额度。
+
+        为什么不直接用记录里的 quota：它是调用当时 New API 按当时的倍率算的。模型价格没设（默认倍率 37.5，每百万 token $75）或设错的那段时间，
+        记录里的额度会虚高（2026-10-21 一天记成 $847，同样的 token 按现在的价格只有 $50 左右），本月花费和员工的月额度都被带歪。
+        模型没配价格（table 里没有）时退回记录里的额度。"""
+        price = table.get(log.get("model_name") or "")
+        if not price:
+            return int(log.get("quota") or 0)
+        usd = (int(log.get("prompt_tokens") or 0) * price[0] + int(log.get("completion_tokens") or 0) * price[1]) / 1_000_000
+        return round(usd * QUOTA_PER_USD)
+
     def month_used_quota(self, name: str) -> int:
-        """这个人本月已用的额度：基础 key 加上他所有会话 key 的合计（New API 的累计用量不分月，按调用日志算）。"""
+        """这个人本月已用的额度：基础 key 加上他所有会话 key 的合计（New API 的累计用量不分月，按调用日志算，价格按当前配置重算）。"""
         start = time.localtime()
         month_start = time.mktime((start.tm_year, start.tm_mon, 1, 0, 0, 0, 0, 0, -1))
         mine = (name, )
-        return sum(int(log.get("quota") or 0) for log in self.logs(days=31)
-                   if (log.get("token_name") or "").split(SESSION_SEP, 1)[0] in mine
-                   and (log.get("created_at") or 0) >= month_start)
+        logs = [log for log in self.logs(days=31)
+                if (log.get("token_name") or "").split(SESSION_SEP, 1)[0] in mine and (log.get("created_at") or 0) >= month_start]
+        table = self.price_table(log.get("model_name") for log in logs)   # 按当前价格重算，见 repriced_quota
+        return sum(self.repriced_quota(log, table) for log in logs)
 
     def purge_expired_sessions(self, base_name: str) -> int:
         """删除这个人已过期的会话 key，返回删除个数。基础 key 永不动。

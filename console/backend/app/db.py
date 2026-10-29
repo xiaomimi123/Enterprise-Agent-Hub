@@ -406,7 +406,7 @@ MODEL_TAIL_SECONDS = 600  # 最后一步工具调用之后，模型还要组织�
 
 
 def attach_model_calls(traces: list[dict], logs: list[dict], org: str, usd_cny: float,
-                       official_channel: str = "官方 agent") -> None:
+                       official_channel: str = "官方 agent", quota_of=None) -> None:
     """把 New API 的模型调用日志并入链路的步骤。
 
     归属分两层：
@@ -425,8 +425,8 @@ def attach_model_calls(traces: list[dict], logs: list[dict], org: str, usd_cny: 
             "time": datetime.fromtimestamp(log.get("created_at") or 0).astimezone().replace(microsecond=0).isoformat(),
             "kind": "模型", "tool": "llm.chat", "result": "通过", "tokens": tokens, "model": model,
             "detail": f"调用模型 {model}（输入 {log.get('prompt_tokens') or 0} / 输出 {log.get('completion_tokens') or 0} tokens）",
-            # New API 的额度单位：500000 = 1 美元
-            "cost": (log.get("quota") or 0) / 500000 * usd_cny,
+            # New API 的额度单位：500000 = 1 美元；quota_of 可以按当前价格重算（记录里的额度在价格没设好时会虚高）
+            "cost": (quota_of(log) if quota_of else (log.get("quota") or 0)) / 500000 * usd_cny,
         })
 
     by_id = {t["id"]: t for t in traces if t["channel"] == official_channel}

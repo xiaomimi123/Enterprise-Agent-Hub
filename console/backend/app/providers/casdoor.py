@@ -51,6 +51,7 @@ class CasdoorProvider(DemoProvider):
         self._kb_imported = False
         self.newapi = NewApi()
         self._usage_synced_at = 0.0
+        self._price_table: dict[str, tuple[float, float]] = {}   # 最近一次读到的模型价格，链路花费重算用
         self._model_logs: list[dict] = []
         self._users: dict[str, dict] = {}
         self._groups: list[dict] = []
@@ -133,7 +134,8 @@ class CasdoorProvider(DemoProvider):
             "knowledge_bases": self._knowledge_bases(events),
         })
         self._sync_usage()
-        db.attach_model_calls(traces, self._model_logs, self.org, settings.usd_cny)
+        db.attach_model_calls(traces, self._model_logs, self.org, settings.usd_cny,
+                              quota_of=lambda lg: self.newapi.repriced_quota(lg, self._price_table))   # 链路里的模型花费也按当前价格重算
         self._sync_gpu()
 
     def _sync_gpu(self) -> None:
@@ -175,13 +177,15 @@ class CasdoorProvider(DemoProvider):
         daily: dict[tuple, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
         per_member: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "cost": 0.0, "calls": 0})
         models = {m["id"] for m in self.d["models"]}
+        table = self.newapi.price_table(log.get("model_name") for log in logs)   # 花费按当前配置的价格重算（记录里的额度可能是价格没设好时记的，虚高）
+        self._price_table = table
         for log in logs:
             user = user_from_token_name(log.get("token_name") or "", self.org)
             if not user:
                 continue
             tokens = int(log.get("prompt_tokens") or 0) + int(log.get("completion_tokens") or 0)
-            # New API 的额度单位：500000 = 1 美元
-            cost = (log.get("quota") or 0) / 500000 * settings.usd_cny
+            # New API 的额度单位：500000 = 1 美元；额度按当前价格重算（模型没配价格时才用记录里的）
+            cost = self.newapi.repriced_quota(log, table) / 500000 * settings.usd_cny
             model = log.get("model_name") or "unknown"
             if model not in models:
                 self.d["models"].append({"id": model, "name": model, "location": "模型网关", "rate": 0.0})

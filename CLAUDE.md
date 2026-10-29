@@ -59,7 +59,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 
 ## 已知的坑
 
-- **模型必须设价格**：没设的模型按默认倍率 37.5（每百万 token $75）计费，费用虚高，月度额度几小时被花光，之后网关返回 403。在「模型」页设价格。
+- **模型必须设价格**：没设的模型按默认倍率 37.5（每百万 token $75）计费，费用虚高，月度额度几小时被花光，之后网关返回 403。在「模型」页设价格。**记录里的额度是调用当时按当时倍率记的，价格没设好那段时间会虚高**（2026-10-21 一天记成 $847、10-27 按 $105/M，本月显示 ¥6802）：所以控制台的本月花费、按人 / 按天用量、链路里的模型花费，以及员工月额度的「本月已用」，都改成**按当前配置的价格用 token 数重算**（`NewApi.repriced_quota`，模型没配价格时才退回记录里的额度）。改了价格后历史会跟着重算；想核对时在 New API 日志里看 token 数乘以价格，不要直接信 `quota`。
 - **身份用 Casdoor 自建账号，不接钉钉**。员工首次登录要改初始密码；停用成员 30 秒内令牌失效。
 - **Windows**：控制台默认 GBK，脚本要加 `PYTHONUTF8=1`；脚本里写文件别用会把 `\n` 转成真换行的方式；`navigator.clipboard` 在 http 下不可用，复制用 `lib.ts` 的 `copyText`。
 - **不要对真实 `%APPDATA%` 跑接入器 `setup`**：它会往 Claude 桌面版配置里加 `enterprise-hub`。测试时用隔离的 `USERPROFILE` / `APPDATA`，或用 `HUB_INSTALL_DRYRUN=1`。

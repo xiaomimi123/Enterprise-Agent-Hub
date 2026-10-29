@@ -69,6 +69,15 @@
 - 验证：真实 `install.ps1`（隔离目录、`HUB_INSTALL_TOOLS=yes`）从底座装 Node，再用 npmmirror 装 CodeBuddy，102 个包 7 秒，`codebuddy` 2.177.1；后端测试 90 项通过（新增镜像参数测试，并修正一处按位置取包名的旧断言）
 - 没验证：`app-doctor` 的修复命令只有镜像一次、没有退回官方源；真正国内网络下的速度（本机能访问两边）；腾讯云镜像没作为备选写进脚本
 
+## 2026-10-29（工程加固 1：CI 与指标口径单一来源）
+
+计划见 [drafts/优化计划-CI-接入器灰度-指标口径.md](drafts/优化计划-CI-接入器灰度-指标口径.md)（来自项目评审的前三条建议）。
+
+- **CI**：新增 `.github/workflows/ci.yml`（后端 pytest、前端 tsc + oxlint、接入器语法、Windows 上的安装脚本测试）和本地入口 `tools/check.sh`（同样的检查）。本机跑 `check.sh` 全部通过：后端 427 项、tsc、oxlint（只有已有的 fast-refresh 警告）。**没验证**：GitHub 上真实运行（还没推送，远程是否启用 Actions 未知）；Windows 任务里三个 `agent/tests/*.mjs` 在 GitHub runner 上能否跑通。
+- **指标口径**：「在线」的判断收到 `presence.is_online`，成员页和应用健康都调它；新增 `tests/test_metric_consistency.py`：同一份在线记录在成员页 / 应用健康 / 顶部人数必须一致（含 5 分钟边界）；源码检查禁止 `presence.py` 之外引用在线窗口常量；花费只能经 `NewApi.repriced_quota` 重算（直接读记录里 `quota` 的文件限定为 `newapi.py` 和 `db.py` 的退路）。后端现 430 项通过。
+- 顺带：开发机上 `console/backend/.venv` 依赖的 uv 管理的 Python 目录（`%APPDATA%/uv/python`）不见了，`pytest` 起不来（原因不明）；用 `pip install --user uv` + `uv sync --frozen` 重建，现在是系统 Python 3.14（CI 用 3.12）。不影响容器。
+- 下一步：接入器灰度与回滚（计划第 2 项）。
+
 ## 2026-10-29（总览与成员页数据不一致）
 
 **成员页「最近活跃」和总览「实时活动」对不上：统一口径**

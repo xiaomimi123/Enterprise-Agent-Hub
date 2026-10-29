@@ -86,6 +86,7 @@ class CasdoorProvider(DemoProvider):
         defaults = db.dept_defaults(self.org)
 
         members = []
+        presence.sync_from_gateway(self.org)   # 模型网关里 5 分钟内调用过中枢模型的人也算在线（20 秒缓存）
         seen, now = db.presence_rows(self.org), datetime.now().astimezone()
         for u in self._users.values():
             group = next((g.split("/", 1)[-1] for g in (u.get("groups") or []) if g.split("/", 1)[-1] in dept_names), UNASSIGNED)

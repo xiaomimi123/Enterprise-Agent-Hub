@@ -570,6 +570,17 @@ def touch_presence(org: str, user_name: str, client: str | None = None, version:
                      "ON CONFLICT DO NOTHING", (org, user_name))
 
 
+def touch_presence_at(org: str, user_name: str, ts) -> None:
+    """用一个已发生的时间点刷新在线时间（模型网关里的最近一次调用）：只往后推，不会把更新的时间改旧；不动 client / version / os。"""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO agent_presence (org, user_name, last_seen) VALUES (%s, %s, %s) "
+            "ON CONFLICT (org, user_name) DO UPDATE SET last_seen = GREATEST(agent_presence.last_seen, EXCLUDED.last_seen)",
+            (org, user_name, ts))
+        conn.execute("INSERT INTO agent_presence_daily (org, day, user_name) VALUES (%s, (%s::timestamptz)::date, %s) "
+                     "ON CONFLICT DO NOTHING", (org, ts, user_name))
+
+
 def online_by_day(org: str, days: int) -> dict[str, int]:
     with connect() as conn:
         rows = conn.execute("SELECT day::text AS d, count(*) AS n FROM agent_presence_daily "

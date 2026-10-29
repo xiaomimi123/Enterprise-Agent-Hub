@@ -41,6 +41,7 @@ export default function Overview() {
   if (loading || !data) return <Skeleton active paragraph={{ rows: 14 }} style={{ marginTop: 24 }} />
   const s = data.stats
   const ops = data.daily_ops
+  const activeToday = ops.length ? ops[ops.length - 1].online : 0   // 今天有过信号（心跳、调用中枢工具、用中枢模型）的人数，不会因为此刻没开 agent 就归零
   const budgetPct = Math.round((s.cost_month / s.budget_month) * 100)
   const maxDept = Math.max(...data.cost_by_dept.map((d) => d.cost))
 
@@ -48,7 +49,7 @@ export default function Overview() {
     <>
       <PageHeader
         title={`${greeting()}，${session.user.display_name || '管理员'} 👋`}
-        sub={<>今天有 <b className="num" style={{ color: 'var(--ink)' }}>{s.agents_online}</b> 个 agent 在线工作，
+        sub={<>现在有 <b className="num" style={{ color: 'var(--ink)' }}>{s.agents_online}</b> 人在线，今天共 <b className="num" style={{ color: 'var(--ink)' }}>{activeToday}</b> 人用过，
           中枢拦截了 <b className="num" style={{ color: 'var(--red)' }}>{s.denied_today}</b> 次越权访问，
           <b className="num" style={{ color: 'var(--ink)' }}>{s.pending_approvals}</b> 个动作等待员工确认。</>}
         extra={<span className="chip">{dayjs().format('YYYY 年 M 月 D 日 dddd')}</span>}
@@ -57,7 +58,7 @@ export default function Overview() {
       <div className="stack">
         <section className="panel kpi-strip">
           <Kpi label="在线 agent" value={s.agents_online} unit={`/ ${s.members}`}
-            note={`已安装 ${s.agents_installed} 台`} spark={ops.map((d) => d.online)} />
+            note={`已安装 ${s.agents_installed} 台 · 今日活跃 ${activeToday} 人`} spark={ops.map((d) => d.online)} />
           <Kpi label="今日任务" value={s.tasks_today.toLocaleString()} unit="次"
             note={`Token ${tokens(s.tokens_today)}`} spark={data.trend.map((t) => t.tokens)} color={p.green} />
           <div className="kpi">

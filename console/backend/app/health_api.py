@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Query
 
-from . import db, health
+from . import db, health, presence
 from .config import settings
 
 router = APIRouter(tags=["health"])
@@ -49,6 +49,7 @@ def summary(days: int = Query(7, ge=1, le=health.RETENTION_DAYS), app_id: str | 
         return {**data, "apps": [("xhs-workbench", "0.7.9")], "days": days}
     rows = db.health_events(settings.casdoor_org, days, app_id=app_id or None, app_version=app_version or None)
     names = _names()
+    presence.sync_from_gateway(settings.casdoor_org)   # 和总览 / 成员页同一套在线判断
     data = health.merge_presence(health.summarize(rows, names), db.presence_rows(settings.casdoor_org), latest_connector(), names, days)
     data["apps"] = sorted({(r["app_id"], r["app_version"]) for r in rows if r["app_id"]}, reverse=True)
     data["days"] = days

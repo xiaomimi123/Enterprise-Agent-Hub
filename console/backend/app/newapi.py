@@ -293,6 +293,17 @@ class NewApi:
                 n += 1
         return n
 
+    def recent_logs(self, since: int, page_size: int = 100, max_pages: int = 3) -> list[dict]:
+        """最近的消费记录（type=2），只取 since（秒级时间戳）之后的最新几页；给「谁在线」用，比 logs() 轻得多。"""
+        out: list[dict] = []
+        for p in range(1, max_pages + 1):
+            data = self._call("GET", "/api/log/", params={"p": p, "page_size": page_size, "type": 2, "start_timestamp": int(since)})
+            items = data.get("items", []) if isinstance(data, dict) else (data or [])
+            out += items
+            if len(items) < page_size:
+                break
+        return out
+
     def logs(self, days: int = 30, page_size: int = 100, max_pages: int = 50) -> list[dict]:
         """近 N 天的模型调用日志（type=2 为消费记录）。"""
         start = int(time.time()) - days * 86400

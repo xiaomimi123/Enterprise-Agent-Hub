@@ -8,9 +8,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from . import db, kbmeta, kbstore, roles, skillstore
 from .content import KB_REGISTRY
 from .skillstore import ALL, SkillError
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.proposals")
 
 DAILY_LIMIT = 10
 KINDS = ("skill", "doc", "new_doc")
@@ -183,7 +188,7 @@ def _credit_proposer(row: dict) -> None:
                              "title": f"建议被采纳：{row['summary'][:80]}", "status": "已完成", "progress": 100, "source": "改进建议",
                              "trace_id": row["trace_id"], "ext_key": f"proposal:{row['id']}"})
     except Exception:  # noqa: BLE001 记成果失败不影响采纳
-        pass
+        warn_throttled(log, "proposals.work_item", "建议被采纳后记录成果失败（采纳本身已生效）")
 
 
 def _org() -> str:

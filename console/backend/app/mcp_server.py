@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import asyncio
 import json
 from urllib.parse import unquote
@@ -26,6 +28,9 @@ from .auth import _jwks_client
 from .config import settings
 from .content import KB_BY_NAME, KB_REGISTRY
 from .skillstore import SkillError
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.mcp_server")
 
 INSTRUCTIONS = """这是员工所在公司的企业智能体中枢，代表公司内部的资料、规范和算力。
 凡是和本公司有关的问题（产品、品牌、制度、违禁词、售后、历史爆款等），先用 search_knowledge 查公司资料，不要联网搜索或凭常识回答；
@@ -93,7 +98,7 @@ def _principal() -> policy.Principal:
         try:
             db.touch_presence(p.org, p.user_name)
         except Exception:  # noqa: BLE001 记在线失败不影响工具调用
-            pass
+            warn_throttled(log, "mcp.presence", "工具调用时记录在线状态失败（不影响调用）")
     return p
 
 

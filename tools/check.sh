@@ -10,8 +10,8 @@ PY=console/backend/.venv/Scripts/python
 echo "== 后端测试"
 (cd console/backend && "../../$PY" -m pytest -q)
 
-echo "== 前端类型检查与 lint"
-(cd console/frontend && npx tsc -b && npx oxlint src)
+echo "== 前端类型检查、lint 与冒烟测试"
+(cd console/frontend && npx tsc -b && npx oxlint src && npm test)
 
 echo "== 接入器语法"
 "$PY" -m py_compile agent/hub_agent.py

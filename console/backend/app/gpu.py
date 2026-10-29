@@ -23,6 +23,7 @@ from . import db
 from . import h3gateway, imageapi
 from .comfyui import ComfyUI, load_workflow
 from .config import settings
+from .logutil import warn_throttled
 
 log = logging.getLogger("hub.gpu")
 LINK_TTL = 7 * 86400  # 下载链接有效期
@@ -194,6 +195,7 @@ def _refresh_nodes(nodes: list[dict]) -> set[str]:
             db.update_node_status(n["id"], True, int(dev.get("vram_total") or 0), int(dev.get("vram_free") or 0))
             online.add(n["id"])
         except Exception:  # noqa: BLE001 节点离线或网络异常
+            warn_throttled(log, f"gpu.node.{n['id']}", "GPU 节点 %s 不可达，标记为离线", n.get("name") or n["id"])
             db.update_node_status(n["id"], False)
     return online
 

@@ -78,6 +78,15 @@
 - 顺带：开发机上 `console/backend/.venv` 依赖的 uv 管理的 Python 目录（`%APPDATA%/uv/python`）不见了，`pytest` 起不来（原因不明）；用 `pip install --user uv` + `uv sync --frozen` 重建，现在是系统 Python 3.14（CI 用 3.12）。不影响容器。
 - 下一步：接入器灰度与回滚（计划第 2 项，见下一条）。
 
+## 2026-10-29（工程加固 3：降级留日志、前端冒烟测试、CLAUDE.md 整理）
+
+评审建议第 5、6、7 项（第 4 项“上云前的运维基础”暂缓，等部署计划）。
+
+- **降级不再悄无声息**（`app/logutil.py` 的 `warn_throttled`，同一处 10 分钟最多一条）：8 处“读不到就退回默认值”原来是静默的——价格读不到（花费悄悄按记录额度算、会虚高）、审计读不到（成员“最近活跃”悄悄退回登录时间）、成员名单 / 模型清单 / 在线记录 / 成果 / 待处理建议数 / GPU 节点探测。行为不变，只加日志。新增 `tests/test_logutil.py`：节流、价格失败留日志、**源码检查 `except Exception` 后面必须有日志或重新抛出**，以后再写静默的会直接测试失败。没有把它们改成更窄的异常类型：这些位置要吞的是网络 / 数据库 / 对方服务的各种错误，窄了反而会漏。
+- **前端冒烟测试**（vitest + Testing Library + jsdom，`npm test`，7 项）：登录守卫（已登录 / 403 / 中枢出错 / 401 去取登录地址）、总览（在线人数、今日活跃、拦截数和接口一致；接口出错显示错误）、成员页（在线 / 离线和“最近活跃”来自接口）。用假的中枢接口渲染真实页面，数据来自后端演示模式的真实输出（`src/test/fixtures/`）。做过变异检查：把总览的在线人数改成成员总数，测试会失败。测试配置在 `vitest.config.ts`（vitest 自带的 vite 类型和项目的 vite 版本冲突，不能写进 `vite.config.ts`）。CI 和 `tools/check.sh` 都加了 `npm test`。**没覆盖**：图表（jsdom 没有 canvas，换成占位）、各页面的写操作、真实浏览器里的样式。
+- **CLAUDE.md 整理**：20KB → 10KB。完整的 24 条踩坑原文原样搬到 [已知的坑.md](已知的坑.md)，按 7 个主题分组；CLAUDE.md 只留 10 条最容易踩、代价最大的，并链接过去。
+- **验证**：`tools/check.sh` 全绿（后端 441 项、tsc、oxlint 只有已有的警告、前端 7 项）；中枢已重建。**没验证**：GitHub Actions 真实运行。
+
 ## 2026-10-29（工程加固 2：接入器灰度与回滚，接入器 0.5.12）
 
 - **做了什么**：中枢可以决定谁拿哪个接入器版本。`agent/rollout.json`（stable / candidate / canary_users / force_stable）+ `agent/releases/<版本>/hub_agent.py` 快照；新接口 `/api/agent/update`、`/api/agent/hub_agent.py?version=`；老接入器问的 `/config` 和默认下载在有灰度配置时只给 stable。接入器 0.5.12 先问 `/update`，中枢标 force 才允许降级；旧中枢没有该接口就退回原来的做法。工具 `tools/release-agent.py`。

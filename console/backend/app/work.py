@@ -9,10 +9,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 from . import db, policy
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.work")
 
 STATUSES = ("进行中", "待审核", "已完成", "受阻")
 MAX_TITLE, MAX_KIND, MAX_NOTE, MAX_LINK = 120, 20, 300, 300
@@ -228,6 +233,7 @@ def _open_proposals(depts: list[str] | None) -> int:
     try:
         return len(proposals.list_for(scope, "open"))
     except Exception:  # noqa: BLE001 没有这张表（旧库）时不影响日报
+        warn_throttled(log, "work.open_proposals", "统计待处理的改进建议失败，日报里按 0 显示")
         return 0
 
 

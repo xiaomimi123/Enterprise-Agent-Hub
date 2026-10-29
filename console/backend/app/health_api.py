@@ -5,10 +5,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Query
 
 from . import db, health, presence, rollout
 from .config import settings
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.health_api")
 
 router = APIRouter(tags=["health"])
 
@@ -18,6 +23,7 @@ def _names() -> dict[str, str]:
     try:
         return {m.get("id"): m.get("name", "") for m in provider.members()}
     except Exception:  # noqa: BLE001 拿不到成员名单就用事件里记的名字
+        warn_throttled(log, "health.names", "应用健康页读取成员名单失败，设备列表改用事件里记的名字")
         return {}
 
 

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import io
 import mimetypes
 from datetime import datetime, timedelta
@@ -19,6 +21,9 @@ from . import agent_api, apps, auth, db, depts_api, gpu, health_api, kb_api, pro
 from .config import settings
 from .providers.base import Provider
 from .providers.demo import DemoProvider, NotFound
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.main")
 
 
 def make_provider() -> Provider:
@@ -169,8 +174,8 @@ def catalog():
         na = models_api.make_newapi()
         if na.configured:
             data = {**data, "models": [{"id": m, "name": m, "location": "上游", "rate": ""} for m in na.available_models()]}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 网关不可用：保留原清单
+        warn_throttled(log, "main.catalog", "读取模型网关的可用模型失败，岗位包的模型清单沿用原清单")
     return data
 
 

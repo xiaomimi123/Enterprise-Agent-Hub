@@ -6,12 +6,17 @@
 
 from __future__ import annotations
 
+import logging
+
 import json
 import time
 
 import httpx
 
 from .config import settings
+from .logutil import warn_throttled
+
+log = logging.getLogger("hub.newapi")
 
 
 class NewApiError(RuntimeError):
@@ -266,6 +271,7 @@ class NewApi:
         try:
             rows = self.get_pricing(models)
         except Exception:  # noqa: BLE001 价格读不到不能让用量页面 / 领取配置失败
+            warn_throttled(log, "newapi.price_table", "读取模型价格失败：花费暂时退回调用记录里的额度（可能偏高）")
             return {}
         return {r["model"]: (float(r.get("input_per_m") or 0), float(r.get("output_per_m") or 0)) for r in rows if r.get("configured")}
 

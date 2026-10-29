@@ -57,34 +57,19 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - 密钥只加密存库（`HUB_FILE_SECRET` 派生），接口和审计里只显示后四位；更换 `HUB_FILE_SECRET` 后已保存的密钥作废。
 - 控制台所有写操作写审计（`kind=配置`），详情里不含密码和密钥。
 
-## 已知的坑
+## 已知的坑（最容易踩的几条；完整版按主题分组见 [docs/已知的坑.md](docs/已知的坑.md)）
 
-- **模型必须设价格**：没设的模型按默认倍率 37.5（每百万 token $75）计费，费用虚高，月度额度几小时被花光，之后网关返回 403。在「模型」页设价格。**记录里的额度是调用当时按当时倍率记的，价格没设好那段时间会虚高**（2026-10-21 一天记成 $847、10-27 按 $105/M，本月显示 ¥6802）：所以控制台的本月花费、按人 / 按天用量、链路里的模型花费，以及员工月额度的「本月已用」，都改成**按当前配置的价格用 token 数重算**（`NewApi.repriced_quota`，模型没配价格时才退回记录里的额度）。改了价格后历史会跟着重算；想核对时在 New API 日志里看 token 数乘以价格，不要直接信 `quota`。
-- **身份用 Casdoor 自建账号，不接钉钉**。员工首次登录要改初始密码；停用成员 30 秒内令牌失效。
-- **Windows**：控制台默认 GBK，脚本要加 `PYTHONUTF8=1`；脚本里写文件别用会把 `\n` 转成真换行的方式；`navigator.clipboard` 在 http 下不可用，复制用 `lib.ts` 的 `copyText`。
-- **不要对真实 `%APPDATA%` 跑接入器 `setup`**：它会往 Claude 桌面版配置里加 `enterprise-hub`。测试时用隔离的 `USERPROFILE` / `APPDATA`，或用 `HUB_INSTALL_DRYRUN=1`。
-- **CodeBuddy CLI**：`--allowedTools` 逗号拼成一项不生效，要每个工具单独一项；提示词走标准输入；无人值守要放行 `DeferExecuteTool`。
-- **员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦**（`iex`、启动进程、计划任务、`reg.exe` 被拒，agent 退出时还会结束它拉起的后台程序）：首选让员工 Win+R 粘贴一行命令自己跑。接入器登录回调必须多线程（浏览器会预连接，单线程会卡死）；安装脚本刷新 PATH 只能合并不能覆盖，npm 用 `npm.cmd`，无 winget 走 Node.js 便携版。
-- **WorkBuddy 沙箱**（实测 + 读它的程序）：拦命令是写死的规则，改不了配置（`iex` / `irm | iex`、Bash 里出现 `powershell`、`Start-Process` 启动 shell、`Add-Type`、`Set-ExecutionPolicy Bypass` 等）；写文件的白名单是 `~/.workbuddy/settings.json` 的 `sandbox.extraAllowWrite`（带 `~` 的路径），但默认配置下实测并不限制写文件。PowerShell 工具里 `powershell -ExecutionPolicy Bypass -File <脚本>` 可以执行。CodeBuddy CLI 的目录白名单是 `settings.json` 的 `permissions.additionalDirectories`。
-- **WorkBuddy 会给它启动的程序注入整套 `CODEBUDDY_*`（实测 60 个）**：工作台从 WorkBuddy 会话里被拉起后再启动 codebuddy，`CODEBUDDY_SERVICE_PROXY_URL` 会让子进程去抢 WorkBuddy 的端口（`EADDRINUSE`，网页显示「回复为空」），必须全清。**这台开发机复现不了员工电脑的问题**：Python / Node / CodeBuddy 都装好登录过、管理员账号、中枢就在本机、我是从自己的终端启动而不是由 WorkBuddy 代跑。验证安装和接入要用干净环境（Windows 沙盒或新电脑），并且走一遍「让 WorkBuddy 代跑」。
-- **New API 管理接口会限流**（默认每个 IP 180 次 / 3 分钟，中枢后端是唯一调用方）：被撞到时返回 429，员工领取配置变成 502。`docker-compose.yml` 已把 `GLOBAL_API_RATE_LIMIT` 调到 6000（可用 `NEWAPI_API_RATE_LIMIT` 改），`newapi.py` 遇到 429 会等一下重试；接入器的桥 10 分钟内同步过就不再领取（CodeBuddy CLI 每次运行都会重启桥，工作台每个任务都会运行它）。
-- **WorkBuddy 的浏览器操控可以单独给 CodeBuddy CLI 用**：它是一个标准 stdio MCP 服务 `~/.workbuddy/plugins/cache/workbuddy-browser-use/browser-use/<版本>/bin/browser-mcp.exe`（通过 Edge / Chrome 里的 WorkBuddy 扩展 + 本机 native host 中转），工作台 0.8.3 起 `browser-setup --engine workbuddy` 接上它。CodeBuddy CLI 的登录要在员工**自己的**终端里做（在 WorkBuddy 终端里登录会存到 WorkBuddy 的目录）。用户要求不在开发机上测这条链路，测试流程见 `docs/测试流程-WorkBuddy浏览器插件.md`。
-- **网页为主界面（工作台 0.8.5 起）**：CodeBuddy CLI 是网页工作台唯一的执行者，本机有它就自动连上；CodeBuddy 登录检查、浏览器方式、权限档都在网页「连接与设置」的「执行 Agent 与浏览器」里做。WorkBuddy 等桌面 agent 不再被设成收件箱值守者（只作后备），SKILL.md 和接入器打开应用的提示都写明了。第二阶段（WorkBuddy 当遥控器把任务转给工作台）和第三阶段（网页交互打磨）待第一阶段的「应用健康」数据再定。
-- **Windows 上工作台启动子进程都要 `windowsHide: true`**：工作台服务是无控制台（detached）启动的，它再启动的控制台程序不隐藏就会每次新开一个黑窗口（员工反馈「一直闪」）；服务自身的启动方式别改（加 windowsHide 实测会起不来）。批处理 `.cmd` 里别写中文：路径用 `%USERPROFILE%\...`。
-- **中枢 MCP 会话会失效**：`hub-mcp` 重启（每次重建中枢都会）或会话空闲超过 30 分钟，旧会话号就作废（带旧号 404，没号 400「Missing session ID」）。接入器的桥 0.5.7 起会自动重新握手再发；0.5.6 及以前会一直报错直到 agent 重启。改桥的转发逻辑时要保住这一点（`_forward_mcp`）。
-- **员工电脑上的 agent 会给工作台打本地补丁**（记在那台电脑的 `WorkBuddy/xhs-launcher/PATCHES.md`），升级后会被新版覆盖。发新版前先问有没有新的 PATCHES.md / 自检清单，把有效的修复吸收进官方版本，并在工作台 CHANGELOG 里写明「升级后哪几节不用再打」。
-- **采集节奏与额度**（工作台 0.8.11 起，`server/pace.mjs`）：总开关（默认关）/ 冷静期 / 时段 / 每日上限 / 采集间隔在**服务端**检查，账本由工作台自己记。策略放 `HUB_APP_STATE_DIR`（agent 碰不到）；CodeBuddy 的放行工具只有 Read / Glob / Grep / WebSearch / WebFetch，**没有 Bash 也写不了追加式文件**，所以手册里「让 agent 跑脚本 / 追加审计」这类要求都落不了地。两篇笔记检查点相隔不到 20 秒会自动停手并关总开关。`XHS_PACE_RELAX=1` 只给开发 / 自动测试，生产里不要设。这些数只控制读取量，**不保证不触发平台风控**；允许阅读本来就需要的真实操作（点开卡片、鼠标滚轮滚动），但**不要做反检测的伪装**（随机停顿、鼠标轨迹抖动、模拟走神、按「像真人」的节奏拉长间隔等）：它们唯一的目的是让平台更难识别自动化，而且不能保证不触发风控，只会让人放松对读取量的控制
-
-**ego lite 只用一个任务空间**（用户 2026-10-28 定的规则）：一个任务就是一个任务空间，不要为了「恢复」或「并行」多开；卡住时在原空间里处理，处理不了就停下来问用户。`tools/ego-reader` 固定使用专用空间 `hub-xhs-reader`（`EGO_READER_SPACE` 可改名，但同一时间只有一个）；调试时自己多开的空间用完要用 `finish({ keep: [] })` 关掉。。
-- **底座包升级会整体替换 `runtime\node`**：老安装把 CodeBuddy CLI 装在这个目录里（`npm install -g --prefix runtime\node`），所以 `install.ps1` 换 Node 时要把旧目录里新 Node 没有的东西（npm 包、`codebuddy.cmd`）带过去，否则升级会悄悄删掉 CodeBuddy（2026-10-28 实测复现并修了，`agent/tests/bundle-install.mjs` 有回归）。改底座安装逻辑时先用「老布局」在隔离目录跑一遍升级；安装脚本、中枢页面里的说明（`console/frontend/src/pages/Connect.tsx`）和 `docs/员工电脑安装说明.md` 要一起改。
-- **接入器有灰度和回滚**（0.5.12 起，`app/rollout.py`、`tools/release-agent.py`）：部署机上有 `agent/rollout.json` 时，老电脑只拿 `stable`，只有灰度名单里的人拿 `candidate`，`force_stable` 能让电脑退回旧版；没有这个文件时和下面一样。发新版流程：升 VERSION → `snapshot` → `set --stable 旧 --candidate 新 --canary 几个人` → 看「应用健康」→ `set --stable 新`（放量）。**同一个版本号不能发两份不同的文件**（snapshot 会拒绝）。
-- **接入器会自动更新自己**（0.5.8 起）：没有 rollout.json 时，中枢上挂载的 `agent/hub_agent.py` 比员工电脑新就会被替换，所以**改这个文件等于直接发布给所有已装 0.5.8 的电脑**——改完先用 `console/backend/.venv/Scripts/python -m pytest -q tests/test_hub_agent.py` 和真实中枢验证，VERSION 只增不减（版本号小于等于本机的不会更新）。
-- **CodeBuddy 登录可能「登录完仍未登录」**（2026-10-27 新装机遇到）：登录凭据和 WorkBuddy 桌面共用 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth`，日志里是 `AtRestEncryption missing-key` 加 `safe-delete ... trash ... Some operations were aborted`，之后每次都 `Authentication required`。这是 CodeBuddy / WorkBuddy 自己的凭据存储问题，我们改不了；没有在本机复现（本机只是普通未登录）。处理：关 WorkBuddy 桌面和所有 codebuddy 窗口，用 Win+R 的 cmd 自己登录；不行就把 auth 目录改名（WorkBuddy 也要重新登录）。工作台「连接与设置」和控制台「接入方式」页都写了这几步，`tools/hub-check` 加 `--deep` 会实测登录。
-- **中枢 nginx 有请求体上限**（`console/frontend/nginx.conf` 的 `client_max_body_size 50m`）：默认 1MB，新增任何要上传文件的接口都用大于 1MB 的真实文件测一遍，别只用小测试图（带参考图出图因此在员工电脑上 413 过）。
-- **知识库文档一直「待同步 / 未索引」= 中枢连不上 RAGFlow**（后端日志「RAGFlow 不可达」）：Windows 会动态保留一段 TCP 端口（2026-10-28 实测 9320–9419），Docker Desktop 重启后 RAGFlow 的 9380 映射不出来，原来的 `host.docker.internal:9380` 就连不上。现在本机 `hub/.env` 用 `COMPOSE_FILE=docker-compose.yml:docker-compose.ragflow-net.yml`（`COMPOSE_PATH_SEPARATOR=:`）让中枢加入 `docker_ragflow` 网络、`RAGFLOW_ENDPOINT=http://ragflow-cpu:9380`；这个叠加文件只在有 RAGFlow 的环境启用。重建服务时仍然在 `hub/` 目录执行 `docker compose ...`，会自动带上。状态含义和排查见 [docs/knowledge.md](docs/knowledge.md)「文档列表里的索引状态」。
-- **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
-- **已在运行的应用的升级**（2026-10-28 实测一台电脑停在 v0.8.12）：接入器原来只在 `open_app` 时对照版本，已在运行就只下载、不重启；重新跑安装命令只更新接入器和底座，不碰应用。现在：双击图标 / `open_app` 时，`app.json` 声明了 `upgrade_args` 的应用由接入器（0.5.11 起）先用新包入口跑一遍（工作台 `stop --for-upgrade`：旧且没有任务在跑才停，忙退出码 3 不打断），再起新版本；工作台 0.8.22 起还有网页「新版本提示 + 重启升级」。排查「员工看到的不是最新版」先看网页「连接与设置 → 目录」里的版本，再看接入器版本是否 ≥ 0.5.11。详见 [docs/app-integration-guide.md](docs/app-integration-guide.md) 第 10 节
-- 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
+- **模型必须设价格**：没设的按默认倍率 37.5（每百万 token $75）计费，额度几小时花光、网关返回 403。花费统计一律按当前价格用 token 数重算（`NewApi.repriced_quota`），别直接信日志里的 `quota`。
+- **不要对真实 `%APPDATA%` 跑接入器 `setup`**（会改 Claude 桌面版配置）；**测试不要碰员工真实的 `~/HubApps`、`~/.hub-agent`**。用隔离的 `USERPROFILE` / `APPDATA`，或 `HUB_INSTALL_DRYRUN=1`。
+- **改 `agent/hub_agent.py` 等于发布给所有已装 0.5.8 的电脑**：有 `agent/rollout.json` 时走灰度（`tools/release-agent.py`，流程：升 VERSION → `snapshot` → `set --stable 旧 --candidate 新 --canary 几个人` → 看「应用健康」→ `set --stable 新`）；同一个版本号不能发两份不同的文件；VERSION 只增不减（回滚用 `--force-stable`）。
+- **安装脚本升级底座会整体替换 `runtime
+ode`**，CodeBuddy CLI 装在里面，改安装逻辑先用「老布局」在隔离目录跑一遍升级。
+- **知识库一直「待同步 / 未索引」= 中枢连不上 RAGFlow**（Windows 动态保留端口段让 9380 映射不出来），本机用 `docker-compose.ragflow-net.yml` 叠加文件。
+- **`hub-mcp` 每次重建都会让旧 MCP 会话失效**；改桥的转发逻辑要保住自动重新握手（`_forward_mcp`）。
+- **新增上传文件的接口要用大于 1MB 的真实文件测**（nginx `client_max_body_size 50m`）。
+- **工作台采集**：只走 WorkBuddy 浏览器插件；节奏 / 额度在服务端检查；ego lite 只用一个任务空间；不做「更像真人」的反检测伪装。
+- **Windows**：控制台默认 GBK，脚本加 `PYTHONUTF8=1`；工作台启动子进程要 `windowsHide: true`；`.cmd` 里别写中文。
+- 员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦：首选让员工 Win+R 粘贴一行命令自己跑。
 
 ## 接入新应用
 

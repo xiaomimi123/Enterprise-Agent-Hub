@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import re
 import time
 from collections import Counter, defaultdict
@@ -28,6 +30,9 @@ from ..config import settings
 from ..newapi import NewApi, NewApiError, user_from_token_name
 from ..policy import default_pack_id
 from .demo import DemoProvider, NotFound
+from ..logutil import warn_throttled
+
+log = logging.getLogger("hub.casdoor")
 
 UNASSIGNED = "unassigned"
 
@@ -92,6 +97,7 @@ class CasdoorProvider(DemoProvider):
         try:
             last_event = db.last_event_by_user(self.org)
         except Exception:  # noqa: BLE001 读不到审计时「最近活跃」退回登录时间 / 在线记录
+            warn_throttled(log, "casdoor.last_event", "读取审计里的最近事件失败：成员「最近活跃」暂时退回登录时间 / 在线记录")
             last_event = {}
         for u in self._users.values():
             group = next((g.split("/", 1)[-1] for g in (u.get("groups") or []) if g.split("/", 1)[-1] in dept_names), UNASSIGNED)

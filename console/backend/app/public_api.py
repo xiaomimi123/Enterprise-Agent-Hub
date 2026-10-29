@@ -13,7 +13,7 @@ import jwt
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import generation, gpu, policy
+from . import app_access, generation, gpu, policy
 from .auth import _jwks_client
 from .config import settings
 
@@ -88,6 +88,12 @@ def get_capabilities(authorization: str | None = Header(default=None)):
     """现在出图 / 出视频走哪条通道、出图能不能带参考图。"""
     _principal(authorization)
     return generation.capabilities()
+
+
+@router.get("/apps")
+def get_apps(authorization: str | None = Header(default=None)):
+    """这个员工能打开的公司应用及中枢上的最新版本；应用自己据此提示「有新版本」。"""
+    return {"apps": app_access.list_for(_principal(authorization))}
 
 
 @router.post("/images/with-references", status_code=202)

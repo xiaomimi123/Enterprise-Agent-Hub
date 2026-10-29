@@ -221,3 +221,28 @@ def test_public_api_rejects_unknown_fields_with_422(monkeypatch):
     assert client.post("/api/v1/videos", json={"prompt": "猫", "image_url": "x"}).status_code == 422
     assert client.post("/api/v1/covers", json={"title": "秋天", "style": "x"}).status_code == 422
     assert client.post("/api/v1/images", json={"prompt": "猫", "aspect": "3:4", "count": 2}).status_code == 202
+
+
+def test_public_api_apps_lists_versions_for_the_pack(monkeypatch):
+    """应用（工作台）据此判断中枢上有没有更高版本：只列岗位包里能打开的应用，要登录。"""
+    from fastapi.testclient import TestClient
+
+    from app import app_access, policy, public_api
+    from app.main import app
+    p = policy.Principal(org="o", user_name="u", display_name="U", dept="ops", channel=policy.OFFICIAL, pack={"apps": ["xhs-workbench"]})
+    monkeypatch.setattr(public_api, "_principal", lambda auth: p)
+    monkeypatch.setattr(app_access.apps, "list_apps", lambda: [
+        type("A", (), {"id": "xhs-workbench", "name": "小红书运营工作台", "version": "0.8.21", "description": "d"})(),
+        type("A", (), {"id": "other", "name": "别的", "version": "1.0.0", "description": ""})(),
+    ])
+    r = TestClient(app).get("/api/v1/apps")
+    assert r.status_code == 200
+    assert [a["id"] for a in r.json()["apps"]] == ["xhs-workbench"]
+    assert r.json()["apps"][0]["version"] == "0.8.21"
+
+
+def test_public_api_apps_requires_login():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    assert TestClient(app).get("/api/v1/apps").status_code == 401

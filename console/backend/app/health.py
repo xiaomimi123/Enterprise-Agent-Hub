@@ -206,9 +206,7 @@ def demo_rows(now: datetime | None = None) -> list[dict]:
 
 # ---------------- 在线状态与接入器版本（来自接入器每分钟的心跳，每人一条） ----------------
 
-from .presence import ONLINE_MINUTES  # noqa: E402
-
-ONLINE_SECONDS = ONLINE_MINUTES * 60  # 和成员页、总览同一个窗口（5 分钟）；原来这里是 3 分钟，同一个人在两个页面一个在线一个离线
+from .presence import is_online  # noqa: E402  在线的唯一判断在 presence.py
 
 
 def version_tuple(v: str | None) -> tuple:
@@ -235,7 +233,7 @@ def merge_presence(summary: dict, presence: dict[str, dict], latest: str | None,
         seen = p.get("last_seen") if p else None
         # 心跳和健康事件里各有一个接入器版本，取较新的（升级后桥还没重新连上时，心跳里还是旧版本）
         version = max([v for v in ((p.get("version") if p else None), fallback_version) if v], key=version_tuple, default="")
-        return {"last_seen": seen, "online": bool(seen and (now - seen).total_seconds() < ONLINE_SECONDS),
+        return {"last_seen": seen, "online": is_online(seen, now),
                 "presence_agent": (p.get("client") if p else "") or "", "current_version": version or "",
                 "outdated": is_outdated(version, latest), "version_unknown": not version}
 

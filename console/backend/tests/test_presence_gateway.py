@@ -93,9 +93,3 @@ def test_latest_activity_takes_the_latest_of_signin_presence_and_audit_event():
     assert presence.latest_activity("2026-10-30T00:00:00Z", seen, event) == "2026-10-30T00:00:00+00:00"   # 登录时间最晚就用登录时间
     naive = datetime(2026, 10, 29, 3, 0, 0)                                                              # 没有时区的按 UTC 处理，不抛异常
     assert presence.latest_activity(None, naive, None) == naive.replace(tzinfo=timezone.utc).isoformat()
-
-
-def test_health_and_member_pages_use_the_same_online_window():
-    """应用健康页原来是 3 分钟、成员页和总览是 5 分钟：同一个人可能一个页面在线、另一个离线。"""
-    from app import health
-    assert health.ONLINE_SECONDS == presence.ONLINE_MINUTES * 60 == 300

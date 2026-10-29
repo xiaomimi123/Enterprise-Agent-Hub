@@ -91,10 +91,17 @@ def latest_activity(signin, seen, event) -> str | None:
     return max(cands).isoformat() if cands else None
 
 
+def is_online(last_seen, now: datetime) -> bool:
+    """「在线」的唯一判断：最近一次信号在 ONLINE_MINUTES 分钟内。成员页、应用健康、总览都必须调这个函数，
+    不要在别处自己写窗口比较（曾经健康页写成 3 分钟、成员页 5 分钟，同一个人在两个页面一个在线一个离线）。"""
+    d = _as_dt(last_seen)
+    return bool(d and (now - d).total_seconds() < ONLINE_MINUTES * 60)
+
+
 def member_agent(row: dict | None, now: datetime) -> dict:
     """把在线记录转成控制台成员列表的三个字段。"""
     if not row:
         return {"agent_status": "未安装", "agent_version": "", "os": ""}
-    online = (now - row["last_seen"]).total_seconds() < ONLINE_MINUTES * 60
+    online = is_online(row["last_seen"], now)
     where = " · ".join(x for x in (row.get("client"), row.get("os")) if x) or "官方 agent"
     return {"agent_status": "在线" if online else "离线", "agent_version": row.get("version") or "", "os": where}

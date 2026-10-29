@@ -12,7 +12,8 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { REPO, parse, plain } from './md.mjs';
 
-const SRC = path.join(REPO, 'docs', '架构文档');
+// 默认生成《开发与架构文档》；DOC_SRC=老板介绍 可生成另一份文档（源目录名在 docs/ 下，结构相同：00-封面.md + 按序号命名的章节）
+const SRC = path.join(REPO, 'docs', process.env.DOC_SRC || '架构文档');
 const OUT = path.join(REPO, 'docs');
 const BODY_FONT = 'Microsoft YaHei';
 const CODE_FONT = 'Consolas';
@@ -114,7 +115,7 @@ function html(tocPages) {
   table.data th { background: #EEF2FF; color: #3730A3; text-align: left; border: 1px solid #D1D5DB; padding: 4pt 6pt; }
   table.data td { border: 1px solid #E5E7EB; padding: 4pt 6pt; vertical-align: top; word-break: break-word; }
   table.data tr { break-inside: avoid; }
-  figure { margin: 8pt 0 12pt; text-align: center; break-inside: avoid; } figure img { max-width: 100%; max-height: 120mm; } figcaption { font-size: 9pt; color: #${MUTED}; }
+  figure { margin: 8pt 0 12pt; text-align: center; break-inside: avoid; } figure img { max-width: 100%; max-height: ${process.env.DOC_FIG_MAXH || 120}mm; } figcaption { font-size: 9pt; color: #${MUTED}; }
   .cover { height: 297mm; padding: 70mm 28mm 0; page-break-after: always; border-left: 6px solid #${ACCENT}; margin-left: 0; }
   .c1 { font-size: 16pt; letter-spacing: 3pt; color: #${MUTED}; } .c2 { font-size: 34pt; font-weight: 700; color: #111827; margin-top: 6pt; } .c3 { font-size: 26pt; color: #${ACCENT}; margin-top: 4pt; }
   .c4 { font-size: 11pt; color: #${MUTED}; margin: 14pt 0 50pt; }

@@ -123,3 +123,11 @@ def test_requires_capability_declaration_is_validated(root, requires, ok):
     assert [a.id for a in apps.list_apps()] == (["demo"] if ok else [])
     if ok:
         assert apps.list_apps()[0].requires == requires
+
+
+def test_upgrade_args_are_read_and_default_to_empty(root):
+    make_app(root, "a", upgrade_args=["stop", "--for-upgrade"])
+    make_app(root, "b")
+    got = {a.id: a for a in apps.list_apps()}
+    assert got["a"].upgrade_args == ["stop", "--for-upgrade"]
+    assert got["b"].upgrade_args == []                     # 没声明就不自动升级，行为和以前一样

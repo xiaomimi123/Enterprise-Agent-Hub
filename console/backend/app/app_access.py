@@ -29,7 +29,8 @@ def ticket_for(p: policy.Principal, trace_id: str, app_id: str) -> dict:
         raise AppDenied(f"{why}。该请求已记录。")
     _record(p, trace_id, f"打开应用「{a.name}」v{a.version}", "通过")
     return {"app_id": a.id, "name": a.name, "version": a.version, "sha256": apps.sha256_of(a.zip_path),
-            "download_url": apps.signed_zip_url(a), "entry": a.entry, "requires": a.requires, "setup_args": a.setup_args, "start_args": a.start_args}
+            "download_url": apps.signed_zip_url(a), "entry": a.entry, "requires": a.requires, "setup_args": a.setup_args, "start_args": a.start_args,
+            "upgrade_args": a.upgrade_args}
 
 
 def list_for(p: policy.Principal) -> list[dict]:

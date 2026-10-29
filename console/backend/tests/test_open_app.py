@@ -137,3 +137,12 @@ def test_apps_listing_counts_only_successful_opens(env, monkeypatch):
     monkeypatch.setattr(main, "_app_events", lambda days: events)
     [a] = client.get("/api/apps").json()
     assert a["opens_7d"] == 2 and a["last_open"] is not None
+
+
+def test_ticket_carries_upgrade_args(env):
+    import json as _json
+    p = apps.get_app("xhs-workbench").zip_path.parent / "app.json"
+    meta = _json.loads(p.read_text(encoding="utf-8"))
+    meta["upgrade_args"] = ["stop", "--for-upgrade"]
+    p.write_text(_json.dumps(meta), encoding="utf-8")
+    assert app_access.ticket_for(principal(), "tr-1", "xhs-workbench")["upgrade_args"] == ["stop", "--for-upgrade"]

@@ -50,7 +50,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
-VERSION = "0.5.10"
+VERSION = "0.5.11"
 HOME = Path(os.environ.get("HUB_AGENT_HOME", Path.home() / ".hub-agent"))
 CREDS = HOME / "credentials.json"
 HERMES_HOME = HOME / "hermes"
@@ -1125,7 +1125,9 @@ def cmd_app_doctor(args, ask=None, run=subprocess.run) -> None:
 
 def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: httpx.Client | None = None) -> dict:
     """按中枢签发的凭证在本机打开应用：检查 Node → 下载校验解压（已有同版本同哈希则复用）→ 启动 → 取回网址。
-    正在运行的实例绝不重启：应用的 start 是幂等的，已在运行时只返回同一个网址，新版本只给升级提示。"""
+    已在运行的旧版本：应用在 app.json 里声明了 upgrade_args（如 ["stop", "--for-upgrade"]）时，启动前先用新包的入口跑一遍，由应用自己判断
+    「运行中的版本比新包旧、且没有任务在跑」才停掉（退出码 0 = 没事或已停，3 = 有任务在跑、没停）；停了就由下面的 start 起新版本。
+    没声明 upgrade_args 的应用保持原样：绝不重启，start 是幂等的，已在运行时只返回同一个网址，新版本只给升级提示。"""
     app_id, version = ticket["app_id"], ticket["version"]
     try:
         ok, node = node_status(ticket.get("requires") or {}, run=run)
@@ -1160,9 +1162,18 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
                 write_private(apps_base() / app_id / ".requires.json", json.dumps({"requires": requires, "version": version}, ensure_ascii=False))
                 env["HUB_CAPABILITIES_FILE"] = str(write_capabilities(app_id, version, pf))
             base = {"cwd": str(target), "env": env, "capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
+            upgrade_busy = ""
+            upgrade_args = ticket.get("upgrade_args")
+            if isinstance(upgrade_args, list) and upgrade_args and all(isinstance(a, str) for a in upgrade_args):
+                try:
+                    up = run([node_bin(), str(entry), *upgrade_args], timeout=60, **base)
+                    if up.returncode == 3:  # 旧版本还有任务在跑：不打断，也不在它底下跑新版本的 setup（可能迁移数据）
+                        upgrade_busy = ((up.stdout or "").strip().splitlines() or ["有任务在跑"])[-1]
+                except (subprocess.TimeoutExpired, OSError) as e:
+                    print(f"hub-agent: 升级前检查没有完成（{e}），按原样打开", file=sys.stderr, flush=True)
             try:
                 setup_out = ""
-                if ticket.get("setup_args"):
+                if ticket.get("setup_args") and not upgrade_busy:
                     done = run([node_bin(), str(entry), *ticket["setup_args"]], timeout=LAUNCH_TIMEOUT, **base)
                     setup_out = (done.stdout or "") + (done.stderr or "")
                 started = run([node_bin(), str(entry), *ticket.get("start_args", [])], timeout=LAUNCH_TIMEOUT, **base)
@@ -1182,9 +1193,13 @@ def launch_app(ticket: dict, hub: str, creds: dict, run=subprocess.run, client: 
                             f"不要把你自己设成收件箱值守者，除非用户明确要求（那时按 {skill or 'SKILL.md'} 的「连接自检」用 bridge-test --inbox）。")
             elif skill:
                 message += f"\n如果它的连接模式是「收件箱模式」，请按 {skill} 的「值守模式」一节进入值守。"
-            if _ALREADY in out and old and old != version:
+            if upgrade_busy:
+                message += f"\n注意：中枢上有新版本 v{version}，但正在运行的旧版本还有任务在处理，没有自动升级（{upgrade_busy}）。任务完成后再双击打开一次就会升级。"
+            elif _ALREADY in out and old and old != version:
                 message += f"\n注意：正在运行的是旧版本 v{old}，新版本 v{version} 已下载；关闭工作台后再打开即可升级（为避免打断定时任务，没有自动重启）。"
             elif _STARTED in out or not old:
+                if _STARTED in out and old and old != version:
+                    message += f"\n已自动升级：v{old} → v{version}。"
                 state_file.write_text(json.dumps({"version": version}), encoding="utf-8")
             prune_versions(app_id)
             desk = [p for p in (desktop_dir() / f"{ticket.get('name', app_id)}.cmd", desktop_dir() / f"{ticket.get('name', app_id)}.lnk",

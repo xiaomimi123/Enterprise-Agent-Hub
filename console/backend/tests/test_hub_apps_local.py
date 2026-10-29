@@ -521,3 +521,66 @@ def test_launcher_uses_userprofile_so_cmd_stays_ascii(tmp_path, monkeypatch):
     t2 = ha.Path(other[0]["path"]).read_bytes().decode("utf-8")
     if ha.sys.platform == "win32":
         assert "chcp 65001" in t2 and "D:/工具/uv.exe" in t2
+
+
+# ================= 双击打开时自动升级正在运行的旧版本 =================
+
+class UpgradeRecorder(Recorder):
+    """加上 stop --for-upgrade：busy=True 时模拟「旧版本还有任务在跑」（退出码 3）。"""
+
+    def __init__(self, busy=False, **kw):
+        super().__init__(**kw)
+        self.busy = busy
+
+    def __call__(self, cmd, **kw):
+        if "--for-upgrade" in cmd:
+            self.calls.append((cmd, kw))
+            if self.busy:
+                return subprocess.CompletedProcess(cmd, 3, stdout="BUSY：运行中的 v0.6.0 比 v0.6.1 旧，但还有 1 个任务在处理或排队，等它们完成后再升级\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="停止它以便升级。\n", stderr="")
+        return super().__call__(cmd, **kw)
+
+
+def test_idle_old_version_is_upgraded_on_open(tmp_path, home):
+    t1, d1 = build_ticket(tmp_path, version="0.6.0", payload="a")
+    launch(t1, d1, Recorder())                                                # 0.6.0 在运行
+    t2, d2 = build_ticket(tmp_path, version="0.6.1", payload="b", upgrade_args=["stop", "--for-upgrade"])
+    run = UpgradeRecorder()
+    r = launch(t2, d2, run)
+    order = [c[2] if len(c) > 2 else c[1] for c, _ in run.calls if c[:2] != ["node", "-v"]]
+    assert order == ["stop", "setup", "start"]                       # 先让旧的退出，再 setup，再 start
+    assert r["ok"] and "已自动升级" in r["message"] and "v0.6.0" in r["message"] and "v0.6.1" in r["message"]
+    assert json.loads((home / "apps" / "xhs-workbench" / ".running.json").read_text())["version"] == "0.6.1"
+
+
+def test_busy_old_version_is_left_alone_and_setup_is_skipped(tmp_path, home):
+    t1, d1 = build_ticket(tmp_path, version="0.6.0", payload="a")
+    launch(t1, d1, Recorder())
+    t2, d2 = build_ticket(tmp_path, version="0.6.1", payload="b", upgrade_args=["stop", "--for-upgrade"])
+    run = UpgradeRecorder(busy=True, start_out="工作台已在运行。\nURL: http://127.0.0.1:17890/?t=abc\n")
+    r = launch(t2, d2, run)
+    assert r["ok"] and r["url"] == "http://127.0.0.1:17890/?t=abc"            # 照样打开现有页面
+    assert "没有自动升级" in r["message"] and "任务" in r["message"]
+    assert not any(c[2:] == ["setup"] for c, _ in run.calls)                  # 不在旧版本底下迁移数据
+    assert not any(c[2:3] == ["stop"] and "--for-upgrade" not in c for c, _ in run.calls)
+
+
+def test_app_without_upgrade_args_behaves_as_before(tmp_path, home):
+    t1, d1 = build_ticket(tmp_path, version="0.6.0", payload="a")
+    launch(t1, d1, Recorder())
+    t2, d2 = build_ticket(tmp_path, version="0.6.1", payload="b")
+    run = Recorder(start_out="工作台已在运行。\nURL: http://127.0.0.1:17890/?t=abc\n")
+    r = launch(t2, d2, run)
+    assert "关闭" in r["message"] and not any("--for-upgrade" in c for c, _ in run.calls)
+
+
+def test_upgrade_check_crash_does_not_block_opening(tmp_path, home):
+    t, d = build_ticket(tmp_path, version="0.6.1", payload="b", upgrade_args=["stop", "--for-upgrade"])
+
+    class Boom(Recorder):
+        def __call__(self, cmd, **kw):
+            if "--for-upgrade" in cmd:
+                raise subprocess.TimeoutExpired(cmd, 60)
+            return super().__call__(cmd, **kw)
+    r = launch(t, d, Boom())
+    assert r["ok"]

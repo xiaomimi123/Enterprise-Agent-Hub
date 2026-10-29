@@ -82,7 +82,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 - **中枢 nginx 有请求体上限**（`console/frontend/nginx.conf` 的 `client_max_body_size 50m`）：默认 1MB，新增任何要上传文件的接口都用大于 1MB 的真实文件测一遍，别只用小测试图（带参考图出图因此在员工电脑上 413 过）。
 - **知识库文档一直「待同步 / 未索引」= 中枢连不上 RAGFlow**（后端日志「RAGFlow 不可达」）：Windows 会动态保留一段 TCP 端口（2026-10-28 实测 9320–9419），Docker Desktop 重启后 RAGFlow 的 9380 映射不出来，原来的 `host.docker.internal:9380` 就连不上。现在本机 `hub/.env` 用 `COMPOSE_FILE=docker-compose.yml:docker-compose.ragflow-net.yml`（`COMPOSE_PATH_SEPARATOR=:`）让中枢加入 `docker_ragflow` 网络、`RAGFLOW_ENDPOINT=http://ragflow-cpu:9380`；这个叠加文件只在有 RAGFlow 的环境启用。重建服务时仍然在 `hub/` 目录执行 `docker compose ...`，会自动带上。状态含义和排查见 [docs/knowledge.md](docs/knowledge.md)「文档列表里的索引状态」。
 - **测试不要碰员工真实的 `~/HubApps` 和 `~/.hub-agent`**：接入器的 `HOME` / `CREDS` / `HUB_APPS` 在加载时就定了，测试里 monkeypatch `HOME` 管不到 `CREDS`。`tests/conftest.py` 已把 `HUB_APPS_ROOT`、`HUB_AGENT_HOME` 指向临时目录并默认 `HUB_HEALTH=off`。踩过的坑：开发机上有真实员工的登录凭证，`app-doctor` 测试用它把 120 条测试事件发到了真实中枢（已删）。
-- **已在运行的应用不会因为中枢发了新版本而升级**（2026-10-28 实测一台电脑停在 v0.8.12）：接入器只在 `open_app` 时对照版本，进程已在运行时只下载新版、不重启；重新跑安装命令只更新接入器和底座。应用自己要带「新版本提示 + 重启升级」（工作台 0.8.22 起，用中枢 `GET /api/v1/apps`，见 [docs/app-integration-guide.md](docs/app-integration-guide.md) 第 10 节）；更老的版本要员工手动关掉再打开一次。排查「员工看到的不是最新版」先看网页「连接与设置 → 目录」里的版本和技能包目录。
+- **已在运行的应用的升级**（2026-10-28 实测一台电脑停在 v0.8.12）：接入器原来只在 `open_app` 时对照版本，已在运行就只下载、不重启；重新跑安装命令只更新接入器和底座，不碰应用。现在：双击图标 / `open_app` 时，`app.json` 声明了 `upgrade_args` 的应用由接入器（0.5.11 起）先用新包入口跑一遍（工作台 `stop --for-upgrade`：旧且没有任务在跑才停，忙退出码 3 不打断），再起新版本；工作台 0.8.22 起还有网页「新版本提示 + 重启升级」。排查「员工看到的不是最新版」先看网页「连接与设置 → 目录」里的版本，再看接入器版本是否 ≥ 0.5.11。详见 [docs/app-integration-guide.md](docs/app-integration-guide.md) 第 10 节
 - 登录失败常见原因：登录页放久了或开了多个登录页（状态校验失败）、输错 5 次锁定 15 分钟。
 
 ## 接入新应用
@@ -99,7 +99,7 @@ cd hub && docker compose build console-api console-web && docker compose up -d -
 1. 工作台仓库：改 `xhs-workbench/server/version.mjs` 的 `VERSION`；在 `xhs-workbench/CHANGELOG.md` 顶部加 `## v<版本>` 条目；提交（包由 `git archive` 生成，未提交的不进包）。
 2. 跑测试，再 `node tools/package.mjs`。本机没装 ffmpeg，`tests/server.test.mjs` 里有个测试会失败，需先自己跑其余测试，再加 `--skip-tests` 打包。
 3. 复制 `dist/xhs-workbench-v<版本>.zip` 到本仓库 `apps/xhs-workbench/<版本>.zip`，把同目录 `app.json` 的 `version` 改成同一个版本（文件名必须等于 version）。不用重启中枢。
-4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.22）。
+4. 在本文件和 `docs/CHANGELOG.md` 记一笔（当前上传到 0.8.23）。
 
 ## 开发与架构文档
 

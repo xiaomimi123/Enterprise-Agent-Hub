@@ -56,6 +56,8 @@ class App:
     requires: dict = field(default_factory=dict)
     setup_args: list[str] = field(default_factory=list)  # 首次（或每次）启动前先跑一遍的初始化参数，可为空
     start_args: list[str] = field(default_factory=list)
+    # 每次打开前先用新包入口跑一遍的命令（由应用自己判断要不要停掉正在运行的旧版本：旧且空闲才停，有任务在跑退出码 3）；空 = 不自动升级
+    upgrade_args: list[str] = field(default_factory=list)
     zip_path: Path = Path()
 
 
@@ -66,6 +68,7 @@ def _load(d: Path) -> App | None:
                 description=str(meta.get("description", "")), entry=str(meta["entry"]),
                 requires=dict(meta.get("requires") or {}), setup_args=[str(x) for x in meta.get("setup_args") or []],
                 start_args=[str(x) for x in meta.get("start_args") or []],
+                upgrade_args=[str(x) for x in meta.get("upgrade_args") or []],
                 zip_path=d / f"{meta['version']}.zip")
     except (OSError, ValueError, KeyError, TypeError) as e:
         log.warning("应用 %s 的 app.json 无效，已跳过：%s", d.name, e)

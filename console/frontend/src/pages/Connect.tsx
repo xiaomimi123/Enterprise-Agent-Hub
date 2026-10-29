@@ -1,9 +1,10 @@
 import { Check, Copy } from 'lucide-react'
 import { Input, Tabs } from 'antd'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, type ConnectInfo } from '../api'
 import { copyText, useRequest } from '../lib'
-import { PageHeader, Panel, Pill, Seg } from '../ui'
+import { PageHeader, Panel, Pill, Seg, Token } from '../ui'
 
 type OS = 'Windows' | 'macOS'
 
@@ -40,6 +41,7 @@ function bridgeJson(script: string) {
 
 export default function Connect() {
   const info = useRequest(api.connect)
+  const appList = useRequest(api.apps)   // 各应用自己的首次使用步骤（apps/<id>/guide.json），拼进「发给员工的话」；取不到就不拼
   const [os, setOs] = useState<OS>('Windows')
   const [user, setUser] = useState('')
   const [quickOs, setQuickOs] = useState<OS>(navigator.userAgent.includes('Mac') ? 'macOS' : 'Windows')
@@ -60,6 +62,11 @@ export default function Connect() {
   const winFallback = `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -File "%USERPROFILE%\\Downloads\\install.ps1"`
   const preflightCmd = `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/preflight.ps1 | iex"`
   const verifyPrompt = '请调用企业智能体中枢的 whoami，告诉我我是谁、在哪个部门、有哪些技能'
+  // 每个有接入说明的应用，把它的「员工首次使用要做的事」接在后面（编号从 6 起）；没有说明的应用不写
+  const appSteps = (appList.data ?? []).filter((a) => a.guide?.employee_steps.length).map((a, i) => {
+    const steps = a.guide!.employee_steps.map((t, j) => `   (${j + 1}) ${t.title}：${t.body}`).join('\n')
+    return `${6 + i}. 要用「${a.name}」：\n${steps}\n`
+  }).join('')
   const welcome = `你好，公司「企业智能体中枢」账号已开通：
 账号：${account.trim() || '<账号>'}
 初始密码：${initPw.trim() || '<初始密码>'}（首次登录需要修改）
@@ -81,11 +88,9 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
     `4. 对它说：${verifyPrompt}
 能说出你的姓名、部门和岗位包，就接通了。
 ` +
-    `5. 要用 CodeBuddy 做浏览器自动化的话，另开一个终端运行 codebuddy，输入 /login 登录你自己的 CodeBuddy 账号（只需一次）。
+    `5. 要用公司应用（如小红书运营工作台）的话：另开一个终端运行 codebuddy，输入 /login 登录你自己的 CodeBuddy 账号（只需一次）。
 ` +
-    `6. 要用小红书运营工作台做对标采集：WorkBuddy →「设置 → 智能体 → 浏览器操控」打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；再在 Edge 里登录你自己的小红书。然后双击桌面的工作台图标，在「连接与设置 → 执行 Agent 与浏览器」里把浏览器方式选成「WorkBuddy 浏览器插件」（新电脑默认没选，漏了采集会被拒）。采集的总开关默认是关的，由你自己在「竞品对标 → 采集状态」里打开。
-
-` +
+    appSteps +
     `注意：请自己在 Win+R（Mac 用终端）里运行，不要让 WorkBuddy 等 agent 代跑——agent 的沙箱会拦截安装步骤（iex、启动进程、写启动项等），而且它退出时会把它拉起的程序一起结束。` +
     (quickOs === 'Windows' ? `
 
@@ -168,14 +173,15 @@ ${winFallback}` : '')
           </div>
         </Panel>
 
-        <Panel title="小红书采集：只走 WorkBuddy 浏览器插件" sub="采集在员工自己的浏览器里、由 CodeBuddy 通过 WorkBuddy 的浏览器扩展完成，不再用 Playwright 直连；每台电脑一个员工、一个小红书号">
+        <Panel title="各岗位的应用" sub="应用的专属接入步骤、需要的环境和已知限制，不在这里写，按应用分开放在「应用」页">
           <div className="stack-sm">
-            <div><Pill tone="accent" dot={false}>1</Pill> 上面的一键脚本装好 Node.js 和 CodeBuddy CLI（询问时选「是」）；员工在自己的终端运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 登录一次 CodeBuddy 自己的账号。</div>
-            <div><Pill tone="accent" dot={false}>2</Pill> WorkBuddy →「设置 → 智能体 → 浏览器操控」：打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；然后员工<b>本人</b>在 Edge 里登录小红书（agent 不碰密码和验证码）。</div>
-            <div><Pill tone="accent" dot={false}>3</Pill> 双击桌面「小红书运营工作台」→「连接与设置 → 执行 Agent 与浏览器」：对话通道选 CodeBuddy，浏览器方式选<b>「WorkBuddy 浏览器插件」</b>，权限档保持「只读档」。<b>新电脑默认是「未选择」，漏了这步所有采集都会被拒</b>（采集卡片里也会提示）。</div>
-            <div><Pill tone="accent" dot={false}>4</Pill> 「账号管理 → 在浏览器里登录这个账号」：agent 在员工自己的浏览器里<b>只读</b>核对登录的小红书号，并根据主页自动填好账号的<b>定位 / 目标人群 / 内容风格</b>（只填空的、可以再改）。核对结果会保存，刷新页面还在；没有已发布笔记时，「数据复盘」只能读到账号概览。</div>
-            <div><Pill tone="accent" dot={false}>5</Pill> 「竞品对标 → 采集状态」：采集总开关<b>默认关</b>，由运营本人打开；有每天笔记 / 主页上限、两次采集间隔、允许时段，遇到平台提示可以设冷静期。工作台只读分析，不会自动发布。</div>
-            <div className="muted">WorkBuddy 等桌面 agent 作为工作台的执行者只能「收件箱模式」，不开浏览器；工作台的默认执行者是 CodeBuddy CLI。</div>
+            <div className="muted">这一页只管员工的电脑怎么接上中枢（装机、登录、MCP）。员工装好后，每个岗位用的应用各有一份说明：</div>
+            {(appList.data ?? []).length ? (
+              <div className="tagset">
+                {appList.data!.map((a) => <Token key={a.id}>{a.name}{a.guide ? '' : '（还没有接入说明）'}</Token>)}
+              </div>
+            ) : <div className="muted">还没有发布应用。</div>}
+            <div><Link to="/apps">去「应用」页查看各应用的接入说明 →</Link></div>
           </div>
         </Panel>
 
@@ -305,8 +311,7 @@ ${winFallback}` : '')
             <div><b>CodeBuddy 提示未登录</b>：CodeBuddy 要用它自己的账号登录（和中枢账号无关）：运行 <span className="mono">codebuddy</span>，输入 <span className="mono">/login</span> 完成一次即可。</div>
             <div><b>超过 7 天没用，提示登录过期</b>：重新运行一次接入命令（或 <span className="mono">hub_agent.py login</span>）。</div>
             <div><b>agent 报「400 Missing session ID」，中枢工具全部用不了</b>：接入器是旧版本（0.5.6 有这个缺陷：中枢重启或会话过期后不会重连）。重新运行一次接入命令换成最新版；0.5.8 起接入器会自动更新。临时办法：完全退出 agent 再打开。</div>
-            <div><b>工作台里点「开始采集」提示「采集只走 WorkBuddy 浏览器插件」</b>：浏览器方式还没选。到工作台「连接与设置 → 执行 Agent 与浏览器」选「WorkBuddy 浏览器插件」；按钮是灰的，就先在 WorkBuddy「设置 → 智能体 → 浏览器操控」里打开「让 WorkBuddy 控制浏览器」并装好 Edge 扩展。</div>
-            <div><b>换电脑 / 给新员工装机</b>：每台电脑重新运行接入命令、本人登录。<b>不要</b>把别的电脑上的 <span className="mono">~/.hub-agent/credentials.json</span> 或工作台数据目录 <span className="mono">XHS-Workbench</span> 拷过去：前者会让两台电脑变成同一个身份，后者会把别人的账号、采集记录和冷静期带过来。</div>
+            <div><b>换电脑 / 给新员工装机</b>：每台电脑重新运行接入命令、本人登录。<b>不要</b>把别的电脑上的 <span className="mono">~/.hub-agent/credentials.json</span> 拷过去，否则两台电脑会变成同一个身份（应用自己的数据目录也不要拷，细节见「应用」页各应用的常见问题）。</div>
             <div><b>whoami 能用，但不能出图 / 查某些知识库</b>：这是岗位包没有授权，请管理员在「岗位包」页调整，调整后下一次调用立即生效。</div>
           </div>
         </Panel>

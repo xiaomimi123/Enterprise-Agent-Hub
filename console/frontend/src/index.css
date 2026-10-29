@@ -280,6 +280,7 @@ svg.lucide { width: 1.1em; height: 1.1em; stroke-width: 1.9; flex: none; vertica
 .pill.outline { background: transparent; border: 1px solid var(--line); color: var(--ink-2); }
 
 .tagset { display: flex; flex-wrap: wrap; gap: 4px; }
+.app-guide-list { margin: 0; padding-left: 20px; line-height: 1.8; }
 .token {
   display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px;
   background: var(--surface-3); color: var(--ink-2); font-size: 12px; white-space: nowrap;

@@ -131,3 +131,49 @@ def test_upgrade_args_are_read_and_default_to_empty(root):
     got = {a.id: a for a in apps.list_apps()}
     assert got["a"].upgrade_args == ["stop", "--for-upgrade"]
     assert got["b"].upgrade_args == []                     # 没声明就不自动升级，行为和以前一样
+
+
+# ---- guide.json：应用的接入说明 ----
+
+GOOD_GUIDE = {"summary": "给运营用的演示应用", "audience": ["运营"], "open": "双击桌面图标",
+              "employee_steps": [{"title": "登录", "body": "先登录一次"}], "admin_notes": ["注意额度"], "limits": ["只读"],
+              "faq": [{"q": "打不开？", "a": "重装"}], "docs": [{"title": "指南", "path": "docs/x.md"}], "evil": "未知键会被丢弃"}
+
+
+def write_guide(d, data):
+    (d / "guide.json").write_text(data if isinstance(data, str) else json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def test_guide_is_loaded_cleaned_and_exposed_on_the_app(root):
+    d = make_app(root)
+    write_guide(d, GOOD_GUIDE)
+    [a] = apps.list_apps()
+    assert a.guide["summary"] == "给运营用的演示应用" and a.guide["employee_steps"] == [{"title": "登录", "body": "先登录一次"}]
+    assert "evil" not in a.guide
+
+
+def test_app_without_guide_still_works(root):
+    make_app(root)
+    [a] = apps.list_apps()
+    assert a.guide is None
+
+
+def test_broken_guide_hides_the_guide_but_never_the_app(root):
+    bad = [
+        "{oops", [], {"summary": ""}, {**GOOD_GUIDE, "summary": "x" * 300}, {**GOOD_GUIDE, "audience": "运营"},
+        {**GOOD_GUIDE, "employee_steps": [{"title": "只有标题"}]}, {**GOOD_GUIDE, "faq": [{"q": "q", "a": 1}]},
+        {**GOOD_GUIDE, "limits": ["x"] * 13}, {**GOOD_GUIDE, "admin_notes": ["路径 Public\x07uth"]},   # 控制字符：JSON 里 \a 写错
+    ]
+    for i, g in enumerate(bad):
+        d = make_app(root, f"app{i}")
+        write_guide(d, g)
+    got = apps.list_apps()
+    assert len(got) == len(bad) and all(a.guide is None for a in got)
+
+
+def test_real_xhs_guide_in_repo_is_valid():
+    """入库的小红书应用说明必须是合法的：写坏了控制台就不显示它。"""
+    from pathlib import Path
+    f = Path(__file__).resolve().parents[3] / "apps" / "xhs-workbench" / "guide.json"
+    guide, bad = apps.check_guide(json.loads(f.read_text(encoding="utf-8")))
+    assert bad is None and len(guide["employee_steps"]) >= 4

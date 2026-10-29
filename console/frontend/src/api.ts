@@ -139,6 +139,18 @@ export interface Catalog {
   apps: { id: string; name: string; version: string }[]
 }
 
+/** 应用的接入说明（apps/<id>/guide.json），规范见 docs/app-integration-guide.md「接入说明」 */
+export interface AppGuide {
+  summary: string
+  audience: string[]
+  open: string
+  employee_steps: { title: string; body: string }[]
+  admin_notes: string[]
+  limits: string[]
+  faq: { q: string; a: string }[]
+  docs: { title: string; path: string }[]
+}
+
 export interface PublishedApp {
   id: string
   name: string
@@ -146,7 +158,9 @@ export interface PublishedApp {
   description: string
   sha256: string
   size: number
-  requires: Record<string, string>
+  requires: Record<string, string | string[]>
+  guide: AppGuide | null
+  auto_upgrade: boolean
   allowed_packs: { id: string; name: string }[]
   opens_7d: number
   last_open: string | null

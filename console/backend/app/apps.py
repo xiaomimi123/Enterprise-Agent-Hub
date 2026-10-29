@@ -46,6 +46,71 @@ def _check_requires(r: dict) -> str | None:
 LINK_TTL = 600  # 下载链接有效期（秒）
 
 
+# ---- 接入说明（apps/<id>/guide.json，可选）----
+# 控制台「应用」页按应用展示：给谁用、怎么打开、员工首次要做什么、管理员要知道什么、限制、常见问题。
+# 和 app.json 分开：改说明不用动版本号，也不用重新打包；guide.json 入库（见 .gitignore），说明的修改走代码评审。
+# 写错的 guide 只是不显示（应用照常能打开）：说明写坏了不能连累员工打开应用。
+_GUIDE_TEXT = {"summary": 200, "open": 400}
+_GUIDE_LISTS = {"audience": (10, 30), "admin_notes": (12, 500), "limits": (12, 400)}   # 键 -> (最多几条, 每条最多几字)
+_GUIDE_PAIRS = {"employee_steps": ("title", "body", 12, 40, 800), "faq": ("q", "a", 20, 160, 800), "docs": ("title", "path", 8, 60, 200)}
+
+
+def _has_control_chars(v) -> bool:
+    """文本里夹了控制字符（多半是 JSON 里的反斜杠转义写错了，如路径里的 auth 前面的反斜杠变成了响铃字符）：换行和制表除外"""
+    if isinstance(v, str):
+        return any(ord(c) < 32 and c not in (chr(10), chr(9)) for c in v)
+    if isinstance(v, list):
+        return any(_has_control_chars(x) for x in v)
+    if isinstance(v, dict):
+        return any(_has_control_chars(x) for x in v.values())
+    return False
+
+
+def check_guide(raw) -> tuple[dict | None, str | None]:
+    """校验并清洗 guide.json：返回 (清洗后的内容, 不合法的原因)。未知的键丢弃，所有文本只当纯文本显示。"""
+    if not isinstance(raw, dict):
+        return None, "guide.json 必须是一个 JSON 对象"
+    if _has_control_chars(raw):
+        return None, "文本里有控制字符（Windows 路径里的反斜杠在 JSON 里要写成两个，否则会变成不可见字符）"
+    out: dict = {}
+    for k, limit in _GUIDE_TEXT.items():
+        v = raw.get(k, "")
+        if not isinstance(v, str) or len(v) > limit:
+            return None, f"{k} 必须是不超过 {limit} 字的字符串"
+        out[k] = v.strip()
+    for k, (n, limit) in _GUIDE_LISTS.items():
+        v = raw.get(k, [])
+        if not isinstance(v, list) or len(v) > n or any(not isinstance(x, str) or not x.strip() or len(x) > limit for x in v):
+            return None, f"{k} 必须是最多 {n} 条、每条不超过 {limit} 字的非空字符串列表"
+        out[k] = [x.strip() for x in v]
+    for k, (a, b, n, la, lb) in _GUIDE_PAIRS.items():
+        v = raw.get(k, [])
+        if not isinstance(v, list) or len(v) > n:
+            return None, f"{k} 必须是最多 {n} 条的列表"
+        items = []
+        for x in v:
+            if not isinstance(x, dict) or not all(isinstance(x.get(f), str) and x.get(f).strip() for f in (a, b))                     or len(x[a]) > la or len(x[b]) > lb:
+                return None, f"{k} 每条都要有非空的 {a}（≤{la} 字）和 {b}（≤{lb} 字）"
+            items.append({a: x[a].strip(), b: x[b].strip()})
+        out[k] = items
+    if not out["summary"]:
+        return None, "summary（一句话说明这个应用给谁用、做什么）不能为空"
+    return out, None
+
+
+def load_guide(d: Path) -> dict | None:
+    f = d / "guide.json"
+    if not f.is_file():
+        return None
+    try:
+        guide, bad = check_guide(json.loads(f.read_text(encoding="utf-8-sig")))
+    except (OSError, ValueError) as e:
+        guide, bad = None, str(e)
+    if bad:
+        log.warning("应用 %s 的 guide.json 无效，说明不显示（应用照常可用）：%s", d.name, bad)
+    return guide
+
+
 @dataclass
 class App:
     id: str
@@ -59,6 +124,7 @@ class App:
     # 每次打开前先用新包入口跑一遍的命令（由应用自己判断要不要停掉正在运行的旧版本：旧且空闲才停，有任务在跑退出码 3）；空 = 不自动升级
     upgrade_args: list[str] = field(default_factory=list)
     zip_path: Path = Path()
+    guide: dict | None = None   # 接入说明（guide.json），没有或写错就是 None
 
 
 def _load(d: Path) -> App | None:
@@ -82,6 +148,7 @@ def _load(d: Path) -> App | None:
     if not a.zip_path.is_file():
         log.warning("应用 %s 缺少 %s，已跳过", a.id, a.zip_path.name)
         return None
+    a.guide = load_guide(d)
     return a
 
 

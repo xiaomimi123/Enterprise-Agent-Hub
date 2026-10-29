@@ -244,6 +244,7 @@ def list_published_apps():
         out.append({
             "id": a.id, "name": a.name, "version": a.version, "description": a.description,
             "sha256": apps.sha256_of(a.zip_path), "size": a.zip_path.stat().st_size, "requires": a.requires,
+            "guide": a.guide, "auto_upgrade": bool(a.upgrade_args),
             "allowed_packs": [{"id": p["id"], "name": p["name"]} for p in packs if a.id in (p.get("apps") or [])],
             "opens_7d": len(mine), "last_open": max((e["ts"] for e in mine), default=None),
         })

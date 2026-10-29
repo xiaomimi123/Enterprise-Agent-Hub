@@ -55,6 +55,10 @@ export default function Connect() {
   const quickCmd = quickOs === 'Windows'
     ? winCmd
     : macCmd
+  // 一键命令跑不起来时的备用：先把脚本另存为文件，再用 -File 运行（不经过 irm | iex）
+  const installUrl = `${d.hub_url}/api/agent/install.ps1`
+  const winFallback = `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -File "%USERPROFILE%\\Downloads\\install.ps1"`
+  const preflightCmd = `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/preflight.ps1 | iex"`
   const verifyPrompt = '请调用企业智能体中枢的 whoami，告诉我我是谁、在哪个部门、有哪些技能'
   const welcome = `你好，公司「企业智能体中枢」账号已开通：
 账号：${account.trim() || '<账号>'}
@@ -82,7 +86,12 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
     `6. 要用小红书运营工作台做对标采集：WorkBuddy →「设置 → 智能体 → 浏览器操控」打开「让 WorkBuddy 控制浏览器」，按提示在 Edge 里装扩展；再在 Edge 里登录你自己的小红书。然后双击桌面的工作台图标，在「连接与设置 → 执行 Agent 与浏览器」里把浏览器方式选成「WorkBuddy 浏览器插件」（新电脑默认没选，漏了采集会被拒）。采集的总开关默认是关的，由你自己在「竞品对标 → 采集状态」里打开。
 
 ` +
-    `注意：请自己在 Win+R（Mac 用终端）里运行，不要让 WorkBuddy 等 agent 代跑——agent 的沙箱会拦截安装步骤（iex、启动进程、写启动项等），而且它退出时会把它拉起的程序一起结束。`
+    `注意：请自己在 Win+R（Mac 用终端）里运行，不要让 WorkBuddy 等 agent 代跑——agent 的沙箱会拦截安装步骤（iex、启动进程、写启动项等），而且它退出时会把它拉起的程序一起结束。` +
+    (quickOs === 'Windows' ? `
+
+出问题怎么办：把【整个命令窗口】截图发给管理员（只出现「拒绝访问。」一行也一样，截图里能看到卡在哪一步）。
+命令跑不起来时的备用方法：先用浏览器打开 ${installUrl} ，另存为「下载」文件夹里的 install.ps1（保存类型选「所有文件」），再按 Win + R 粘贴这一行：
+${winFallback}` : '')
 
   const name = user.trim() || '<用户名>'
   const home = os === 'Windows' ? `C:\\Users\\${name}` : `/Users/${name}`
@@ -138,13 +147,24 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
             <div>③ 打开浏览器，用员工<b>本人</b>的账号登录；首次登录先改初始密码。</div>
             <div>④ 检测本机的 WorkBuddy、CodeBuddy CLI、Cursor、Claude 桌面版并写好配置（原配置先备份），岗位包允许的中枢模型一并写进 CodeBuddy。</div>
             <div>⑤ 把 HubApps 登记为 WorkBuddy、CodeBuddy 允许读写的目录（原配置先备份），并为岗位包里的应用在桌面和开始菜单建<b>带应用图标</b>的快捷方式：<b>双击打开应用</b>，agent 退出也不会把它带走。</div>
-            <div>⑥ 之后令牌自动续期、岗位包技能自动同步，接入器本身也会自动更新（0.5.8 起；更早装的电脑重新运行一次这条命令就会带上），不需要再操作；超过 7 天没用时重新运行一次。安装和打开应用出的错会自动回传到「应用健康」页。</div>
-            <div><b>以前装过的电脑怎么升级</b>：重新运行同一条命令即可，<b>不需要先卸载或清理</b>。底座按版本号比对、只在不同时更新（旧版里装在 Node 目录下的 CodeBuddy 会保留）；接入器重新下载；工作台下次打开自动更新；快捷方式重建并补上图标；工作台数据和 CodeBuddy 登录不受影响。只有一种情况要手工处理：以前在 agent 的技能目录里留下的工作台旧副本（安装输出会提示，删掉那个文件夹）。</div>
+            <div>⑥ 之后令牌自动续期、岗位包技能自动同步，接入器本身也会自动更新（0.5.8 起；更早装的电脑重新运行一次这条命令就会带上），不需要再操作；超过 7 天没用时重新运行一次。<b>工作台等应用的新版本，员工双击桌面图标就会自动升级</b>（见下）。安装和打开应用出的错会自动回传到「应用健康」页。</div>
+            <div><b>以前装过的电脑怎么升级</b>：分两部分，<b>不需要先卸载或清理</b>。① <b>接入器和底座</b>：重新运行同一条命令即可。底座按版本号比对、只在不同时更新（旧版里装在 Node 目录下的 CodeBuddy 会保留）；接入器重新下载；快捷方式重建并补上图标；工作台数据和 CodeBuddy 登录不受影响。② <b>工作台等应用</b>：<b>双击桌面图标就会自动升级</b>（接入器 0.5.11 起）——旧版本空闲才升级，有任务在跑时不会打断，会照常打开现有页面并提示「任务完成后再双击一次」。注意：<b>重新运行安装命令不会升级正在运行的工作台</b>；工作台网页（0.8.22 起）顶部也会显示「有新版本」，点「重启升级」同样可以。排查「员工看到的不是最新版」：看工作台「连接与设置 → 目录」里的版本。只有一种情况要手工处理：以前在 agent 的技能目录里留下的工作台旧副本（安装输出会提示，删掉那个文件夹）。</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
               <span className="muted">自己运行（Win+R 粘贴）的命令：</span>
               <Seg value={quickOs} onChange={setQuickOs} options={(['Windows', 'macOS'] as OS[]).map((v) => ({ value: v, label: v }))} />
             </div>
             <Code label={quickOs === 'Windows' ? 'PowerShell' : '终端'} text={quickCmd} />
+            {quickOs === 'Windows' && (
+              <>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  <span className="mono">-NoProfile</span>：不加载这台电脑上的 PowerShell 个人配置，避免被它干扰（曾有一台电脑因此只报「拒绝访问。」）；
+                  <span className="mono">-NoExit</span>：窗口不会一闪而过，报错能看到。
+                </div>
+                <Code label="命令跑不起来时的备用方法：先在浏览器里把下面的地址另存为「下载」文件夹里的 install.ps1（保存类型选「所有文件」），再运行第二行" text={`${installUrl}\n\n${winFallback}`} />
+                <Code label="只做自检、不安装（想先看看这台电脑能不能装）" text={preflightCmd} />
+                <div><b>出错先看哪里</b>：① 窗口里的 <span className="mono">[FAIL]</span> 和括号里的错误码，对照「员工电脑安装说明」的常见问题；② 只出现一行「拒绝访问。」、没有任何 <span className="mono">[PASS]</span>：先确认用的是上面带 <span className="mono">-NoProfile</span> 的命令，仍然不行就用备用方法；③ 其他红字：让员工把<b>整个窗口</b>截图发过来；④ 中枢访问日志里能看到这台电脑的请求有没有到达（User-Agent 含 WindowsPowerShell），装机错误码也会匿名回传到「应用健康」页。</div>
+              </>
+            )}
           </div>
         </Panel>
 

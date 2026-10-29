@@ -4,6 +4,16 @@
 
 > 约定：新条目加在最上面；日期用 `YYYY-MM-DD`；只写对后续开发有用的信息，别写流水账。
 
+## 2026-10-29（晚）
+
+**安装命令加 `-NoProfile`（一台电脑上粘贴命令只出现「拒绝访问。」）**
+- **现象**：员工在 cmd 里运行 `powershell -NoExit -ExecutionPolicy Bypass -c "irm …/install.ps1 | iex"`，只输出一行「拒绝访问。」，没有任何 `[PASS]`；该电脑没装第三方杀毒，其他几个人都正常
+- **排查**：中枢访问日志里这次失败**到过中枢**（`install.ps1` 200），但之后没有 `preflight.ps1` / `bundle/manifest.json` 请求，说明脚本刚开始执行就被拒；在那台电脑上 `powershell -NoProfile -Command "echo ok"`、`-ExecutionPolicy Bypass`、`irm` 下载、写临时目录、`Get-ExecutionPolicy -List`（CurrentUser=RemoteSigned）、FullLanguage 全部正常；换成 `powershell -NoProfile -Command "irm …/install.ps1 | iex"` 正常安装
+- **结论（没有完全确认）**：原命令和能用的命令差在「是否加载用户 PowerShell 配置文件」「`-NoExit`」「`-ExecutionPolicy Bypass`」，最可能是这台电脑的个人配置文件有问题；没跑 `powershell -Command "echo ok"`（会加载配置文件）去坐实
+- **改动**：标准安装命令统一改成 `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "…"`：控制台「接入方式」页（`Connect.tsx` 的安装命令和自检命令）、`agent/install.ps1` 和 `agent/preflight.ps1` 头部注释、`agent/README.md`、`docs/员工电脑安装说明.md`（另加一条「只出现『拒绝访问。』」常见问题）、`docs/测试流程-WorkBuddy浏览器插件.md`。保留 `-NoExit`（Win+R 运行时窗口不会一闪而过）；以后员工机上的个人配置文件（conda、美化插件等）都不会干扰安装
+- **验证**：在 Windows PowerShell 5.1 上用新命令跑 `HUB_INSTALL_DRYRUN=1`（隔离目录），自检全部 `[PASS]`、走到 `[5/5] [dry-run]` 正常结束；前端 `tsc -b` 通过、lint 只有原有警告；重建 `console-web`，页面打包产物含新命令，中枢下发的 `install.ps1` 头部是新命令
+- **没验证**：没有在出问题的那台电脑上用新的**完整**命令（带 `-NoExit -ExecutionPolicy Bypass`）再跑一次，只验证了去掉 `-NoExit`/`-ExecutionPolicy` 的版本能装；控制台页面没有登录后肉眼看过，只核对了打包产物里的字符串
+
 ## 2026-10-29
 
 **（同日续）双击桌面图标自动升级运行中的旧版本：工作台 0.8.23 + 接入器 0.5.11**

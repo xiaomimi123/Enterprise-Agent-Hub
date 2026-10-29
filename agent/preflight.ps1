@@ -1,6 +1,6 @@
 # Enterprise Agent Hub - pre-install check for Windows (read-only: it changes nothing on this computer).
 # Served by the hub at /api/agent/preflight.ps1 with the hub address and the Chinese texts filled in. Run it on its own:
-#   powershell -NoExit -ExecutionPolicy Bypass -c "irm http://<hub>:8088/api/agent/preflight.ps1 | iex"
+#   powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm http://<hub>:8088/api/agent/preflight.ps1 | iex"
 # install.ps1 runs it first and stops when something would make the install fail.
 # Output: one line per check (PASS / WARN / FAIL), a summary, and a JSON report in %TEMP%.
 # FAIL = the install would not work as it is. WARN = it works but something will not (or may not).

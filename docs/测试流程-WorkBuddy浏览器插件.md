@@ -42,7 +42,7 @@
 1. 同事按 Win+R，粘贴下面这一行，回车：
 
    ```
-   powershell -NoExit -ExecutionPolicy Bypass -c "irm http://192.168.0.41:8088/api/agent/install.ps1 | iex"
+   powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm http://192.168.0.41:8088/api/agent/install.ps1 | iex"
    ```
 
 2. 浏览器弹出登录页时，同事用自己的中枢账号登录（首次登录要改密码），回到命令窗口等它跑完。

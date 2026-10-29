@@ -69,7 +69,7 @@ ode`**，CodeBuddy CLI 装在里面，改安装逻辑先用「老布局」在隔
 - **新增上传文件的接口要用大于 1MB 的真实文件测**（nginx `client_max_body_size 50m`）。
 - **工作台采集**：只走 WorkBuddy 浏览器插件；节奏 / 额度在服务端检查；ego lite 只用一个任务空间；不做「更像真人」的反检测伪装。
 - **Windows**：控制台默认 GBK，脚本加 `PYTHONUTF8=1`；工作台启动子进程要 `windowsHide: true`；`.cmd` 里别写中文。
-- 员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦：首选让员工 Win+R 粘贴一行命令自己跑。
+- 员工让 WorkBuddy 等 agent 代跑安装会被沙箱拦：首选让员工 Win+R 粘贴一行命令自己跑；命令要带 `-NoProfile`（见 [docs/已知的坑.md](docs/已知的坑.md)）。
 
 ## 接入新应用
 

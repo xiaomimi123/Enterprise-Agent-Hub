@@ -50,7 +50,7 @@ export default function Connect() {
   if (!d) return <PageHeader title="接入方式" sub="加载中…" />
 
   // -NoExit：窗口不会一闪而过，出错信息能看到；Win+R 里直接粘贴就能跑，不经过任何 agent 沙箱
-  const winCmd = `powershell -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
+  const winCmd = `powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/install.ps1 | iex"`
   const macCmd = `curl -fsSL ${d.hub_url}/api/agent/install.sh | sh`
   const quickCmd = quickOs === 'Windows'
     ? winCmd
@@ -184,7 +184,7 @@ ${quickOs === 'Windows' ? winCmd : macCmd}
             <Code label="构建 / 升级底座包（在有外网的部署机上，仓库根目录）" text={['node tools/build-bundle/build.mjs            # 默认版本号见脚本', 'node tools/build-bundle/build.mjs --base 1.0.2   # 改了组件或接入器依赖就升版本号'].join('\n')} />
             <div className="muted">应用要求最低底座版本：应用的 <span className="mono">app.json</span> 里写 <span className="mono">requires.base_min</span>，员工机底座过旧时打开应用会提示重新运行安装命令（不拦打开）。</div>
             <div><b>安装前自检</b>：装之前只读检查员工电脑，有问题就停下并写明原因。失败的电脑没有登录，所以走匿名上报，错误码（<span className="mono">PREFLIGHT_*</span>）会出现在「应用健康」页，显示为「未登录设备 xxxxxx（安装前自检）」。单独运行：</div>
-            <Code label="只做自检、不安装（员工电脑 Win+R）" text={`powershell -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/preflight.ps1 | iex"`} />
+            <Code label="只做自检、不安装（员工电脑 Win+R）" text={`powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm ${d.hub_url}/api/agent/preflight.ps1 | iex"`} />
             <div className="muted">可用的环境变量（先设再运行安装命令）：<span className="mono">HUB_PREFLIGHT=skip</span> 跳过自检；<span className="mono">HUB_BUNDLE=off</span> 不用底座包（退回联网下载）；<span className="mono">HUB_NPM_REGISTRY</span> 换 npm 镜像；<span className="mono">HUB_INSTALL_TOOLS=yes</span> 不询问直接装 CodeBuddy。</div>
             <div className="muted">发版前的干净机器验收：Windows 沙盒 / 虚拟机里跑一遍安装命令，见仓库 <span className="mono">tools/clean-room/README.md</span>。</div>
           </div>

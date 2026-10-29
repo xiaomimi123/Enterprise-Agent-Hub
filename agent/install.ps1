@@ -1,7 +1,7 @@
 # Enterprise Agent Hub - one-command setup for Windows.
 # Served by the hub at /api/agent/install.ps1 with __HUB_URL__ filled in. Easiest way for an employee:
 #   press Win+R, paste the command below, press Enter (it runs in your own window, outside any agent sandbox):
-#   powershell -NoExit -ExecutionPolicy Bypass -c "irm http://<hub>:8088/api/agent/install.ps1 | iex"
+#   powershell -NoProfile -NoExit -ExecutionPolicy Bypass -c "irm http://<hub>:8088/api/agent/install.ps1 | iex"
 # An agent that is not allowed to run "irm | iex" can download this file and run it with:  powershell -ExecutionPolicy Bypass -File <file>
 #
 # Everything goes into one app root, %USERPROFILE%\HubApps (no admin rights, nothing outside your user folder):

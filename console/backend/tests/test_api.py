@@ -56,12 +56,18 @@ def test_install_scripts_carry_hub_url():
     assert client.get("/api/agent/install.bat").status_code == 404
 
 
-def test_agent_config_announces_connector_version():
-    """接入器靠 config 里的 agent_version 决定要不要自动更新自己：必须和挂载的脚本里的 VERSION 一致"""
+def test_agent_config_announces_connector_version(monkeypatch, tmp_path):
+    """接入器靠 config 里的 agent_version 决定要不要自动更新自己：必须和挂载的脚本里的 VERSION 一致
+    （没有灰度配置时；部署机上的 agent/rollout.json 不能影响这个测试，所以只复制脚本到临时目录）"""
+    import dataclasses
     import re
+    import shutil
     from pathlib import Path
 
     from app import agent_api
     from app.config import settings
+    shutil.copy2(Path(settings.agent_dir) / "hub_agent.py", tmp_path / "hub_agent.py")
+    monkeypatch.setattr(agent_api, "settings", dataclasses.replace(settings, agent_dir=str(tmp_path)))
+    settings = agent_api.settings
     declared = re.search(r'^VERSION = "([^"]+)"', (Path(settings.agent_dir) / "hub_agent.py").read_text(encoding="utf-8"), re.M).group(1)
     assert agent_api._agent_version() == declared and declared
